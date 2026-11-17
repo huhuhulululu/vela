@@ -124,21 +124,42 @@ public struct FeedStore: Equatable, Sendable {
         mergeAfterCurrent(page.rooms, order: order)
     }
 
+    /// 把主路写到可见列表里的这间。`nil` 表示这路空了。不在列表里的名字不改当前房间。
+    public mutating func select(_ username: String?) {
+        guard let username else {
+            currentUsername = nil
+            return
+        }
+        guard let match = rooms.first(where: { $0.username.lowercased() == username.lowercased() }) else {
+            return
+        }
+        currentUsername = match.username
+    }
+
     @discardableResult
     public mutating func step(_ delta: Int) -> Room? {
+        step(delta, skipping: [])
+    }
+
+    /// 沿可见列表移动 `delta` 间。`skipping` 里的房间不算落点：先按原来的夹紧公式落地，
+    /// 若落在这些房间上，就沿 delta 方向继续找；方向上没有别的房间就停在原地。
+    @discardableResult
+    public mutating func step(_ delta: Int, skipping: Set<String>) -> Room? {
         let list = rooms
         guard !list.isEmpty, delta != 0 else { return current }
-        let next = min(max(index + delta, 0), list.count - 1)
-        currentUsername = list[next].username
+        let landed = LanePaging.landingIndex(
+            from: index, delta: delta, names: list.map(\.username), skipping: skipping
+        )
+        currentUsername = list[landed].username
         return current
     }
 
     @discardableResult
     public mutating func focus(_ username: String) -> Bool {
-        guard let match = rooms.first(where: { $0.username.lowercased() == username.lowercased() }) else {
+        guard rooms.contains(where: { $0.username.lowercased() == username.lowercased() }) else {
             return false
         }
-        currentUsername = match.username
+        select(username)
         return true
     }
 
@@ -156,8 +177,13 @@ public struct FeedStore: Equatable, Sendable {
 
     /// 把指定房间挪到当前房间之后紧接着的位置（保持给定顺序）。只动当前之后的房间，当前及之前不变。
     public mutating func promoteAfterCurrent(_ usernames: [String]) {
-        guard let currentUsername,
-              let at = catalog.firstIndex(where: { $0.username == currentUsername }) else { return }
+        promoteAfter(anchor: currentUsername, usernames)
+    }
+
+    /// 把指定房间挪到 `anchor` 之后紧接着的位置。锚点及之前不动；锚点不在目录里则什么都不做。
+    public mutating func promoteAfter(anchor: String?, _ usernames: [String]) {
+        guard let anchor,
+              let at = catalog.firstIndex(where: { $0.username == anchor }) else { return }
         let tail = catalog[(at + 1)...]
         var taken = Set<String>()
         var moved: [Room] = []
@@ -235,10 +261,22 @@ public struct FeedStore: Equatable, Sendable {
 
     /// 可见列表为空但目录没到末尾时也要继续翻页，直到出现可见房间；`blankPages` 是已连续翻过的空页数。
     public func shouldLoadMore(threshold: Int = 8, blankPages: Int = 0) -> Bool {
+        shouldLoadMore(at: currentUsername, threshold: threshold, blankPages: blankPages)
+    }
+
+    /// 以可见列表里的 `username` 为锚判断要不要翻页。锚点缺失时与 `index` 一样回落到 0。
+    /// 列表为空时不看锚点，只看还没到末尾、并且连续空页没超过上限。
+    public func shouldLoadMore(at username: String?, threshold: Int = 8, blankPages: Int = 0) -> Bool {
         let list = rooms
         guard !reachedEnd else { return false }
         if list.isEmpty { return blankPages < Self.maxBlankPages }
-        return index >= list.count - threshold
+        let position: Int
+        if let username, let found = list.firstIndex(where: { $0.username == username }) {
+            position = found
+        } else {
+            position = 0
+        }
+        return position >= list.count - threshold
     }
 
     public func prefetchUsernames(ahead: Int = 1) -> [String] {

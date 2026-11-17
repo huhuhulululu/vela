@@ -49,6 +49,15 @@
 		7735524504BC008F6F40497E /* VelaApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VelaApp.swift; sourceTree = "<group>"; };
 		EE42CBE937AD0E08B79C6D94 /* WindowBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowBridge.swift; sourceTree = "<group>"; };
 		B6C2710BAE15BF34AD8D8064 /* CatalogAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogAPI.swift; sourceTree = "<group>"; };
+		6C6318BDB00A5C5629A5771D /* DisplayFit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayFit.swift; sourceTree = "<group>"; };
+		3B5557D6CBCE24FB261DDCF2 /* LaneCursor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneCursor.swift; sourceTree = "<group>"; };
+		E105A9BBD540FBADA3E55DE6 /* LaneSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneSelection.swift; sourceTree = "<group>"; };
+		8015B67F2FEA4F082C6E96B0 /* RoomTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomTarget.swift; sourceTree = "<group>"; };
+		AAF0875BDC7DECDE9CB2FD72 /* AudioTransition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioTransition.swift; sourceTree = "<group>"; };
+		02272C5A60C4F4A5D576924F /* LaneQuality.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneQuality.swift; sourceTree = "<group>"; };
+		855F7F46F047F54717D13227 /* LaneSettlement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneSettlement.swift; sourceTree = "<group>"; };
+		C541058AFE0AC80AD146EDBA /* LifecycleEpoch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LifecycleEpoch.swift; sourceTree = "<group>"; };
+		777EFF4FBADFF6F05037CA34 /* PhoneLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneLifecycle.swift; sourceTree = "<group>"; };
 		91C7787D7F9A6CEEF15836DC /* FeedStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedStore.swift; sourceTree = "<group>"; };
 		CAEC71EA4CE7DDD16ED71C33 /* HTTP.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTP.swift; sourceTree = "<group>"; };
 		1620C4EBECC91E93F7005537 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
@@ -161,6 +170,15 @@
 			isa = PBXGroup;
 			children = (
 				B6C2710BAE15BF34AD8D8064 /* CatalogAPI.swift */,
+				6C6318BDB00A5C5629A5771D /* DisplayFit.swift */,
+				3B5557D6CBCE24FB261DDCF2 /* LaneCursor.swift */,
+				E105A9BBD540FBADA3E55DE6 /* LaneSelection.swift */,
+				8015B67F2FEA4F082C6E96B0 /* RoomTarget.swift */,
+				AAF0875BDC7DECDE9CB2FD72 /* AudioTransition.swift */,
+				02272C5A60C4F4A5D576924F /* LaneQuality.swift */,
+				855F7F46F047F54717D13227 /* LaneSettlement.swift */,
+				C541058AFE0AC80AD146EDBA /* LifecycleEpoch.swift */,
+				777EFF4FBADFF6F05037CA34 /* PhoneLifecycle.swift */,
 				91C7787D7F9A6CEEF15836DC /* FeedStore.swift */,
 				CAEC71EA4CE7DDD16ED71C33 /* HTTP.swift */,
 				1620C4EBECC91E93F7005537 /* Models.swift */,
@@ -308,6 +326,15 @@
 				241E8CB03B6AF9016243BC62 /* VelaApp.swift in Sources */,
 				A2C7FF9A266162A6B30074EF /* WindowBridge.swift in Sources */,
 				DE9B6FBE3393A537C7B957DC /* CatalogAPI.swift in Sources */,
+				F93AFBB661CCD84277B4DE1A /* DisplayFit.swift in Sources */,
+				471DC7E777C5735C8F2F5353 /* LaneCursor.swift in Sources */,
+				8B8CBB25A5AC23CC2CB1C0A2 /* LaneSelection.swift in Sources */,
+				A3D4C5EBB898E9F4791F286D /* RoomTarget.swift in Sources */,
+				98BB3F8D58DA72871B3878CF /* AudioTransition.swift in Sources */,
+				7A8BAE74CA4FFB7936A1DED5 /* LaneQuality.swift in Sources */,
+				83F890E370544E916D4851D6 /* LaneSettlement.swift in Sources */,
+				A4350CE885603EA7234FABED /* LifecycleEpoch.swift in Sources */,
+				ED5B29BBDCF0458BDA3D11EE /* PhoneLifecycle.swift in Sources */,
 				FD7A3136EE15472455155A83 /* FeedStore.swift in Sources */,
 				0D6D10D33607ADE93CA8F6F1 /* HTTP.swift in Sources */,
 				0787FA0AE9284C221B28B376 /* Models.swift in Sources */,
@@ -416,6 +443,15 @@
 		241E8CB03B6AF9016243BC62 /* VelaApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7735524504BC008F6F40497E /* VelaApp.swift */; };
 		A2C7FF9A266162A6B30074EF /* WindowBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE42CBE937AD0E08B79C6D94 /* WindowBridge.swift */; };
 		DE9B6FBE3393A537C7B957DC /* CatalogAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6C2710BAE15BF34AD8D8064 /* CatalogAPI.swift */; };
+		F93AFBB661CCD84277B4DE1A /* DisplayFit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C6318BDB00A5C5629A5771D /* DisplayFit.swift */; };
+		471DC7E777C5735C8F2F5353 /* LaneCursor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B5557D6CBCE24FB261DDCF2 /* LaneCursor.swift */; };
+		8B8CBB25A5AC23CC2CB1C0A2 /* LaneSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = E105A9BBD540FBADA3E55DE6 /* LaneSelection.swift */; };
+		A3D4C5EBB898E9F4791F286D /* RoomTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8015B67F2FEA4F082C6E96B0 /* RoomTarget.swift */; };
+		98BB3F8D58DA72871B3878CF /* AudioTransition.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAF0875BDC7DECDE9CB2FD72 /* AudioTransition.swift */; };
+		7A8BAE74CA4FFB7936A1DED5 /* LaneQuality.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02272C5A60C4F4A5D576924F /* LaneQuality.swift */; };
+		83F890E370544E916D4851D6 /* LaneSettlement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 855F7F46F047F54717D13227 /* LaneSettlement.swift */; };
+		A4350CE885603EA7234FABED /* LifecycleEpoch.swift in Sources */ = {isa = PBXBuildFile; fileRef = C541058AFE0AC80AD146EDBA /* LifecycleEpoch.swift */; };
+		ED5B29BBDCF0458BDA3D11EE /* PhoneLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 777EFF4FBADFF6F05037CA34 /* PhoneLifecycle.swift */; };
 		FD7A3136EE15472455155A83 /* FeedStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91C7787D7F9A6CEEF15836DC /* FeedStore.swift */; };
 		0D6D10D33607ADE93CA8F6F1 /* HTTP.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAEC71EA4CE7DDD16ED71C33 /* HTTP.swift */; };
 		0787FA0AE9284C221B28B376 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1620C4EBECC91E93F7005537 /* Models.swift */; };
