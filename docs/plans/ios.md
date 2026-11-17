@@ -741,3 +741,5 @@ Ready for execution
 新增验收：
 - **S14**：macOS 与 iOS 都能进入、退出画中画；画中画中画面保持原始比例（裁决 5 同样适用）；默认静音；iOS 回桌面自动进入（开关可关）；mac 老板键/锁屏关闭画中画并停播；mac 最小化或遮挡时画中画继续。
 - **S15**：画中画期间只有一路在解码和联网；无画中画时进后台 5 秒内网络与 CPU 归零（原 S7 后台项不变）；画中画时 iOS 静音不打断他人音乐（日志核对会话类别与选项）。
+
+**A2 接线要求（T6b 验收后追加，T13 / T15b 必须落实）**：`LifecycleEpoch` 目前是全局挂起，无法「只放行画中画那一路」。实现 `allowLaneRequests` 时须二选一：给 `LifecycleEpoch` 加按路放行（`Token` 带路标识，`allows` 对 `beforeRequest`、`beforeRelayRegister`、`beforeRelayStart` 仅放行指定路），或共享任务与画中画路各用独立 epoch。验收加测试：画中画期间共享任务（目录、搜索、收藏查询、侧车、缩略图）的 token 被拒，画中画路的 token 通过。
