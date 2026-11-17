@@ -129,11 +129,13 @@ extension StageModel {
     }
 
     /// 本地中继的端口没绑好时短暂等监听就绪：低延迟主列表直接交给 AVPlayer 会卡住甚至不起播。
-    /// 返回 true 才可起播；失败时已提示并停播，期间被取代则静默返回 false。
+    /// 返回 true 才可起播；失败时已提示并停播，期间被取代或中继被挂起则静默返回 false。
     private func relayReady(token: Int) async -> Bool {
         let listening = await PlaylistRelay.shared.waitUntilListening()
         guard token == playGeneration, !Task.isCancelled else { return false }
         guard listening else {
+            // 中继被挂起（不允许起监听）时不是故障：静默放弃，恢复后由生命周期重新起播。macOS 恒允许，不会走到这里。
+            guard PlaylistRelay.shared.allowStart else { return false }
             player.stop()
             playbackNote = "本地中继没能启动，暂时无法播放"
             chromeVisible = true
