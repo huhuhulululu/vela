@@ -1,9 +1,22 @@
 import Foundation
 
 /// 音频会话类别。对应系统的 ambient / playback，Core 不引用 AVFoundation。
+/// 修订 A2 之后静音不再用 `.ambient`。枚举留着，避免把已经放弃的类别写没；新代码不要再选它。
 public enum AudioSessionCategory: Equatable, Sendable {
     case ambient
     case playback
+}
+
+/// 会话选项。对应系统的 category options，Core 不引用 AVFoundation。
+public struct AudioSessionOptions: OptionSet, Equatable, Sendable {
+    public let rawValue: UInt
+
+    public init(rawValue: UInt) {
+        self.rawValue = rawValue
+    }
+
+    /// 与其他 App 混音，不打断对方。静音（含静音画中画）使用。
+    public static let mixWithOthers = AudioSessionOptions(rawValue: 1 << 0)
 }
 
 /// 出声时附加的会话模式。
@@ -24,18 +37,31 @@ public enum AudioSessionPolicy {
     public struct Configuration: Equatable, Sendable {
         public var category: AudioSessionCategory
         public var mode: AudioSessionMode?
+        public var options: AudioSessionOptions
 
-        public init(category: AudioSessionCategory, mode: AudioSessionMode?) {
+        public init(
+            category: AudioSessionCategory,
+            mode: AudioSessionMode?,
+            options: AudioSessionOptions = []
+        ) {
             self.category = category
             self.mode = mode
+            self.options = options
         }
     }
 
-    /// 静音用 `.ambient`；出声用 `.playback` 加 `.moviePlayback`。
+    /// 出声：`.playback` 加 `.moviePlayback`，不混音。
+    /// 静音：同样是 `.playback` 加 `.moviePlayback`（画中画要求播放类别），选项 `.mixWithOthers`。
+    /// 修订 A2 用这组替换原来的「静音用 `.ambient`」。
     public static func configuration(audible: Bool) -> Configuration {
         audible
-            ? Configuration(category: .playback, mode: .moviePlayback)
-            : Configuration(category: .ambient, mode: nil)
+            ? Configuration(category: .playback, mode: .moviePlayback, options: [])
+            : Configuration(category: .playback, mode: .moviePlayback, options: .mixWithOthers)
+    }
+
+    /// 再静音时画中画仍在播：保持会话活跃，只把选项换成混音。否则要停用并通知对方恢复。
+    public static func keepsSessionActiveWhenMuting(pictureInPicturePlaying: Bool) -> Bool {
+        pictureInPicturePlaying
     }
 
     public enum DeactivationReason: Equatable, Sendable {
@@ -45,6 +71,7 @@ public enum AudioSessionPolicy {
     }
 
     /// 再静音、进后台、最后一路停播都要 `setActive(false, .notifyOthersOnDeactivation)`。
+    /// 画中画仍在播时的再静音不走这里，见 `keepsSessionActiveWhenMuting`。
     public static func deactivatesNotifyingOthers(on reason: DeactivationReason) -> Bool {
         switch reason {
         case .mute, .background, .lastLaneStopped:
@@ -86,6 +113,8 @@ public enum AudioTransitionStep: Equatable, Sendable {
     case muteLane(PlaybackLaneRole)
     case muteAllLanes
     case setCategory(AudioSessionCategory, mode: AudioSessionMode?)
+    /// 非空的会话选项。静音是 `.mixWithOthers`。出声不混音，不发这一步。
+    case setSessionOptions(AudioSessionOptions)
     case setActive(Bool, notifyOthersOnDeactivation: Bool)
     case unmuteLane(PlaybackLaneRole)
 }
@@ -115,6 +144,8 @@ public struct AudioTransitionPlan: Equatable, Sendable {
     public var resumesAudible: Bool
     /// 这次计划想变成出声。只有这时，类别或激活失败才要改写成「保持静音且不写设置」。
     public var attemptsAudible: Bool
+    /// 为真表示这次不要 `setActive(false)`。再静音且画中画仍在播时，只切换选项。
+    public var keepsSessionActive: Bool
 
     public init(
         steps: [AudioTransitionStep],
@@ -126,7 +157,8 @@ public struct AudioTransitionPlan: Equatable, Sendable {
         pausesPlayback: Bool,
         ignored: Bool,
         resumesAudible: Bool,
-        attemptsAudible: Bool
+        attemptsAudible: Bool,
+        keepsSessionActive: Bool = false
     ) {
         self.steps = steps
         self.audibleLane = audibleLane
@@ -138,6 +170,7 @@ public struct AudioTransitionPlan: Equatable, Sendable {
         self.ignored = ignored
         self.resumesAudible = resumesAudible
         self.attemptsAudible = attemptsAudible
+        self.keepsSessionActive = keepsSessionActive
     }
 }
 
@@ -147,18 +180,23 @@ public enum AudioTransition {
         intent: AudioIntent,
         focus: PlaybackLaneRole,
         currentlyAudible: PlaybackLaneRole?,
-        lanes: [PlaybackLaneRole]
+        lanes: [PlaybackLaneRole],
+        pictureInPictureActive: Bool = false
     ) -> AudioTransitionPlan {
         let detach = lanes.filter { $0 != focus }
         switch intent {
         case .unmute(let lane):
             return unmute(lane, focus: focus, currentlyAudible: currentlyAudible, detach: detach)
         case .deactivate(let reason):
+            let keepSession = reason == .mute && AudioSessionPolicy.keepsSessionActiveWhenMuting(
+                pictureInPicturePlaying: pictureInPictureActive
+            )
             return silence(
                 detach: detach,
                 notifyOthers: AudioSessionPolicy.deactivatesNotifyingOthers(on: reason),
                 writesSettings: reason == .mute,
-                pausesPlayback: false
+                pausesPlayback: false,
+                keepSessionActive: keepSession
             )
         case .interruptionBegan(let wasSuspended):
             if AudioSessionPolicy.ignoresInterruptionBegan(wasSuspended: wasSuspended) {
@@ -269,15 +307,22 @@ public enum AudioTransition {
         detach: [PlaybackLaneRole],
         notifyOthers: Bool,
         writesSettings: Bool,
-        pausesPlayback: Bool
+        pausesPlayback: Bool,
+        keepSessionActive: Bool = false
     ) -> AudioTransitionPlan {
         let quiet = AudioSessionPolicy.configuration(audible: false)
+        var steps: [AudioTransitionStep] = [
+            .muteAllLanes,
+            .setCategory(quiet.category, mode: quiet.mode)
+        ]
+        if !quiet.options.isEmpty {
+            steps.append(.setSessionOptions(quiet.options))
+        }
+        if !keepSessionActive {
+            steps.append(.setActive(false, notifyOthersOnDeactivation: notifyOthers))
+        }
         return AudioTransitionPlan(
-            steps: [
-                .muteAllLanes,
-                .setCategory(quiet.category, mode: quiet.mode),
-                .setActive(false, notifyOthersOnDeactivation: notifyOthers)
-            ],
+            steps: steps,
             audibleLane: nil,
             preservesAudibleLane: false,
             detachAudio: detach,
@@ -286,7 +331,8 @@ public enum AudioTransition {
             pausesPlayback: pausesPlayback,
             ignored: false,
             resumesAudible: false,
-            attemptsAudible: false
+            attemptsAudible: false,
+            keepsSessionActive: keepSessionActive
         )
     }
 
