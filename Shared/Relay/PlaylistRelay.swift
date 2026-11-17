@@ -1,6 +1,10 @@
+#if canImport(Network)
 import Foundation
 import Network
 import os
+#if SWIFT_PACKAGE
+import VelaCore
+#endif
 
 /// Serves normal, absolute HLS playlists on localhost. AVPlayer loads `/<id>/master.m3u8`.
 /// The relay selects one rung at start (one master fetch; the master URL expires in ~30 s while the
@@ -531,3 +535,4 @@ final class PlaylistRelay: @unchecked Sendable {
         })
     }
 }
+#endif

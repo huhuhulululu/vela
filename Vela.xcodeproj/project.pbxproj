@@ -119,6 +119,7 @@
 			children = (
 				3C3B0F03DC089F93B8457928 /* App */,
 				B0B8C84E77856132D5681A59 /* VelaCore */,
+				A1F0C0DE00000000000000B1 /* Shared */,
 				615B463D1028E4E24B674CF7 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -132,7 +133,6 @@
 				7C1E5A90D3B24F68A0C4E9F1 /* LegacyLoginCleanup.swift */,
 				EEB3D6A4344AB3FB046E2F4A /* PagerView.swift */,
 				CCDD17465E271C88F8DBBFF6 /* PlayerController.swift */,
-				A1F0C0DE0000000000000021 /* PlaylistRelay.swift */,
 				7E5C365F757ED6FB588C8BB5 /* RoomCanvas.swift */,
 				533213F0A3E79556DF74A5C5 /* SettingsStore.swift */,
 				B68366DD57558CF66AFF6305 /* SiteSidecar.swift */,
@@ -235,6 +235,22 @@
 			);
 			name = VelaCore;
 			path = Sources/VelaCore;
+			sourceTree = "<group>";
+		};
+		A1F0C0DE00000000000000B1 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				A1F0C0DE00000000000000B2 /* Relay */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		A1F0C0DE00000000000000B2 /* Relay */ = {
+			isa = PBXGroup;
+			children = (
+				A1F0C0DE0000000000000021 /* PlaylistRelay.swift */,
+			);
+			path = Relay;
 			sourceTree = "<group>";
 		};
 		615B463D1028E4E24B674CF7 /* Products */ = {
