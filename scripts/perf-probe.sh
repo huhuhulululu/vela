@@ -2,6 +2,7 @@
 # Vela 本机性能探针：后台静音播放一段时间，周期采样 CPU / 内存 / 唤醒 / 子进程，输出一行 JSON。
 # 用法：scripts/perf-probe.sh [--duration 秒] [--app 路径] [--build] [--scenario play|idle] [--idle-method lock|hide]
 # 兼容 macOS 自带 bash 3.2。依赖：log、top、ps、footprint、nettop、python3（查 responsible pid、解析 nettop、投递通知）。
+# 退出码：起播超时、idle 跳过、采样期间进程退出、samples=0、指标缺失或 NaN 一律非 0（结果 JSON 仍会写出）。
 # idle 场景：先正常起播，再用 --idle-method 让 App 进入非播放态，等 10 秒后才开始采样。
 #   lock（默认）：投递分布式通知 com.apple.screenIsLocked，走 SystemActivity -> PlaybackPolicy.systemInactive，
 #                 不碰窗口、不需任何权限；结束前投递 screenIsUnlocked。
@@ -17,7 +18,8 @@ INTERVAL=5
 SCENARIO=play
 IDLE_METHOD=lock
 IDLE_SETTLE=10
-PLAY_TIMEOUT=120
+PLAY_TIMEOUT=${PLAY_TIMEOUT:-120}   # 可用环境变量覆盖；起播超时即判失败（退出码 1）
+FINAL_RC=0
 OUT_JSON=/tmp/vela-perf-result.json
 WORK=$(mktemp -d /tmp/vela-perf-work.XXXXXX)
 
@@ -193,8 +195,9 @@ while :; do
     alive "$APP_PID" || { echo "App 提前退出" >&2; exit 1; }
     el=$(perl -e 'printf "%d", $ARGV[0]-$ARGV[1]' "$(now)" "$T0")
     if [ "$el" -ge "$PLAY_TIMEOUT" ]; then
-        echo "WARN: ${PLAY_TIMEOUT} 秒内未见开始播放日志，继续采样（startup_to_play_s=-1）" >&2
-        break
+        echo "失败：${PLAY_TIMEOUT} 秒内未见开始播放日志（startup_to_play_s=-1）" >&2
+        echo '{"error":"play timeout","startup_to_play_s":-1,"samples":0}' >"$OUT_JSON"; cat "$OUT_JSON"
+        exit 1
     fi
     sleep 0.5
 done
@@ -203,11 +206,11 @@ sleep 5   # 让首帧后的瞬态过去
 
 if [ "$SCENARIO" = idle ]; then
     if [ "$IDLE_METHOD" = lock ]; then
-        post_note com.apple.screenIsLocked || { echo "投递通知失败，跳过 idle" >&2; echo '{"scenario":"idle","skipped":"post notification failed"}' >"$OUT_JSON"; cat "$OUT_JSON"; exit 0; }
+        post_note com.apple.screenIsLocked || { echo "投递通知失败，跳过 idle" >&2; echo '{"scenario":"idle","skipped":"post notification failed"}' >"$OUT_JSON"; cat "$OUT_JSON"; exit 1; }
     else
         if ! err=$(osascript -e 'tell application "System Events" to set visible of process "'"$BIN"'" to false' 2>&1); then
             echo "osascript 失败（多半缺辅助功能 / 自动化授权），跳过 idle: ${err}" >&2
-            echo '{"scenario":"idle","skipped":"osascript not permitted"}' >"$OUT_JSON"; cat "$OUT_JSON"; exit 0
+            echo '{"scenario":"idle","skipped":"osascript not permitted"}' >"$OUT_JSON"; cat "$OUT_JSON"; exit 1
         fi
     fi
     IDLE_ENTERED=1
@@ -229,7 +232,7 @@ ni=0
 while :; do
     t_loop=$(now)
     if [ "$(perl -e 'print $ARGV[0] >= $ARGV[1] ? 1 : 0' "$t_loop" "$END")" = 1 ]; then break; fi
-    alive "$APP_PID" || { echo "采样中 App 退出" >&2; break; }
+    alive "$APP_PID" || { echo "失败：采样中 App 退出" >&2; FINAL_RC=1; break; }
 
     PSF="$WORK/ps.txt"
     ps -axo pid=,ppid=,rss=,command= >"$PSF"
@@ -283,7 +286,8 @@ WIN="$WORK/window.log"
 sed -n "$((L0 + 1)),${L1}p" "$LOGF" >"$WIN"
 ELAPSED=$(perl -e 'printf "%.1f", $ARGV[0]-$ARGV[1]' "$TE" "$TS")
 
-ISSUES=$(grep -c 'Publishing changes from within view updates' "$WIN")
+# runtime_issues：SwiftUI 视图更新期发布 / 修改状态、AttributeGraph 环，以及 com.vela.stage 的 fault 级日志（compact 样式里级别列为 F）
+ISSUES=$(grep -cE 'Publishing changes from within view updates|Modifying state during view update|AttributeGraph: cycle|^[^ ]+ [^ ]+ F +.*\[com\.vela\.stage' "$WIN")
 LOGLINES=$(grep -c . "$WIN")
 # 中继日志里可数的只有 renew（URL 过期后的换票）；清单抓取本身只在慢 / 失败时才记，无法按次数统计
 RENEWS=$(grep -cE '\[com\.vela\.stage:relay\] renew (ok|failed)' "$WIN")
@@ -370,3 +374,6 @@ JSON="${JSON},\"scenario\":\"${SCENARIO}\",\"idle_method\":\"$([ "$SCENARIO" = i
 
 echo "$JSON" >"$OUT_JSON"
 echo "$JSON"
+# 结果自检：samples=0、起播 -1、指标缺失或 NaN 都不合格
+if ! python3 -I "$ROOT/scripts/perf_gate.py" --validate "$OUT_JSON" >&2; then FINAL_RC=1; fi
+exit "$FINAL_RC"
