@@ -54,6 +54,7 @@
 		E105A9BBD540FBADA3E55DE6 /* LaneSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneSelection.swift; sourceTree = "<group>"; };
 		8015B67F2FEA4F082C6E96B0 /* RoomTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomTarget.swift; sourceTree = "<group>"; };
 		AAF0875BDC7DECDE9CB2FD72 /* AudioTransition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioTransition.swift; sourceTree = "<group>"; };
+		77CC74339DCDCD80A583929F /* PiPPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PiPPolicy.swift; sourceTree = "<group>"; };
 		02272C5A60C4F4A5D576924F /* LaneQuality.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneQuality.swift; sourceTree = "<group>"; };
 		855F7F46F047F54717D13227 /* LaneSettlement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneSettlement.swift; sourceTree = "<group>"; };
 		C541058AFE0AC80AD146EDBA /* LifecycleEpoch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LifecycleEpoch.swift; sourceTree = "<group>"; };
@@ -177,6 +178,7 @@
 				E105A9BBD540FBADA3E55DE6 /* LaneSelection.swift */,
 				8015B67F2FEA4F082C6E96B0 /* RoomTarget.swift */,
 				AAF0875BDC7DECDE9CB2FD72 /* AudioTransition.swift */,
+				77CC74339DCDCD80A583929F /* PiPPolicy.swift */,
 				02272C5A60C4F4A5D576924F /* LaneQuality.swift */,
 				855F7F46F047F54717D13227 /* LaneSettlement.swift */,
 				C541058AFE0AC80AD146EDBA /* LifecycleEpoch.swift */,
@@ -335,6 +337,7 @@
 				8B8CBB25A5AC23CC2CB1C0A2 /* LaneSelection.swift in Sources */,
 				A3D4C5EBB898E9F4791F286D /* RoomTarget.swift in Sources */,
 				98BB3F8D58DA72871B3878CF /* AudioTransition.swift in Sources */,
+				D21A7DF0782599207F089E4D /* PiPPolicy.swift in Sources */,
 				7A8BAE74CA4FFB7936A1DED5 /* LaneQuality.swift in Sources */,
 				83F890E370544E916D4851D6 /* LaneSettlement.swift in Sources */,
 				A4350CE885603EA7234FABED /* LifecycleEpoch.swift in Sources */,
@@ -454,6 +457,7 @@
 		8B8CBB25A5AC23CC2CB1C0A2 /* LaneSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = E105A9BBD540FBADA3E55DE6 /* LaneSelection.swift */; };
 		A3D4C5EBB898E9F4791F286D /* RoomTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8015B67F2FEA4F082C6E96B0 /* RoomTarget.swift */; };
 		98BB3F8D58DA72871B3878CF /* AudioTransition.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAF0875BDC7DECDE9CB2FD72 /* AudioTransition.swift */; };
+		D21A7DF0782599207F089E4D /* PiPPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77CC74339DCDCD80A583929F /* PiPPolicy.swift */; };
 		7A8BAE74CA4FFB7936A1DED5 /* LaneQuality.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02272C5A60C4F4A5D576924F /* LaneQuality.swift */; };
 		83F890E370544E916D4851D6 /* LaneSettlement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 855F7F46F047F54717D13227 /* LaneSettlement.swift */; };
 		A4350CE885603EA7234FABED /* LifecycleEpoch.swift in Sources */ = {isa = PBXBuildFile; fileRef = C541058AFE0AC80AD146EDBA /* LifecycleEpoch.swift */; };
