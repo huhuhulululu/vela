@@ -102,6 +102,8 @@
 		0E09A0A00000000000000F01 /* AwayRetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AwayRetry.swift; sourceTree = "<group>"; };
 		7C1E5A90D3B24F68A0C4E9F7 /* FavoriteStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FavoriteStatus.swift; sourceTree = "<group>"; };
 		AB11C0DE0100000000000F01 /* ChallengeGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChallengeGate.swift; sourceTree = "<group>"; };
+		AB14C0DE0100000000000F02 /* RelaySourceTable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelaySourceTable.swift; sourceTree = "<group>"; };
+		AB14C0DE0100000000000F01 /* PlaybackFailureClassifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackFailureClassifier.swift; sourceTree = "<group>"; };
 		AB11C0DE0100000000000F02 /* PreferenceQuarantine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferenceQuarantine.swift; sourceTree = "<group>"; };
 		A1WATCH0000000000000001 /* WatchLedger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchLedger.swift; sourceTree = "<group>"; };
 		B1A55E1F00000000000000A1 /* AssignIf.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssignIf.swift; sourceTree = "<group>"; };
@@ -228,6 +230,8 @@
 				AB1257F392515A0C52EC5566 /* WindowDragPolicy.swift */,
 				AB11C0DE0100000000000F02 /* PreferenceQuarantine.swift */,
 				AB11C0DE0100000000000F01 /* ChallengeGate.swift */,
+				AB14C0DE0100000000000F02 /* RelaySourceTable.swift */,
+				AB14C0DE0100000000000F01 /* PlaybackFailureClassifier.swift */,
 			);
 			name = VelaCore;
 			path = Sources/VelaCore;
@@ -396,6 +400,8 @@
 				A1WATCH0000000000000002 /* WatchLedger.swift in Sources */,
 				AB11C0DE0100000000000B02 /* PreferenceQuarantine.swift in Sources */,
 				AB11C0DE0100000000000B01 /* ChallengeGate.swift in Sources */,
+				AB14C0DE0100000000000B02 /* RelaySourceTable.swift in Sources */,
+				AB14C0DE0100000000000B01 /* PlaybackFailureClassifier.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -497,6 +503,8 @@
 		0E09A0A00000000000000B01 /* AwayRetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E09A0A00000000000000F01 /* AwayRetry.swift */; };
 		7C1E5A90D3B24F68A0C4E9F8 /* FavoriteStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C1E5A90D3B24F68A0C4E9F7 /* FavoriteStatus.swift */; };
 		AB11C0DE0100000000000B01 /* ChallengeGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB11C0DE0100000000000F01 /* ChallengeGate.swift */; };
+		AB14C0DE0100000000000B02 /* RelaySourceTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB14C0DE0100000000000F02 /* RelaySourceTable.swift */; };
+		AB14C0DE0100000000000B01 /* PlaybackFailureClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB14C0DE0100000000000F01 /* PlaybackFailureClassifier.swift */; };
 		AB11C0DE0100000000000B02 /* PreferenceQuarantine.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB11C0DE0100000000000F02 /* PreferenceQuarantine.swift */; };
 		A1WATCH0000000000000002 /* WatchLedger.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1WATCH0000000000000001 /* WatchLedger.swift */; };
 /* End PBXBuildFile section */
