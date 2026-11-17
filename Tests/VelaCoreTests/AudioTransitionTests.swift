@@ -92,7 +92,8 @@ final class AudioTransitionTests: XCTestCase {
         XCTAssertFalse(unplug.preservesAudibleLane)
         XCTAssertEqual(unplug.steps, [
             .muteAllLanes,
-            .setCategory(.ambient, mode: nil),
+            .setCategory(.playback, mode: .moviePlayback),
+            .setSessionOptions(.mixWithOthers),
             .setActive(false, notifyOthersOnDeactivation: true)
         ])
         XCTAssertTrue(unplug.writesSettings)
@@ -121,7 +122,8 @@ final class AudioTransitionTests: XCTestCase {
             let planned = plan(.deactivate(reason), audible: .primary)
             XCTAssertEqual(planned.steps, [
                 .muteAllLanes,
-                .setCategory(.ambient, mode: nil),
+                .setCategory(.playback, mode: .moviePlayback),
+                .setSessionOptions(.mixWithOthers),
                 .setActive(false, notifyOthersOnDeactivation: true)
             ])
             XCTAssertNil(planned.audibleLane)
@@ -130,7 +132,7 @@ final class AudioTransitionTests: XCTestCase {
         }
         XCTAssertEqual(
             AudioSessionPolicy.configuration(audible: false),
-            AudioSessionPolicy.Configuration(category: .ambient, mode: nil)
+            AudioSessionPolicy.Configuration(category: .playback, mode: .moviePlayback, options: .mixWithOthers)
         )
         let nonFocus = plan(.unmute(.secondary), audible: .primary, focus: .primary)
         XCTAssertEqual(nonFocus.detachAudio, [.secondary])
