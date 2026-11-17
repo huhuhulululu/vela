@@ -1,0 +1,9 @@
+.build/
+.swiftpm/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+.DS_Store
+
+# 本地签名配置（团队 ID 等），不入库
+Config/Local.xcconfig

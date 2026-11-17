@@ -1,0 +1,23 @@
+name: macOS
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  vela:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Logic tests
+        run: swift test
+      - name: Build app
+        run: >
+          xcodebuild
+          -project Vela.xcodeproj
+          -scheme Vela
+          -destination 'platform=macOS'
+          -configuration Debug
+          CODE_SIGN_IDENTITY=-
+          CODE_SIGNING_ALLOWED=NO
+          build
