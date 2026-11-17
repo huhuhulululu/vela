@@ -1,0 +1,71 @@
+import Foundation
+
+/// 把播放失败分成房间重试、双窗资源降级，或不可恢复。
+///
+/// 资源降级会释放副路、且不消耗这间房的重试预算。单窗和主路没有「可以牺牲的另一路」，
+/// 所以永远不会判成资源降级。损坏码流、解码失败、找不到解码器都按房间失败，避免把码流问题误判成双窗不可用。
+public enum PlaybackFailureClassifier {
+    public enum Outcome: Equatable, Sendable {
+        /// 这间房播失败了，消耗重试预算。
+        case roomRetry
+        /// 双窗的副路因解码器资源不足失败，不消耗重试预算。
+        case resourceDegrade
+        /// 重试这间房没有用，也不是双窗解码器不够。
+        /// 目前没有这样的码：白名单以外一律按房间重试，避免把未知错误当成不可恢复。
+        case fatal
+    }
+
+    /// 失败发生时的现场。
+    public struct Context: Equatable, Sendable {
+        /// 正在双窗。单窗为 false。
+        public var isDualWindow: Bool
+        /// 失败的是副路。主路为 false。
+        public var isSecondary: Bool
+        /// 另一路此刻是否在播。调用方带着现场传入；当前不据此改判。
+        public var otherIsPlaying: Bool
+        /// 这一路是否已经出过画面。调用方带着现场传入；当前不据此改判。
+        public var hasPlayed: Bool
+
+        public init(isDualWindow: Bool, isSecondary: Bool, otherIsPlaying: Bool, hasPlayed: Bool) {
+            self.isDualWindow = isDualWindow
+            self.isSecondary = isSecondary
+            self.otherIsPlaying = otherIsPlaying
+            self.hasPlayed = hasPlayed
+        }
+    }
+
+    /// `AVError.h` 里 `NS_ERROR_ENUM(AVFoundationErrorDomain, AVError)` 的 domain 字符串。
+    public static let avFoundationErrorDomain = "AVFoundationErrorDomain"
+
+    /// `AVErrorDecoderTemporarilyUnavailable`。
+    /// 数值来源：Apple AVFoundation 公开头文件 `AVError.h`，
+    /// `AVErrorDecoderTemporarilyUnavailable = -11839`。
+    public static let decoderTemporarilyUnavailableCode = -11839
+
+    /// 资源降级白名单。修订 A1：模拟器测不到硬件解码器并发上限，暂只收上面这一项。
+    /// 以后实测要增减码，只改这个数组。
+    ///
+    /// 同文件中的这些码故意不收，默认按房间失败：
+    /// `AVErrorDecodeFailed = -11821`（码流解不开）、
+    /// `AVErrorDecoderNotFound = -11833`（找不到解码器）。
+    public static let resourceDegradeWhitelist: [(domain: String, code: Int)] = [
+        (domain: avFoundationErrorDomain, code: decoderTemporarilyUnavailableCode)
+    ]
+
+    /// 错误链任一环命中白名单，且现场是双窗副路，才降级。其余全是房间重试。
+    /// 单窗即使被标成副路也不降级。白名单码出现在内层 underlying error 时同样算命中。
+    public static func classify(
+        chain: [(domain: String, code: Int)],
+        context: Context
+    ) -> Outcome {
+        let whitelisted = chain.contains { entry in
+            resourceDegradeWhitelist.contains { item in
+                item.domain == entry.domain && item.code == entry.code
+            }
+        }
+        if whitelisted, context.isDualWindow, context.isSecondary {
+            return .resourceDegrade
+        }
+        return .roomRetry
+    }
+}
