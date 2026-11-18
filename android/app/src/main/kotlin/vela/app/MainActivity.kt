@@ -27,7 +27,8 @@ import vela.core.lifecycle.PhoneScenePhase
  * 画中画（B2 之后的 PiP1）再改这个文件。
  *
  * debug / perf 会多编 src/hooks。若存在 [vela.app.hooks.Hooks.install]，启动时调用。
- * release 没有这个类，反射找不到就跳过。
+ * 同一套 hooks 里的 [vela.app.hooks.StageHost] 可以让单路仪器测试只拿空宿主，
+ * 不要把完整舞台一起拉起来。release 没有这些类，反射找不到就按真实启动走。
  */
 class MainActivity : ComponentActivity() {
     lateinit var stage: StageViewModel
@@ -45,6 +46,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         installDebugHooks(applicationContext)
+        if (!debugAllowsStageBoot()) return
         val directory = Paths.get(filesDir.absolutePath, "Vela")
         val stage = StageViewModel(
             settings = Settings(this),
@@ -74,21 +76,25 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        if (!this::wiring.isInitialized) return
         wiring.moveTo(PhoneScenePhase.INACTIVE)
     }
 
     override fun onResume() {
         super.onResume()
+        if (!this::wiring.isInitialized) return
         wiring.moveTo(PhoneScenePhase.ACTIVE)
     }
 
     override fun onPause() {
         super.onPause()
+        if (!this::wiring.isInitialized) return
         wiring.moveTo(PhoneScenePhase.INACTIVE)
     }
 
     override fun onStop() {
         super.onStop()
+        if (!this::wiring.isInitialized) return
         wiring.moveTo(PhoneScenePhase.BACKGROUND)
     }
 
@@ -135,5 +141,20 @@ internal fun installDebugHooks(context: Context) {
         install.invoke(null, context)
     } catch (_: ClassNotFoundException) {
         // release，或 hooks 源码集还没人放类。
+    }
+}
+
+/** release 没有 StageHost，真实启动一律起舞台。hooks 自己出错也放行，避免把正式路径停掉。 */
+internal fun debugAllowsStageBoot(): Boolean {
+    return try {
+        val cls = Class.forName("vela.app.hooks.StageHost")
+        val method = cls.getDeclaredMethod("shouldBootStage")
+        method.invoke(null) as? Boolean ?: true
+    } catch (_: ClassNotFoundException) {
+        true
+    } catch (_: NoSuchMethodException) {
+        true
+    } catch (_: Throwable) {
+        true
     }
 }
