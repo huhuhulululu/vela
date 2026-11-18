@@ -64,7 +64,12 @@ extension StageModel {
         let token = lane.playGeneration
         lane.capTask = Task { [weak self, weak lane] in
             guard let self, let lane, let life = self.laneToken(lane) else { return }
-            let fresh = try? await self.resolve(username)
+            // 固定测试流（Perf）不访问真实站点：直接沿用起播时的回环主列表。
+            var fixed = false
+            #if (os(macOS) && (DEBUG || PERF_PROBE)) || (os(iOS) && PERF_PROBE)
+            fixed = username.hasPrefix(PerfStream.username)
+            #endif
+            let fresh = fixed ? nil : try? await self.resolve(username)
             guard let master = (fresh?.isPlayable == true ? fresh?.url : nil) ?? lane.currentMaster else { return }
             guard token == lane.playGeneration, !Task.isCancelled, self.name(of: lane) == username else { return }
             let cap = self.playbackCap(on: lane)
@@ -96,6 +101,20 @@ extension PhoneThermalState {
 }
 
 extension StageModel {
-    func needsCapSync(_ lane: PlaybackLane) -> Bool { false }
-    func noteDisplaySize(_ size: CGSize, on lane: PlaybackLane) {}
+    /// 这一路正在用的上限与此刻应有的上限不一致，需要补换档（起播期间热状态变了、画面尺寸量到真实值后上限变了）。
+    func needsCapSync(_ lane: PlaybackLane) -> Bool {
+        retargetCap(for: lane) != nil
+    }
+
+    /// 播放层回报画面实际显示尺寸。降档期间尺寸变化会改变档位（旋转、副路先落到下限再量到真实高度），
+    /// 下一个主线程回合再补换档，不在布局回调里直接动播放器。
+    func noteDisplaySize(_ size: CGSize, on lane: PlaybackLane) {
+        guard lane.displaySize != size else { return }
+        lane.displaySize = size
+        guard laneQuality.isLimited, needsCapSync(lane) else { return }
+        DispatchQueue.main.async { [weak self, weak lane] in
+            guard let self, let lane, self.needsCapSync(lane) else { return }
+            self.retier(lane)
+        }
+    }
 }

@@ -318,6 +318,8 @@ extension StageModel {
         applyPower()
         scheduleChromeHide()
         startPrefetch(on: lane)
+        // 解析与等中继期间热状态或画面尺寸可能变了：起播用的 cap 是更早读的，就绪后补一次换档。
+        if needsCapSync(lane) { retier(lane) }
     }
 
     /// 起播成功后预取下一间。任务登记在这一路上，挂起与取消本路工作时一并取消（§3.1）。
@@ -478,6 +480,10 @@ extension StageModel {
             Self.playbackLog.info("renew-abort room-changed")
             return nil
         }
+        #if (os(macOS) && (DEBUG || PERF_PROBE)) || (os(iOS) && PERF_PROBE)
+        // 固定测试流不会 403，也不能为它请求真实站点。
+        if username.hasPrefix(PerfStream.username) { return nil }
+        #endif
         guard let ticket = try? await resolve(username), ticket.isPlayable, let master = ticket.url else {
             Self.playbackLog.info("renew-abort resolve")
             return nil

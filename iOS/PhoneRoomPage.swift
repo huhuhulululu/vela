@@ -19,7 +19,7 @@ struct PhoneRoomPage: View {
                 PlayerLayerView(
                     player: lane.player.player, laneLabel: lane.player.laneLabel, pane: pane, pip: pipController
                 ) { size in
-                    lane.displaySize = size
+                    model.noteDisplaySize(size, on: lane)
                 }
                 .opacity(videoReady ? 1 : 0)
                 .animation(reduceMotion ? nil : .easeOut(duration: Theme.videoFade), value: videoReady)
