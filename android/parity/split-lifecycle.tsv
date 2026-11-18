@@ -1,0 +1,4 @@
+# swift_file	swift_test	kotlin_id
+# C3 已移植的用例与 Swift 同名，测试类名与 Swift 文件名一致。
+# parity 按类名后缀对上，这里不需要显式映射。
+# PiP 三条的音频断言改到 PipAudioOutput，见 lifecycle.notes.md。
