@@ -387,4 +387,25 @@ final class LifecycleWiringTests: XCTestCase {
         XCTAssertTrue(StubProtocol.log.started.isEmpty, "画中画期间不得为下一房间发请求：\(StubProtocol.log.started)")
         XCTAssertNil(stage.primary.prefetchTask)
     }
+
+    /// 侧车在等 `beforeLoad` 时被挂起：之后不得再建网页视图、不得加载页面。
+    func testSidecarSuspendedDuringBeforeLoadDoesNotCreateWebView() async {
+        var release: CheckedContinuation<Void, Never>?
+        let sidecar = SiteSidecar(beforeLoad: { await withCheckedContinuation { release = $0 } })
+        let call = Task { @MainActor in try await sidecar.get(URL(string: "https://example.invalid/")!) }
+        let waiting = await waitUntil { release != nil }
+        XCTAssertTrue(waiting)
+
+        sidecar.suspendAll()
+        release?.resume()
+        let result = await call.result
+
+        XCTAssertFalse(sidecar.hasWebView, "挂起后不建网页视图")
+        if case .failure(let error) = result {
+            XCTAssertTrue(error is CancellationError, "\(error)")
+        } else {
+            XCTFail("挂起后侧车调用应以取消结束")
+        }
+        sidecar.suspendAll()
+    }
 }

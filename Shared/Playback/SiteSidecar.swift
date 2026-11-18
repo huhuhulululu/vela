@@ -34,6 +34,9 @@ final class SiteSidecar: NSObject, WKNavigationDelegate {
         super.init()
     }
 
+    /// 离屏网页视图是否存在（测试用）。
+    var hasWebView: Bool { webView != nil }
+
     /// 宿主刚就绪（窗口挂上）：没停着且网页视图还没挂上就挂过去。
     func hostDidAttach() {
         guard !suspended, let webView, webView.superview == nil else { return }
@@ -129,7 +132,7 @@ final class SiteSidecar: NSObject, WKNavigationDelegate {
             busy -= 1
             scheduleIdleTeardown()
         }
-        try await ensureLoaded()
+        try await ensureLoaded(token: token)
         guard lifecycle.allows(.beforeRequest, token: token) else { throw CancellationError() }
         guard let webView else { throw SidecarError.unavailable }
         let result = try await webView.callAsyncJavaScript(body, arguments: arguments, in: nil, contentWorld: .page)
@@ -170,8 +173,11 @@ final class SiteSidecar: NSObject, WKNavigationDelegate {
         loading = nil
     }
 
-    private func ensureLoaded() async throws {
+    /// `beforeLoad` 可能等很久（旧登录清理）：等完之后、建网页视图之前、真正 `load` 之前都要再核对生命周期与取消，
+    /// 挂起期间不建视图、不发页面请求。
+    private func ensureLoaded(token: LifecycleEpoch.Token) async throws {
         await beforeLoad()
+        try checkAlive(token)
         if loaded { return }
         if let loading {
             try await loading.value
@@ -179,6 +185,8 @@ final class SiteSidecar: NSObject, WKNavigationDelegate {
         }
         let view = ensureWebView()
         let task = Task { @MainActor in
+            try Task.checkCancellation()
+            try self.checkAlive(token)
             try await self.load(view)
         }
         loading = task
@@ -188,6 +196,12 @@ final class SiteSidecar: NSObject, WKNavigationDelegate {
             loading = nil
             throw error
         }
+    }
+
+    /// 挂起（代次已变）或调用方已取消：以取消结束。
+    private func checkAlive(_ token: LifecycleEpoch.Token) throws {
+        try Task.checkCancellation()
+        guard lifecycle.allows(.beforeRequest, token: token) else { throw CancellationError() }
     }
 
     private func load(_ view: WKWebView) async throws {
