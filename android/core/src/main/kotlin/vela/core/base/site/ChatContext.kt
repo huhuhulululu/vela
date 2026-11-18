@@ -92,7 +92,7 @@ object ChatContext {
                 gender = payload.gender?.take(1)?.let(Gender::fromApi),
                 show = show,
                 thumbnailURL = URI.create("https://thumb.live.mmcdn.com/riw/$name.jpg"),
-                age = payload.age?.value,
+                age = payload.age?.toIntExactOrNull(),
                 secondsOnline = seconds,
             ),
         )
