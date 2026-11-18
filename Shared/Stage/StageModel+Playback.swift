@@ -403,12 +403,12 @@ extension StageModel {
     /// Watching uses the top rung. Window-height caps were selecting 540p and 720p, so the
     /// picture stayed soft. Power saving, when enabled, still starts a room on the bottom rung
     /// after the pointer has left.
-    /// 双窗时再叠上设备热状态的上限（`.serious` 及以上才有，按这一路画面实际显示的高度，§4.4）。
+    /// 多路时再叠上这一路的尺寸上限与热上限（§4.4，ios-triple 修订 v2 H2）。
     func playbackCap(on lane: PlaybackLane? = nil) -> Double {
         let resting = restSavesPower && !resolvedPresence().engaged
         let base = resting ? PowerPolicy.peakBitrate(pixelHeight: pixelHeight, resting: true) : Double.infinity
         guard let lane else { return base }
-        return min(base, thermalCap(for: lane))
+        return min(base, laneCap(for: lane))
     }
 
     /// The master playlist is low-latency HLS. AVPlayer stalls and sometimes never starts on it.

@@ -990,3 +990,18 @@ final class TripleLaneSelectionTests: XCTestCase {
         XCTAssertEqual(run(dual, after: ["b", "c"], proposed: "b", .filter), out)
     }
 }
+
+/// 竖屏多格的格子高度（ios-triple 修订 v2 M12）：`(H − (N−1)×间距) / N`，三格每格不足 160 点时最多 2 路。
+final class LaneLayoutTests: XCTestCase {
+    func testPaneHeightAndThreeLaneFit() {
+        XCTAssertEqual(LaneLayout.gap, 2)
+        XCTAssertEqual(LaneLayout.paneHeight(stage: 874, lanes: 3), 290, accuracy: 0.001, "iPhone 17 Pro：(874 − 4) / 3")
+        XCTAssertEqual(LaneLayout.paneHeight(stage: 874, lanes: 2), 436, accuracy: 0.001)
+        XCTAssertEqual(LaneLayout.paneHeight(stage: 874, lanes: 1), 874, accuracy: 0.001)
+        XCTAssertEqual(LaneLayout.paneHeight(stage: 0, lanes: 3), 1, accuracy: 0.001, "不出现 0 或负高度")
+        XCTAssertTrue(LaneLayout.fitsThreeLanes(stageHeight: 874))
+        XCTAssertTrue(LaneLayout.fitsThreeLanes(stageHeight: 3 * 160 + 4))
+        XCTAssertFalse(LaneLayout.fitsThreeLanes(stageHeight: 3 * 160 + 3), "每格低于 160 点")
+        XCTAssertFalse(LaneLayout.fitsThreeLanes(stageHeight: 400))
+    }
+}

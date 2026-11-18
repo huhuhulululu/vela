@@ -1,24 +1,25 @@
 import SwiftUI
 
-/// 竖屏双窗（§4.2、§4.5）：两个等高窗格上下排。每格都是一路独立的分页（`LanePager`）：
-/// 模糊缩略图垫底，播放层固定 `.resizeAspect`，横屏流在半屏里上下留边、露出垫底，不裁切（裁决 5）。
-/// 点窗格或在窗格里划动都会把焦点交给它；焦点路有香槟色细边，声音与画中画跟着焦点走。
+/// 竖屏多格（§4.2、§4.5，ios-triple 计划）：2 或 3 个等高窗格上下排，格高 `(H − (N−1)×间距) / N`。
+/// 每格都是一路独立的分页（`LanePager`）：模糊缩略图垫底，播放层固定 `.resizeAspect`，横屏流在格子里上下留边、
+/// 露出垫底，不裁切（裁决 5）。点窗格或在窗格里划动都会把焦点交给它；焦点路有香槟色细边，声音与画中画跟着焦点走。
 struct PhoneDualStage: View {
     @ObservedObject var model: StageModel
     /// 控制栏此刻看得见：窗格自己的房间信息、心形与更多菜单跟着显示。
     var chromeOn: Bool
-    private let gap: CGFloat = 2
 
     var body: some View {
         GeometryReader { geo in
-            let paneHeight = max((geo.size.height - gap) / 2, 1)
-            VStack(spacing: gap) {
+            let paneHeight = CGFloat(LaneLayout.paneHeight(stage: Double(geo.size.height), lanes: model.lanes.count))
+            VStack(spacing: CGFloat(LaneLayout.gap)) {
                 ForEach(model.lanes, id: \.id) { lane in
                     PhoneDualPane(
                         model: model, lane: lane, playback: lane.playback,
                         focused: model.focusLane == lane.id, chromeOn: chromeOn
                     )
                     .frame(height: paneHeight)
+                    // 格子尺寸只在变化时回报（不发布），选档按它估算还没出画面的路（修订 v2 H2）。
+                    .onGeometryChange(for: CGSize.self) { $0.size } action: { model.notePaneSize($0, on: lane) }
                 }
             }
             .onAppear { model.notePointHeight(paneHeight) }
@@ -27,7 +28,7 @@ struct PhoneDualStage: View {
     }
 }
 
-/// 双窗里的一格。没有房间时（列表只剩一间）显示说明；有房间时是这一路自己的分页。
+/// 多格里的一格。没有房间时（列表房间不够）显示说明；有房间时是这一路自己的分页。
 struct PhoneDualPane: View {
     @ObservedObject var model: StageModel
     @ObservedObject var lane: PlaybackLane
@@ -132,7 +133,7 @@ struct PhonePaneBar: View {
 }
 
 /// 一路的播放事件订阅（失败、就绪、在播）。每路各挂一份，写回对应路的状态；不可见，不占布局。
-/// 单窗只有主路；双窗的副路来去都由模型的 `lanes` 决定。
+/// 单窗只有主路；副路、第三路的来去都由模型的 `lanes` 决定。
 struct LaneEvents: View {
     @ObservedObject var model: StageModel
     let lane: PlaybackLane

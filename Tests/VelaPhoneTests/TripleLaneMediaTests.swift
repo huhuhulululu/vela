@@ -217,4 +217,51 @@ final class TripleLaneMediaTests: XCTestCase {
         stage.setFocus(.tertiary)
         XCTAssertNil(stage.tertiary!.degradedRetryTask, "已恢复就取消检查")
     }
+    // MARK: H2 选档三层上限
+
+    private func sizedTriple() -> StageModel {
+        let stage = makeStage()
+        stage.screenScale = 3
+        for lane in stage.lanes { lane.displaySize = CGSize(width: 402, height: 226) }
+        return stage
+    }
+
+    func testThreeLanesCapEachLaneByItsGridPicture() {
+        let stage = sizedTriple()
+        for lane in stage.lanes { XCTAssertEqual(stage.playbackCap(on: lane), 1_696_000, "226pt x 3 = 678px") }
+        stage.tertiary!.displaySize = .zero
+        stage.notePaneSize(CGSize(width: 402, height: 290), on: stage.tertiary!)
+        XCTAssertEqual(stage.playbackCap(on: stage.tertiary!), 1_696_000, "还没出画面：按格子里 16:9 画面估算")
+        stage.notePaneSize(.zero, on: stage.tertiary!)
+        XCTAssertEqual(stage.playbackCap(on: stage.tertiary!), LaneQuality.minimumBitrate, "什么尺寸都没有：最低档")
+    }
+
+    func testLayoutChangesRetargetTheSizeCap() {
+        let stage = sizedTriple()
+        for lane in stage.lanes { lane.currentCap = 1_696_000 }
+        stage.setLandscape(true)
+        XCTAssertEqual(stage.retargetCap(for: stage.primary), .infinity, "横屏只显示一路：不按格子限档")
+        stage.setLandscape(false)
+        XCTAssertNil(stage.retargetCap(for: stage.primary))
+        stage.setPipSolo(true)
+        XCTAssertEqual(stage.retargetCap(for: stage.primary), .infinity, "画中画只留焦点路")
+        stage.setPipSolo(false)
+        stage.setLaneCount(2)
+        XCTAssertEqual(stage.retargetCap(for: stage.secondary!), .infinity, "两路维持最高档")
+        stage.setLaneCount(3)
+        stage.tertiary!.displaySize = CGSize(width: 402, height: 226)
+        XCTAssertEqual(stage.playbackCap(on: stage.tertiary!), 1_696_000)
+    }
+
+    func testThermalStepsDownFromTheSizeCapAndRecoversToIt() {
+        let stage = sizedTriple()
+        stage.noteThermal(.serious, now: t0)
+        XCTAssertEqual(stage.playbackCap(on: stage.primary), 896_000, "1.696M 降一档")
+        stage.noteThermal(.critical, now: t0.addingTimeInterval(5))
+        XCTAssertEqual(stage.playbackCap(on: stage.secondary!), 896_000, "已是最低档保持最低档")
+        stage.noteThermal(.fair, now: t0.addingTimeInterval(10))
+        stage.noteThermal(.fair, now: t0.addingTimeInterval(70))
+        XCTAssertEqual(stage.playbackCap(on: stage.primary), 1_696_000, "回升到尺寸上限，不是不限")
+        XCTAssertNil(stage.thermalRecoveryTask)
+    }
 }

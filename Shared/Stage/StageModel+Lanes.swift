@@ -56,6 +56,7 @@ extension StageModel {
         let next = min(max(requested, 1), maxLaneCount)
         guard next != laneCount else { return }
         if next > laneCount { openLanes(upTo: next) } else { closeLanes(keeping: next) }
+        syncLaneCaps()
         if remember { settings.laneCount = next }
         Self.lanesLog.info("lanes \(next)")
     }
@@ -67,6 +68,19 @@ extension StageModel {
             setLaneCount(2, remember: remember)
         } else {
             setLaneCount(1, remember: remember)
+        }
+    }
+
+    /// 界面量到竖屏舞台高度（点，取长边）。三格每格不足 160 点就最多 2 路（修订 v2 M12）：已开 3 路的临时降到 2 路，
+    /// 不改用户选择；又放得下时按用户选择恢复。同值不动。
+    func notePortraitStageHeight(_ height: Double) {
+        let fits = LaneLayout.fitsThreeLanes(stageHeight: height)
+        guard fits != threeLanesFit else { return }
+        threeLanesFit = fits
+        if fits {
+            restoreLanesIfRemembered()
+        } else if laneCount > maxLaneCount {
+            setLaneCount(maxLaneCount, remember: false)
         }
     }
 
@@ -199,6 +213,7 @@ extension StageModel {
         guard on != landscape else { return }
         landscape = on
         applyLaneVisibility()
+        syncLaneCaps()
     }
 
     /// 画中画进入时只留焦点路，退出（或启动失败）后按原路数恢复。单窗不动。
@@ -206,6 +221,7 @@ extension StageModel {
         guard on != pipSolo else { return }
         pipSolo = on
         applyLaneVisibility()
+        syncLaneCaps()
     }
 
     /// 按「横屏或画中画 ∧ 非焦点」重算每一路的可见性（临时释放：只放播放资源，逻辑路状态全部保留）。隐藏的路释放播放项与中继源；

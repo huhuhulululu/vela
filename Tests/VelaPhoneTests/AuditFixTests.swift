@@ -221,11 +221,12 @@ final class AuditFixTests: XCTestCase {
         XCTAssertTrue(stage.needsCapSync(stage.primary), "起播期间升温：就绪后要补换档")
     }
 
-    func testDisplaySizeChangeWhileLimitedRequestsCapSync() {
-        let stage = makeStage(plain(["alice", "bob"]))
+    /// ios-triple 修订 v2 H2：两路时上限与画面尺寸无关，尺寸只在三格时影响选档。
+    func testDisplaySizeChangeInThreeLanesRequestsCapSync() {
+        let stage = makeStage(plain(["alice", "bob", "carol"]))
+        stage.setLaneCount(3)
         stage.screenScale = 3
         stage.secondary!.displaySize = .zero
-        stage.noteThermal(.serious, now: Date())
         stage.secondary!.currentCap = LaneQuality.minimumBitrate
         XCTAssertFalse(stage.needsCapSync(stage.secondary!))
         stage.noteDisplaySize(CGSize(width: 393, height: 221), on: stage.secondary!)

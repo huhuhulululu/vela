@@ -46,3 +46,20 @@ public struct LaneCursor: Equatable, Sendable {
     /// 自动跳过的步长：这路自己的方向。
     public var autoDelta: Int { direction < 0 ? -1 : 1 }
 }
+
+/// 竖屏多格的布局（ios-triple 计划 §视图、修订 v2 M12）：N 格上下等高叠放，格间距与双窗一致。
+public enum LaneLayout {
+    public static let gap: Double = 2
+    /// 三格时每格的最低高度（点）；放不下就最多开 2 路。
+    public static let minimumPaneHeight: Double = 160
+
+    /// `(H − (N−1)×间距) / N`，至少 1 点。
+    public static func paneHeight(stage height: Double, lanes: Int) -> Double {
+        let count = Double(max(lanes, 1))
+        return max((height - (count - 1) * gap) / count, 1)
+    }
+
+    public static func fitsThreeLanes(stageHeight: Double) -> Bool {
+        paneHeight(stage: stageHeight, lanes: 3) >= minimumPaneHeight
+    }
+}
