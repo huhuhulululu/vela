@@ -5,6 +5,7 @@ import android.os.Looper
 import androidx.media3.common.C
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.HttpDataSource
+import androidx.media3.exoplayer.hls.playlist.HlsPlaylistTracker
 import androidx.media3.test.utils.robolectric.ShadowMediaCodecConfig
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.io.ByteArrayOutputStream
@@ -432,6 +433,81 @@ class LaneDataSourceTest {
             hub.stopListener()
             upstream.close()
         }
+    }
+
+    /**
+     * 伪上游的一次性回退经常没有独立 DISCONTINUITY 行。
+     * 先到的调用方（刷新线程）把回退取走后，后到的播放器读到的是前进列表，也必须看到重置。
+     * 只退 1、以及媒体序号前进但完整分片变少，都不是重置。
+     */
+    @Test(timeout = 30_000)
+    fun testSequenceRewindWithoutDiscontinuityLatchesForLaterFetch() {
+        withHub { hub, upstream ->
+            upstream.playlistText = { path, ordinal ->
+                if (!path.endsWith("/video.m3u8")) {
+                    null
+                } else {
+                    when (ordinal) {
+                        1 -> mediaPlaylist(sequence = 20)
+                        2 -> mediaPlaylist(sequence = 19)
+                        3 -> mediaPlaylist(sequence = 21, segments = 1)
+                        4 -> mediaPlaylist(sequence = 22)
+                        5 -> mediaPlaylist(sequence = 18)
+                        else -> mediaPlaylist(sequence = 30)
+                    }
+                }
+            }
+            val handle = register(hub, upstream, "rw")
+            readOk(hub, handle.url)
+            readOk(hub, handle.url)
+            readOk(hub, handle.url)
+            val advanced = readOk(hub, handle.url)
+            assertTrue(advanced.text, advanced.text.contains("MEDIA-SEQUENCE:22"))
+            assertPlaylistReset(hub, handle.url, handle.id)
+            assertPlaylistReset(hub, handle.url, handle.id)
+            assertTrue(upstream.count("/rw/video.m3u8") >= 6)
+        }
+    }
+
+    @Test(timeout = 30_000)
+    fun testSingleStepRewindWithDiscontinuityStillResets() {
+        withHub { hub, upstream ->
+            upstream.playlistText = { path, ordinal ->
+                if (!path.endsWith("/video.m3u8")) {
+                    null
+                } else if (ordinal == 1) {
+                    mediaPlaylist(sequence = 20)
+                } else {
+                    mediaPlaylist(sequence = 19, discontinuity = true)
+                }
+            }
+            val handle = register(hub, upstream, "disc")
+            readOk(hub, handle.url)
+            assertPlaylistReset(hub, handle.url, handle.id)
+        }
+    }
+
+    private fun assertPlaylistReset(hub: LaneHub, uri: Uri, ownerId: String) {
+        try {
+            hub.load(uri, ownerId)
+            fail("应该抛出 PlaylistResetException uri=$uri")
+        } catch (error: HlsPlaylistTracker.PlaylistResetException) {
+            assertEquals(uri, error.url)
+        }
+    }
+
+    private fun mediaPlaylist(sequence: Int, segments: Int = 3, discontinuity: Boolean = false): String {
+        val lines = ArrayList<String>()
+        lines.add("#EXTM3U")
+        lines.add("#EXT-X-VERSION:6")
+        lines.add("#EXT-X-TARGETDURATION:2")
+        lines.add("#EXT-X-MEDIA-SEQUENCE:$sequence")
+        if (discontinuity) lines.add("#EXT-X-DISCONTINUITY")
+        for (index in 0 until segments) {
+            lines.add("#EXTINF:2.0,")
+            lines.add("seg${sequence + index}.ts")
+        }
+        return lines.joinToString("\n") + "\n"
     }
 
     private fun blockingRenew(

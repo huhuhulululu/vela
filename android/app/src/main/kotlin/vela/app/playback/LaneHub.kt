@@ -48,8 +48,11 @@ internal class Lane(
     val lastInfo = HashMap<LaneTrack, MediaPlaylistInfo>()
     val productive = HashMap<LaneTrack, Boolean>()
 
-    /** 刷新线程先看到序号回退时，下一次播放器来取同一条列表也要报重置。 */
+    /** 任一调用方先看到序号回退时，下一次来取同一条列表也要报重置。回退响应只有一次。 */
     val pendingReset = HashSet<LaneTrack>()
+
+    /** 已采纳列表的 MEDIA-SEQUENCE。只在序号不回退时更新。 */
+    val lastMediaSequence = HashMap<LaneTrack, Int>()
 
     fun snapshot(): StreamRendition = lock.withLock { rendition.isolated() }
 }
@@ -278,24 +281,42 @@ class LaneHub internal constructor(
         val response = fetchRenewed(lane, url) { trackUrl(lane, track) ?: url }
         if (response.code !in 200..299) throw httpFailure(response.code, errorUri, response.body)
         val bytes = rewrite(response)
-        val info = MediaPlaylistInfo.parse(bytes.toString(Charsets.UTF_8))
-        if (resetPending(lane, track) || (info != null && isPlaylistReset(lane, track, info))) {
+        val text = bytes.toString(Charsets.UTF_8)
+        val info = MediaPlaylistInfo.parse(text)
+        if (resetPending(lane, track) || (info != null && isPlaylistReset(lane, track, info, text))) {
             // 刷新线程和播放器都会来取这一条。回退只有一次，先到的把异常吞掉的话，
-            // 播放器下一次仍要看见重置，否则 R1 不会原地重新 prepare。
+            // 后到的下一次仍要看见重置，否则 R1 不会原地重新 prepare。
             lane.lock.withLock { lane.pendingReset.add(track) }
             throw HlsPlaylistTracker.PlaylistResetException(errorUri)
         }
-        note(lane, track, bytes)
+        note(lane, track, text)
         return bytes
     }
 
     private fun resetPending(lane: Lane, track: LaneTrack): Boolean =
         lane.lock.withLock { track in lane.pendingReset }
 
-    /** 序号回退且带 DISCONTINUITY：不是 403，不续期，交给加载错误策略。 */
-    private fun isPlaylistReset(lane: Lane, track: LaneTrack, info: MediaPlaylistInfo): Boolean {
-        val previous = lane.lock.withLock { lane.lastInfo[track] } ?: return false
-        return info.hasDiscontinuity && info.lastSequence < previous.lastSequence
+    /**
+     * 不是 403，不续期，交给加载错误策略。
+     * 两条都算重置：序号回退且带独立的 DISCONTINUITY；或者 MEDIA-SEQUENCE 至少退了 2。
+     * 伪上游的一次性回退把序号减 4，但 `#EXT-X-DISCONTINUITY-SEQUENCE` 让脚本的子串判断失败，
+     * 常常没有独立的 DISCONTINUITY 行。只认 DISCONTINUITY 的话，刷新线程先取走那一次响应，
+     * 挂起重置不会发生，播放器再取到的已是前进列表。只退 1 可能是乱序到达的上一窗口，不当重置。
+     */
+    private fun isPlaylistReset(
+        lane: Lane,
+        track: LaneTrack,
+        info: MediaPlaylistInfo,
+        playlist: String,
+    ): Boolean {
+        val (previous, previousSequence) = lane.lock.withLock {
+            lane.lastInfo[track] to lane.lastMediaSequence[track]
+        }
+        if (previous == null) return false
+        if (info.hasDiscontinuity && info.lastSequence < previous.lastSequence) return true
+        val sequence = mediaSequence(playlist) ?: return false
+        val seen = previousSequence ?: return false
+        return sequence <= seen - SEQUENCE_REWIND_GAP
     }
 
     private fun ensureSelected(lane: Lane, errorUri: Uri) {
@@ -387,13 +408,15 @@ class LaneHub internal constructor(
         return steady.toByteArray(Charsets.UTF_8)
     }
 
-    private fun note(lane: Lane, track: LaneTrack, bytes: ByteArray) {
-        val info = MediaPlaylistInfo.parse(bytes.toString(Charsets.UTF_8)) ?: return
+    private fun note(lane: Lane, track: LaneTrack, playlist: String) {
+        val info = MediaPlaylistInfo.parse(playlist) ?: return
+        val sequence = mediaSequence(playlist)
         lane.lock.withLock {
             val previous = lane.lastInfo[track]
             lane.productive[track] = previous == null || info.lastSequence > previous.lastSequence
             if (previous == null || info.lastSequence >= previous.lastSequence) {
                 lane.lastInfo[track] = info
+                if (sequence != null) lane.lastMediaSequence[track] = sequence
             }
         }
     }
@@ -423,8 +446,19 @@ class LaneHub internal constructor(
 
     private companion object {
         const val MAX_SOURCES: Int = 2
+        const val SEQUENCE_REWIND_GAP: Int = 2
         val RENEW_WAIT_MS: Long = (RenewalPolicy.waitBound * 1_000.0).toLong()
     }
+}
+
+private fun mediaSequence(playlist: String): Int? {
+    for (raw in playlist.lineSequence()) {
+        val line = raw.trim()
+        if (line.startsWith("#EXT-X-MEDIA-SEQUENCE:")) {
+            return line.removePrefix("#EXT-X-MEDIA-SEQUENCE:").trim().toIntOrNull()
+        }
+    }
+    return null
 }
 
 internal data class LoadedBytes(val bytes: ByteArray, val reported: Uri)

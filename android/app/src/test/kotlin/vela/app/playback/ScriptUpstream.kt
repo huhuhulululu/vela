@@ -39,6 +39,13 @@ internal class ScriptUpstream : AutoCloseable {
     @Volatile
     var beforeResponse: ((path: String, ordinal: Int) -> Unit)? = null
 
+    /**
+     * 200 的列表正文。返回 null 用默认（序号等于该路径的请求次数）。
+     * 回调发生在上游锁内，不要再调 [count] / [headerHits]。
+     */
+    @Volatile
+    var playlistText: ((path: String, ordinal: Int) -> String?)? = null
+
     val held: CountDownLatch = CountDownLatch(1)
     val releaseHold: CountDownLatch = CountDownLatch(1)
 
@@ -80,7 +87,7 @@ internal class ScriptUpstream : AutoCloseable {
             val body = when {
                 status != 200 -> ByteArray(0)
                 path.endsWith(".ts") -> byteArrayOf(0x47, 0x00)
-                path.endsWith(".m3u8") -> playlist(n).toByteArray(Charsets.UTF_8)
+                path.endsWith(".m3u8") -> (playlistText?.invoke(path, n) ?: playlist(n)).toByteArray(Charsets.UTF_8)
                 else -> ByteArray(0)
             }
             Triple(n, status, body)
