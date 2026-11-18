@@ -4,12 +4,13 @@ import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
+import vela.core.base.model.Prefs
 
 /**
- * `Preferences.maxFileBytes` 的副本（字节）。超过就当作读失败，不解析。
- * C9 收敛到 L0a 的 `Prefs.maxFileBytes`，并断言两边一致。
+ * 偏好文件读取上限（字节），与 L0a [Prefs.maxFileBytes] 同一常量。
+ * 超过就当作读失败，不解析。
  */
-const val maxFileBytes: Int = 1_000_000
+const val maxFileBytes: Int = Prefs.maxFileBytes
 
 /**
  * 文件不存在或读不出大小时返回 true（不存在时由后面的读取失败退回空值）。
