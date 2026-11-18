@@ -46,6 +46,8 @@ final class PlaybackLane: ObservableObject {
     var awayRetry = AwayRetry()
     var awayTimer = AwayRetryTimer()
     var skips = SkipTracker()
+    /// 本路上一次因划动离开的房间（双窗）；向后划回它不受「最近划走」限制。
+    var previousRoom: String?
 
     // 停留与学习
     var dwell = DwellTracker()
@@ -251,9 +253,14 @@ extension StageModel {
     func laneSnapshot(of store: FeedStore) -> LaneSelection.Snapshot {
         LaneSelection.Snapshot(
             rooms: store.rooms.map(\.username),
-            primary: LaneCursor(username: store.current?.username, direction: primary.skips.direction),
-            secondary: secondary.map { LaneCursor(username: $0.username, direction: $0.skips.direction) },
-            focus: focusLane
+            primary: LaneCursor(
+                username: store.current?.username, direction: primary.skips.direction, previous: primary.previousRoom
+            ),
+            secondary: secondary.map {
+                LaneCursor(username: $0.username, direction: $0.skips.direction, previous: $0.previousRoom)
+            },
+            focus: focusLane,
+            recent: secondary == nil ? [] : recentSkips.active(at: Date())
         )
     }
 

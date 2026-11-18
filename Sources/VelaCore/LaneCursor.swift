@@ -12,9 +12,12 @@ public struct LaneCursor: Equatable, Sendable {
     public var username: String?
     /// +1 向列表后方，-1 向列表前方。
     public var direction: Int
+    /// 这一路上一次划走的房间。向后划回它不受「最近划走」限制。
+    public var previous: String?
 
-    public init(username: String? = nil, direction: Int = 1) {
+    public init(username: String? = nil, direction: Int = 1, previous: String? = nil) {
         self.username = username
+        self.previous = previous
         self.direction = direction < 0 ? -1 : 1
     }
 

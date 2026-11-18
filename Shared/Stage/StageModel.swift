@@ -84,6 +84,8 @@ final class StageModel: ObservableObject {
     /// 每路播放的状态（§4.2）。macOS 恒为只有主路；iOS 双窗时再加副路。
     let primary = PlaybackLane(id: .primary)
     var secondary: PlaybackLane?
+    /// 双窗共享的「最近划走」（只在内存里，列表重载与来源切换不清）。
+    var recentSkips = RecentSkips()
     var lanes: [PlaybackLane] { secondary.map { [primary, $0] } ?? [primary] }
     /// 焦点路：声音、收藏提示、热门关联、画中画都跟随它（§4.2、§4.3）。单窗恒为主路。
     @Published var focusLane: LaneID = .primary
@@ -392,6 +394,10 @@ final class StageModel: ObservableObject {
             if lane.id == .primary { $0.step(delta) }
         }
         guard name(of: lane) != before else { return false }
+        if secondary != nil, let before {
+            recentSkips.record(before, at: Date())
+            lane.previousRoom = before
+        }
         lane.manuallyPaused = MoveRules.pausedAfterMove(manuallyPaused: lane.manuallyPaused, userInitiated: userInitiated)
         if hintVisible { dismissHint() }
         // 副路换房由 `settleSecondary` 在 `updateFeed` 里已经请求起播。

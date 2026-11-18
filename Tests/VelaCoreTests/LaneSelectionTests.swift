@@ -639,3 +639,129 @@ final class LaneSelectionReplacementExcludesPrimaryTests: XCTestCase {
         XCTAssertEqual(out.secondary?.username, "c")
     }
 }
+
+/// 双窗共享的「最近划走」：一路划走的房间，另一路向前划时不再落上去。
+final class LaneRecentSkipTests: XCTestCase {
+
+    private func recentSnapshot(
+        rooms: [String] = ["a", "b", "c", "d", "e"], primary: String, secondary: String,
+        recent: Set<String>, primaryPrevious: String? = nil, secondaryPrevious: String? = nil
+    ) -> LaneSelection.Snapshot {
+        LaneSelection.Snapshot(
+            rooms: rooms,
+            primary: LaneCursor(username: primary, previous: primaryPrevious),
+            secondary: LaneCursor(username: secondary, previous: secondaryPrevious),
+            focus: .primary, recent: recent
+        )
+    }
+
+    private func move(_ before: LaneSelection.Snapshot, _ lane: LaneID, _ delta: Int) -> LaneSelection.Outcome {
+        LaneSelection.resolve(
+            before: before, afterRooms: before.rooms, proposedPrimary: before.primary.username, intent: .move(lane, delta)
+        )
+    }
+
+    /// 复现用户实测：一路划走的房间，另一路向前划时不能再落上去。
+    func testForwardSwipeSkipsRoomsRecentlyLeftByEitherLane() {
+        let before = recentSnapshot(primary: "c", secondary: "a", recent: ["d"])
+        let out = move(before, .primary, 1)
+        XCTAssertEqual(out.primary.username, "e", "d 刚被划走，向前跳过")
+        XCTAssertEqual(out.secondary?.username, "a")
+    }
+
+    func testForwardSwipeStillSkipsOtherLaneRoomAndRecent() {
+        let before = recentSnapshot(primary: "a", secondary: "b", recent: ["c"])
+        XCTAssertEqual(move(before, .primary, 1).primary.username, "d")
+        let sec = recentSnapshot(primary: "d", secondary: "a", recent: ["b", "c"])
+        XCTAssertEqual(move(sec, .secondary, 1).secondary?.username, "e", "b、c 最近划走，d 是主路，落到 e")
+    }
+
+    func testRecentMatchingIsCaseInsensitive() {
+        let before = recentSnapshot(rooms: ["a", "b", "C", "d"], primary: "a", secondary: "d", recent: ["c"])
+        XCTAssertEqual(move(before, .primary, 1).primary.username, "b")
+        let after = recentSnapshot(rooms: ["a", "B", "c", "d"], primary: "a", secondary: "d", recent: ["b", "c"])
+        XCTAssertEqual(move(after, .primary, 1).primary.username, "B", "b、c 都最近划走且 d 是副路：放宽后取 b（保留列表里的大小写）")
+    }
+
+    /// 向后划回本路自己的上一间允许；再往前的最近房间仍跳过。
+    func testBackSwipeToOwnPreviousRoomIsAllowed() {
+        let before = recentSnapshot(primary: "a", secondary: "d", recent: ["c", "b"], secondaryPrevious: "c")
+        XCTAssertEqual(move(before, .secondary, -1).secondary?.username, "c", "c 是副路自己的上一间")
+        let noPrevious = recentSnapshot(primary: "a", secondary: "d", recent: ["c"])
+        XCTAssertEqual(move(noPrevious, .secondary, -1).secondary?.username, "b", "c 不是本路上一间，跳过")
+    }
+
+    func testOwnPreviousRoomStillRefusedWhenTheOtherLaneIsOnIt() {
+        let before = recentSnapshot(primary: "c", secondary: "d", recent: ["c"], secondaryPrevious: "c")
+        let out = move(before, .secondary, -1)
+        XCTAssertNotEqual(out.secondary?.username, "c", "绝不让两路同房")
+    }
+
+    /// 过滤后无处落脚：先放宽最近划走，仍不行才原地；任何情况下两路不同房。
+    /// 回归：本路当前房间自己也在最近里（刚从别处划回来）时，往前没有可去处不能落到另一路的房间上。
+    func testCurrentRoomInRecentNeverLandsOnTheOtherLane() {
+        let before = recentSnapshot(rooms: ["a", "b", "c"], primary: "a", secondary: "b", recent: ["b", "c"], secondaryPrevious: "c")
+        let out = move(before, .secondary, -1)
+        XCTAssertEqual(out.secondary?.username, "b")
+        XCTAssertEqual(out.primary.username, "a")
+    }
+
+    func testShortListRelaxesRecentBeforeStayingPut() {
+        let before = recentSnapshot(rooms: ["a", "b", "c"], primary: "a", secondary: "b", recent: ["c"])
+        let out = move(before, .primary, 1)
+        XCTAssertEqual(out.primary.username, "c", "放宽最近划走后可落在 c")
+        XCTAssertNotEqual(out.primary.username, out.secondary?.username)
+    }
+
+    func testShortListStaysPutWhenNothingElseExists() {
+        let before = recentSnapshot(rooms: ["a", "b"], primary: "a", secondary: "b", recent: ["a", "b"])
+        let out = move(before, .primary, 1)
+        XCTAssertEqual(out.primary.username, "a")
+        XCTAssertEqual(out.secondary?.username, "b")
+    }
+
+    func testRecentDoesNotAffectDirectReveal() {
+        let before = recentSnapshot(primary: "a", secondary: "b", recent: ["d"])
+        let out = LaneSelection.resolve(before: before, afterRooms: before.rooms, proposedPrimary: "d", intent: .reveal("d"))
+        XCTAssertEqual(out.primary.username, "d")
+    }
+
+    func testSingleWindowIgnoresRecent() {
+        let before = LaneSelection.Snapshot(
+            rooms: ["a", "b", "c"], primary: LaneCursor(username: "a"), secondary: nil, focus: .primary, recent: ["b"]
+        )
+        let out = LaneSelection.resolve(before: before, afterRooms: before.rooms, proposedPrimary: "b", intent: .move(.primary, 1))
+        XCTAssertEqual(out.primary.username, "b", "单窗行为不变")
+    }
+
+    // MARK: RecentSkips
+
+    func testRecentSkipsExpireByReadTime() {
+        var skips = RecentSkips()
+        let t0 = Date(timeIntervalSince1970: 1_000_000)
+        skips.record("Alice", at: t0)
+        XCTAssertEqual(skips.active(at: t0.addingTimeInterval(30 * 60 - 1)), ["alice"])
+        XCTAssertTrue(skips.active(at: t0.addingTimeInterval(30 * 60)).isEmpty, "满 30 分钟恢复可选")
+    }
+
+    func testRecentSkipsRerecordRefreshesTimestamp() {
+        var skips = RecentSkips()
+        let t0 = Date(timeIntervalSince1970: 1_000_000)
+        skips.record("a", at: t0)
+        skips.record("A", at: t0.addingTimeInterval(20 * 60))
+        XCTAssertEqual(skips.count, 1)
+        XCTAssertEqual(skips.active(at: t0.addingTimeInterval(40 * 60)), ["a"])
+    }
+
+    func testRecentSkipsCapacityDropsOldest() {
+        var skips = RecentSkips()
+        let t0 = Date(timeIntervalSince1970: 1_000_000)
+        for index in 0..<(RecentSkips.capacity + 5) {
+            skips.record("r\(index)", at: t0.addingTimeInterval(Double(index)))
+        }
+        XCTAssertEqual(skips.count, RecentSkips.capacity)
+        let active = skips.active(at: t0.addingTimeInterval(300))
+        XCTAssertFalse(active.contains("r0"))
+        XCTAssertTrue(active.contains("r\(RecentSkips.capacity + 4)"))
+    }
+}
