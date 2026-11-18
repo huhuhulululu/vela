@@ -36,6 +36,11 @@ final class RoomThumbnailCache {
         return await beginFetch(url: url)?.value
     }
 
+    /// 放进缓存，按位图字节计费（宽 × 高 × 4）。测试也用它预置缩略图。
+    func store(_ image: CGImage, for url: URL) {
+        cache.setObject(image, forKey: url as NSURL, cost: image.width * image.height * 4)
+    }
+
     /// 内存警告：丢掉已缓存的图。在途下载不动，完成后照常入缓存。
     func removeAll() {
         cache.removeAllObjects()
@@ -76,9 +81,7 @@ final class RoomThumbnailCache {
                 RoomThumbnailCache.decodeThumbnail(from: data, maxPixelSize: maxPixelSize)
             }.value else { return nil }
             guard lifecycle.allows(.beforeCommit, token: token) else { return nil }
-            if cache.object(forKey: key) == nil {
-                cache.setObject(cgImage, forKey: key, cost: cgImage.width * cgImage.height * 4)
-            }
+            if cache.object(forKey: key) == nil { store(cgImage, for: url) }
             return cgImage
         }
         inflight[key] = task

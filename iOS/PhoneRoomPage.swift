@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// 分页里的一页：模糊缩略图垫底，当前页叠上播放层（就绪后淡入），以及暂停、失败、加载三种提示。
-/// 邻页只有垫底，不挂播放层。
+/// 邻页只有垫底，不挂播放层。垫底放在 `.background` 里不参与布局，播放层严格等于窗格（裁决 5）。
 struct PhoneRoomPage: View {
     var room: Room
     var active: Bool
@@ -10,12 +10,13 @@ struct PhoneRoomPage: View {
     /// 不观察 `PlayerController`：它在播放中会反复发布相同的就绪 / 失败状态，整页画面会跟着失效。
     @ObservedObject var playback: PlaybackFace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// 本页（窗格）在窗口里的位置与大小，`display-check` 拿它作比较基准。引用类型：拖动翻页只改值，不让整页重算。
+    @State private var pane = PaneGeometry()
 
     var body: some View {
         ZStack {
-            SwapBackdrop(room: room)
             if active {
-                PlayerLayerView(player: lane.player.player, laneLabel: lane.player.laneLabel) { size in
+                PlayerLayerView(player: lane.player.player, laneLabel: lane.player.laneLabel, pane: pane) { size in
                     lane.displaySize = size
                 }
                 .opacity(videoReady ? 1 : 0)
@@ -31,7 +32,10 @@ struct PhoneRoomPage: View {
                 PhoneLoadingLine()
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background { SwapBackdrop(room: room) }
         .clipped()
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { pane.frame = $0 }
     }
 
     private var videoReady: Bool { active && playback.readyUsername == room.username }

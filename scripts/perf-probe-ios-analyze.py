@@ -149,7 +149,15 @@ res["fetch_failed"] = sum(1 for _, c, m in logs if m.startswith("fetch-failed"))
 
 dc = [m for _, c, m in logs if m.startswith("display-check")]
 res["display_checks"] = len(dc)
-res["uncropped_all"] = bool(dc) and all("uncropped=true" in m and re.search(r"gravity=\S*ResizeAspect(?!Fill)", m, re.I) for m in dc)
+def _wh(m, key):
+    r = re.search(r"\b" + key + r"=(\d+)x(\d+)", m)
+    return (int(r.group(1)), int(r.group(2))) if r else None
+def _layer_ok(m):  # 播放层 bounds 与窗格（bounds=）每边相差 ≤1 点；旧格式没有 layer= 一律判否
+    b, l = _wh(m, "bounds"), _wh(m, "layer")
+    return bool(b and l and abs(b[0] - l[0]) <= 1 and abs(b[1] - l[1]) <= 1)
+res["layer_matches_all"] = bool(dc) and all(_layer_ok(m) for m in dc)
+res["uncropped_all"] = bool(dc) and res["layer_matches_all"] and all(
+    "uncropped=true" in m and re.search(r"gravity=\S*ResizeAspect(?!Fill)", m, re.I) for m in dc)
 res["display_samples"] = sorted(set(re.sub(r"lane=\S+ ", "", m) for m in dc))[:6]
 src = [int(re.search(r"sources=(\d+)", m).group(1)) for _, c, m in logs if m.startswith("relay sources=")]
 res["relay_sources_max"] = max(src) if src else 0
