@@ -49,7 +49,7 @@ public enum SyncOps {
         _ op: SyncLocalOp, to replica: SyncReplica, pt: UInt64, localOnlyVetoCount: Int = 0
     ) -> SyncOpOutcome {
         var r = replica
-        let projection = SyncProjection(r.doc)
+        let projection = Facts(doc: r.doc)
         switch op {
         case .favorite(let name):
             guard let key = SyncKeys.roomKey(localName: name) else { return .unchanged }
@@ -81,7 +81,7 @@ public enum SyncOps {
             guard let key = SyncKeys.syncVetoKey(localKey: local) else {
                 return localOnlyVetoCount < SyncLimits.localOnlyVetoes ? .localOnly : .localOnlyQuotaFull
             }
-            let active = projection.veto.values.filter { $0 }.count
+            let active = r.doc.veto.values.filter(\.isOn).count
             guard projection.veto[key] == true || active < SyncLimits.activeVetoes else { return .vetoQuotaFull }
             r.doc.veto[key] = SyncRegister(hlc: r.clock.tick(pt: pt), payload: "+")
         case .unveto(let local):
@@ -89,7 +89,7 @@ public enum SyncOps {
             guard projection.veto[key] == true else { return .unchanged }
             r.doc.veto[key] = SyncRegister(hlc: r.clock.tick(pt: pt), payload: "-")
         case .clearVetoes:
-            let on = projection.veto.filter(\.value).map(\.key)
+            let on = r.doc.veto.filter(\.value.isOn).map(\.key)
             guard !on.isEmpty else { return .unchanged }
             let h = r.clock.tick(pt: pt)
             for key in on { r.doc.veto[key] = SyncRegister(hlc: h, payload: "-") }
@@ -101,6 +101,19 @@ public enum SyncOps {
         guard fitted.fits else { return .full }
         r.doc = fitted.doc
         return .applied(r)
+    }
+
+    /// 前置条件用到的投影事实（与 `SyncProjection` 同一判定，不排序）。
+    struct Facts {
+        let doc: SyncDocument
+        func isFavorite(_ key: String) -> Bool { doc.rooms[key]?.isFavorite ?? false }
+        func isBlocked(_ key: String) -> Bool { doc.rooms[key]?.isBlocked ?? false }
+        var veto: VetoFacts { VetoFacts(doc: doc) }
+    }
+
+    struct VetoFacts {
+        let doc: SyncDocument
+        subscript(key: String) -> Bool? { doc.veto[key].map(\.isOn) }
     }
 
     /// 导入的固定窗口：按文件顺序去掉不合规名字、按键去重，取前 300 个。只由文件内容决定。

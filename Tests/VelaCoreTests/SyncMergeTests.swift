@@ -117,6 +117,20 @@ final class SyncMergeTests: XCTestCase {
         return d
     }
 
+    func testEncodedSizeMatchesEncoding() {
+        var d = SyncDocument()
+        XCTAssertEqual(d.encodedSize, d.encoded().count)
+        d.rooms["cb:a"] = room(n: F.reg(1, "A"))
+        XCTAssertEqual(d.encodedSize, d.encoded().count)
+        d.rooms["cb:bb"] = room(f: F.reg(1, "+"), b: F.reg(2, "-"), n: F.reg(3, "BB"))
+        d.veto["t:\u{E9}t\u{E9}"] = F.reg(4, "+")
+        XCTAssertEqual(d.encodedSize, d.encoded().count)
+        d.veto["g:m"] = F.reg(4, "-")
+        d.settings["publicOnly"] = F.reg(5, "1")
+        d.settings["infoAlwaysOn"] = F.reg(5, "0")
+        XCTAssertEqual(d.encodedSize, d.encoded().count)
+    }
+
     func testFitSizeWithinLimitIsUntouched() {
         let d = bigDoc(tombstones: 10)
         let fitted = SyncMerge.fitSize(d)
@@ -133,7 +147,7 @@ final class SyncMergeTests: XCTestCase {
         let fitted = SyncMerge.fitSize(d, limit: limit)
         XCTAssertTrue(fitted.fits)
         XCTAssertLessThanOrEqual(fitted.bytes, limit)
-        XCTAssertEqual(fitted.bytes, fitted.doc.encoded().count)
+        XCTAssertEqual(fitted.bytes, fitted.doc.encoded().count, "增量计算与实测一致")
         XCTAssertNil(fitted.doc.rooms["cb:old"], "同 HLC 时房间墓碑在前")
         XCTAssertNil(fitted.doc.veto["t:000000" + String(repeating: "x", count: 100)])
         XCTAssertNil(fitted.doc.veto["t:000001" + String(repeating: "x", count: 100)])

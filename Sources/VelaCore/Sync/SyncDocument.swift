@@ -141,14 +141,30 @@ public struct SyncDocument: Equatable, Sendable {
         SyncJSON.writeString(reg.raw, into: &out)
     }
 
-    /// 单个条目在紧凑写法里占的字节（不含分隔逗号）。
-    static func roomBytes(_ key: String, _ room: SyncRoom) -> Int {
-        var out: [UInt8] = []
-        appendRoom(key, room, into: &out)
-        return out.count
+    static func pairBytes(_ key: String, _ reg: SyncRegister) -> Int { key.utf8.count + reg.raw.utf8.count + 5 }
+
+    private static let emptyBytes = SyncDocument().encoded().count
+
+    /// 紧凑写法的字节数，按结构直接累加，不生成字节（与 `encoded().count` 相等，由测试保证）。
+    public var encodedSize: Int {
+        func separators(_ n: Int) -> Int { max(0, n - 1) }
+        var total = Self.emptyBytes + separators(rooms.count) + separators(veto.count) + separators(settings.count)
+        for (key, room) in rooms { total += Self.roomBytesFast(key, room) }
+        for (key, reg) in veto { total += Self.pairBytes(key, reg) }
+        for (key, reg) in settings { total += Self.pairBytes(key, reg) }
+        return total
     }
 
-    static func pairBytes(_ key: String, _ reg: SyncRegister) -> Int { key.utf8.count + reg.raw.utf8.count + 5 }
+    /// `"key":{"b":"…","f":"…","n":"…"}`
+    static func roomBytesFast(_ key: String, _ room: SyncRoom) -> Int {
+        var fields = 0, total = key.utf8.count + 5
+        for reg in [room.b, room.f, room.n] {
+            guard let reg else { continue }
+            total += reg.raw.utf8.count + 6
+            fields += 1
+        }
+        return total + max(0, fields - 1)
+    }
 }
 
 /// 解析接收到的明文（第 7.3 节）。

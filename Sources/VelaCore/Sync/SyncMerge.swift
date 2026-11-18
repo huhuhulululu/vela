@@ -86,7 +86,7 @@ public enum SyncMerge {
     /// 第 6.7 节：先执行 `E`，再实测；超过上限时按「最旧墓碑」全序依次删除墓碑。删除墓碑不产生写入。
     public static func fitSize(_ input: SyncDocument, limit: Int = SyncLimits.plaintextBytes) -> Fitted {
         var doc = trim(input)
-        var size = doc.encoded().count
+        var size = doc.encodedSize
         guard size > limit else { return Fitted(doc: doc, bytes: size, fits: true) }
         struct Tomb { let hlc: HLC; let isVeto: Bool; let key: String }
         var tombs: [Tomb] = []
@@ -105,12 +105,10 @@ public enum SyncMerge {
                 doc.veto[tomb.key] = nil
             } else {
                 let comma = doc.rooms.count > 1 ? 1 : 0
-                size -= SyncDocument.roomBytes(tomb.key, doc.rooms[tomb.key]!) + comma
+                size -= SyncDocument.roomBytesFast(tomb.key, doc.rooms[tomb.key]!) + comma
                 doc.rooms[tomb.key] = nil
             }
         }
-        let measured = doc.encoded().count
-        assert(measured == size, "体积增量计算与实测不一致")
-        return Fitted(doc: doc, bytes: measured, fits: measured <= limit)
+        return Fitted(doc: doc, bytes: size, fits: size <= limit)
     }
 }
