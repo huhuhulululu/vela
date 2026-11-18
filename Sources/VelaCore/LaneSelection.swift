@@ -81,6 +81,32 @@ public enum LaneSelection {
         }
     }
 
+    /// `updateFeed` 用的入口：先用 `feedIntent` 识别续页恢复，再 `resolve`。
+    public static func resolveFeedChange(
+        before: Snapshot,
+        afterRooms: [String],
+        proposedPrimary: String?,
+        intent: Intent
+    ) -> Outcome {
+        resolve(
+            before: before, afterRooms: afterRooms, proposedPrimary: proposedPrimary,
+            intent: feedIntent(intent, beforeRooms: before.rooms, afterRooms: afterRooms)
+        )
+    }
+
+    /// 可见列表由空变非空，且这次是被动变化（合并续页、筛选放宽）时，按 `.blankResume` 两路重新选房。
+    /// 整表重载、全站搜索装入或退出、reveal、划动有自己的落点规则，保留原意图。
+    /// 单窗时 `.blankResume` 与这两种意图一样采用 FeedStore 的选择，结果不变。
+    public static func feedIntent(_ intent: Intent, beforeRooms: [String], afterRooms: [String]) -> Intent {
+        guard beforeRooms.isEmpty, !afterRooms.isEmpty else { return intent }
+        switch intent {
+        case .merge, .filter:
+            return .blankResume
+        case .reload, .searchInstall, .searchExit, .reveal, .move, .blankResume:
+            return intent
+        }
+    }
+
     /// - Parameters:
     ///   - before: 变更前的快照。
     ///   - afterRooms: 变更后的可见用户名，顺序就是划动顺序。

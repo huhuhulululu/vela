@@ -5,7 +5,9 @@
   perf_gate.py <基线.json> <结果.json> [--scenario play|idle]
   perf_gate.py --validate <结果.json>        仅做结果完整性自检（perf-probe.sh 收尾时调用）
 
-基线 play 段须有 cpu_app（= cpu_avg - vtdecoder_cpu_avg 的基线），可带 startup_runs（各轮起播）与 startup_median；基线文件可以是单场景的扁平对象，也可以是 {"play": {...}, "idle": {...}}。
+基线 play 段须有 cpu_avg、footprint_avg_mb、app_size_mb，stream_mode 必须为 fixed（固定测试流，见 docs/PERF.md），可带 startup_runs（各轮起播）与 startup_median；
+基线文件可以是单场景的扁平对象，也可以是 {"play": {...}, "idle": {...}}。结果的 stream_mode 须与基线相同（都是 fixed），否则拒绝比较。
+play 的 CPU 直接比较主进程 cpu_avg（<= 基线 x 1.15 + 0.3 个百分点）；VTDecoderXPCService 是独立进程，只打印，不参与加减。
 退出码：0 合格；1 不合格；2 用法或文件错误。缺字段、NaN、skipped、samples=0、起播 <= 0 一律不合格。
 """
 import json
@@ -14,7 +16,9 @@ import sys
 
 PLAY_FIELDS = ["cpu_avg", "vtdecoder_cpu_avg", "footprint_avg_mb", "wakeups_avg", "app_size_mb"]
 IDLE_FIELDS = ["cpu_avg", "wakeups_avg", "net_in_mb_per_min", "net_out_kb_per_min"]
-COMMON_FIELDS = ["runtime_issues", "samples", "startup_to_play_s"]
+COMMON_FIELDS = ["runtime_issues", "samples", "startup_to_play_s", "invalid_samples", "interval_s", "duration_s", "elapsed_s"]
+MIN_VALID_SAMPLES = 5
+MAX_INVALID_RATIO = 0.10
 
 
 def num(d, key):
@@ -53,6 +57,24 @@ def validate(res, scenario):
         print("警告: play 场景 cpu_avg > 0 但 wakeups_avg = 0（IDLEW 可能被冻结，或码流静止），wakeups 不作 play 门，仅提示", file=sys.stderr)
     if num(res, "samples") is not None and res["samples"] <= 0:
         bad.append("samples = %s" % res["samples"])
+    # 采样完整性：失败样本只能记无效，不得补 0 充数；有效样本数须与时长对得上
+    if scenario == "play":
+        for k in ("footprint_avg_mb", "app_size_mb"):
+            if num(res, k) is not None and res[k] <= 0:
+                bad.append("%s = %s（采样失败补零？）" % (k, res[k]))
+    if all(num(res, k) is not None for k in ("samples", "invalid_samples", "interval_s", "duration_s", "elapsed_s")):
+        n, inv = res["samples"], res["invalid_samples"]
+        if n < MIN_VALID_SAMPLES:
+            bad.append("有效样本 %d < %d" % (n, MIN_VALID_SAMPLES))
+        if n + inv > 0 and inv / (n + inv) > MAX_INVALID_RATIO:
+            bad.append("无效样本占比 %.0f%% > 10%%（有效 %d、无效 %d）" % (100.0 * inv / (n + inv), n, inv))
+        if res["interval_s"] > 0:
+            if res["elapsed_s"] < res["duration_s"] * 0.95:
+                bad.append("实际采样时长 %.1f s 短于要求 %.1f s" % (res["elapsed_s"], res["duration_s"]))
+            if n + inv < 0.8 * res["elapsed_s"] / res["interval_s"]:
+                bad.append("样本数 %d 与时长 %.1f s / 间隔 %.1f s 不符" % (n + inv, res["elapsed_s"], res["interval_s"]))
+    if res.get("stream_mode") not in ("fixed", "live"):
+        bad.append("stream_mode 缺失或非法: %s" % res.get("stream_mode"))
     if num(res, "startup_to_play_s") is not None and res["startup_to_play_s"] <= 0:
         bad.append("起播时间 %s 不大于 0" % res["startup_to_play_s"])
     return bad
@@ -71,16 +93,16 @@ def gate(base, res, scenario):
         check("net_in_mb_per_min", None, res["net_in_mb_per_min"], "= 0", res["net_in_mb_per_min"] == 0)
         check("net_out_kb_per_min", None, res["net_out_kb_per_min"], "= 0", res["net_out_kb_per_min"] == 0)
         return rows
+    print("stream_mode %s  码率 %s kbps" % (res.get("stream_mode"), res.get("stream_bitrate_kbps")))
     limits = [
         ("footprint_avg_mb", lambda b: b + 5, "基线 + 5 MB"),
         ("app_size_mb", lambda b: b + 0.3, "基线 + 0.3 MB"),
     ]
-    # CPU：2026-11-17 编排者裁决，扣除硬解（各房间码率不同，硬解波动会淹没 App 自身变化）：
-    # cpu_app = cpu_avg - vtdecoder_cpu_avg <= 基线 cpu_app x 1.15 + 0.3 个百分点；总 cpu_avg 只打印不判
-    cpu_app = res["cpu_avg"] - res["vtdecoder_cpu_avg"]
+    # CPU：直接比较主进程 cpu_avg（ADR-005 撤销 ADR-003 的「扣除硬解」；VTDecoderXPCService 是独立进程，
+    # 用它的负载去抵消主进程会掩盖回退）。固定测试流下码率恒定，主进程 CPU 可比。
     print("wakeups_avg(仅打印) %s" % res["wakeups_avg"])
-    print("cpu_avg(仅打印) %.2f  vtdecoder_cpu_avg %.2f  cpu_app %.2f" % (res["cpu_avg"], res["vtdecoder_cpu_avg"], cpu_app))
-    check("cpu_app", base["cpu_app"], round(cpu_app, 2), "<= 基线 cpu_app x 1.15 + 0.3", cpu_app <= base["cpu_app"] * 1.15 + 0.3 + 1e-9)
+    print("vtdecoder_cpu_avg(仅打印，独立进程) %.2f" % res["vtdecoder_cpu_avg"])
+    check("cpu_avg", base["cpu_avg"], res["cpu_avg"], "<= 基线 x 1.15 + 0.3", res["cpu_avg"] <= base["cpu_avg"] * 1.15 + 0.3 + 1e-9)
     for k, f, desc in limits:
         b = base[k]
         check(k, b, res[k], "<= " + desc, res[k] <= f(b) + 1e-9)
@@ -133,9 +155,13 @@ def main(argv):
         if not isinstance(base, dict):
             bad.append("基线不是 JSON 对象")
         else:
-            for k in [x for x in PLAY_FIELDS if x not in ("cpu_avg", "vtdecoder_cpu_avg", "wakeups_avg")] + ["cpu_app"]:
-                if num(base, k) is None:
-                    bad.append("基线缺失或非有限数值: %s" % k)
+            for k in ("cpu_avg", "footprint_avg_mb", "app_size_mb"):
+                if num(base, k) is None or base[k] <= 0:
+                    bad.append("基线缺失、非有限数值或为 0: %s" % k)
+            if base.get("stream_mode") != "fixed":
+                bad.append("基线 stream_mode 须为 fixed（当前 %s）：活直播码率每轮不同，不可作回归基线" % base.get("stream_mode"))
+            elif isinstance(res, dict) and res.get("stream_mode") != base.get("stream_mode"):
+                bad.append("模式不同不可比较：基线 %s，结果 %s" % (base.get("stream_mode"), res.get("stream_mode")))
             if num(base, "startup_median") is None and num(base, "startup_to_play_s") is None:
                 bad.append("基线缺失 startup_median 与 startup_to_play_s")
             for k in ("startup_median",):

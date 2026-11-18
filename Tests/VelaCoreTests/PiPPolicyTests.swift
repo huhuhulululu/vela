@@ -147,6 +147,36 @@ final class PiPPolicyTests: XCTestCase {
         }
     }
 
+    /// 焦点路还在首次解析、切房解析或尚未播放的刷新：画中画输入说焦点路没在播，回桌面走完整停播序列。
+    /// `shouldPlay` 只能收紧 `pip.focusPlaying`，不能把「没在播」改写成「在播」。
+    func testNotYetPlayingFocusStopsEveryLaneOnHome() {
+        for activity in [PhoneLaneActivity.firstResolve, .roomSwitch, .refreshing] {
+            let pip = input(scene: .background, pictureInPicture: .none, autoEnterEnabled: true, focusPlaying: false)
+            XCTAssertEqual(
+                PhoneLifecycle.actions(
+                    from: .active, to: .background, wasSuspended: false,
+                    lanes: [lane(activity: activity), lane(.secondary, username: "other")],
+                    resumeIntent: .reload, pip: pip
+                ),
+                fullStop(.reload),
+                "\(activity)"
+            )
+        }
+    }
+
+    /// 画中画说焦点路在播，但焦点路已暂停：取交集，仍是全停。
+    func testFocusPlayingIsIntersectedWithShouldPlay() {
+        let pip = input(scene: .background, pictureInPicture: .none, autoEnterEnabled: true, focusPlaying: true)
+        XCTAssertEqual(
+            PhoneLifecycle.actions(
+                from: .active, to: .background, wasSuspended: false,
+                lanes: [lane(manuallyPaused: true), lane(.secondary, username: "other")],
+                resumeIntent: nil, pip: pip
+            ),
+            fullStop(nil)
+        )
+    }
+
     /// 没有正在进行的画中画、也不会自动进入时，进后台仍是原来的全停。
     func testBackgroundWithoutPictureInPictureStopsEveryLane() {
         let paused = lane(manuallyPaused: true)

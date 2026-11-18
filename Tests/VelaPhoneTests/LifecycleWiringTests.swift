@@ -217,6 +217,18 @@ final class LifecycleWiringTests: XCTestCase {
         XCTAssertNotNil(stage.primary.playTask)
     }
 
+    func testDegradedLaneIsReleasedBeforeReplayOnReturn() {
+        let stage = makeStage(secondary: "bob")
+        stage.secondary?.degradedHold.degrade()
+        XCTAssertFalse(stage.laneAllowed(stage.secondary!), "降级扣住时该路闸门关闭")
+
+        _ = background(stage)
+        let actions = foreground(stage)
+        XCTAssertTrue(actions.contains { if case .requestPlay(.secondary, _) = $0 { return true }; return false }, "\(actions)")
+        XCTAssertFalse(stage.secondary!.degradedHold.held, "回前台恢复清除降级扣住")
+        XCTAssertNotNil(stage.secondary?.playTask)
+    }
+
     func testFailedLaneKeepsFailureAndDoesNotReplay() {
         let stage = makeStage()
         stage.primary.state = .failed

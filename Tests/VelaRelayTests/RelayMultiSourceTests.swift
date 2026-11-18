@@ -149,6 +149,27 @@ final class RelayMultiSourceTests: XCTestCase {
         XCTAssertEqual(status6, 200)
     }
 
+    /// stop 还没返回时 restart 并登记新源：stop 只清掉旧一代，新源在 stop 返回后仍可 200。
+    func testRestartDuringStopKeepsNewlyRegisteredSource() async throws {
+        try await listen()
+        let old = try register(muxed("a"))
+        var fresh: (id: String, url: URL)?
+        relay.stopInterleaveForTesting = { [unowned self] in
+            XCTAssertTrue(self.relay.start())
+            let deadline = Date().addingTimeInterval(3)
+            while self.relay.listeningPort == 0, Date() < deadline { Thread.sleep(forTimeInterval: 0.02) }
+            fresh = self.relay.localURL(for: self.muxed("b"), maxBandwidth: .infinity, audioSuppressed: false)
+        }
+        relay.stopListener()
+        relay.stopInterleaveForTesting = nil
+        let registered = try XCTUnwrap(fresh)
+        let status = try await get(registered.url).status
+        XCTAssertEqual(status, 200)
+        let moved = try XCTUnwrap(URL(string: "\(PlaylistRelay.localBase(port: relay.listeningPort))/\(old.id)/master.m3u8"))
+        let stale = try await get(moved).status
+        XCTAssertEqual(stale, 404, "旧一代的源已摘除")
+    }
+
     func testAllowStartOffRefusesToListen() async throws {
         relay.allowStart = false
         XCTAssertFalse(relay.start())
@@ -160,6 +181,21 @@ final class RelayMultiSourceTests: XCTestCase {
         relay.allowStart = true
         try await listen()
         XCTAssertNotEqual(relay.listeningPort, 0)
+    }
+
+    /// 端口已绑好之后挂起（allowStart=false）：不登记新源、返回 nil；已登记的源照常应答。
+    func testSuspendedAfterBindingRefusesNewSources() async throws {
+        try await listen()
+        let existing = try register(muxed("a"))
+        relay.allowStart = false
+        XCTAssertNotEqual(relay.listeningPort, 0, "挂起不关已有监听")
+        XCTAssertNil(relay.localURL(for: muxed("b"), maxBandwidth: .infinity, audioSuppressed: false))
+        let status = try await get(existing.url).status
+        XCTAssertEqual(status, 200)
+        relay.allowStart = true
+        let resumed = try register(muxed("c"))
+        let resumedStatus = try await get(resumed.url).status
+        XCTAssertEqual(resumedStatus, 200)
     }
 
     // MARK: 工具

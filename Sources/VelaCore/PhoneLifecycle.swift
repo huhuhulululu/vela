@@ -99,7 +99,8 @@ public enum PhoneLifecycle {
     /// `pip == nil` 时与修订 A2 之前相同：进后台全停。
     /// 有画中画输入时，焦点路已在画中画或将自动进入，则该路继续、其余路释放、中继只留该路；
     /// 共享任务照常挂起。已经在后台且状态变为 `.stopping` 时，补做原来的全停（画中画结束）。
-    /// 快照里能找到焦点路时，用 `shouldPlay` 覆盖 `pip.focusPlaying`，暂停、失败、隐藏的路不会自动进入。
+    /// 快照里能找到焦点路时，「焦点路正在播放」取 `pip.focusPlaying ∧ shouldPlay`（只收紧、不覆盖）：
+    /// 暂停、失败、隐藏的路不会自动进入；首次解析、切房解析、尚未播放的刷新也不会被当成在播。
     public static func actions(
         from: PhoneScenePhase,
         to: PhoneScenePhase,
@@ -176,7 +177,7 @@ public enum PhoneLifecycle {
             input.lanes = lanes.map(\.role)
         }
         if let focusLane = lanes.first(where: { $0.role == input.focus }) {
-            input.focusPlaying = shouldPlay(focusLane)
+            input.focusPlaying = pip.focusPlaying && shouldPlay(focusLane)
         }
         return PiPPolicy.decide(input)
     }

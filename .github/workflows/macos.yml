@@ -40,7 +40,11 @@ jobs:
           -configuration ${{ matrix.configuration }}
           CODE_SIGN_IDENTITY=-
           CODE_SIGNING_ALLOWED=NO
+          -derivedDataPath "$RUNNER_TEMP/dd"
           build
+      - name: Release 产物不含固定测试流钩子
+        if: matrix.configuration == 'Release'
+        run: scripts/check-release-no-perf-hook.sh "$RUNNER_TEMP/dd/Build/Products/Release/Vela.app"
 
   ios:
     name: iOS simulator build and tests

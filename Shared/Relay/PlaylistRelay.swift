@@ -70,6 +70,8 @@ final class PlaylistRelay: @unchecked Sendable {
     private var connections: [ObjectIdentifier: NWConnection] = [:]
     private var replies: [UUID: Task<Void, Never>] = [:]
     private var startAllowed = true
+    /// 测试用：`stopListener` 摘除旧一代之后、锁外取消之前调用，用来模拟 stop 与 restart 交错。
+    var stopInterleaveForTesting: (() -> Void)?
 
     private convenience init() {
         let configuration = URLSessionConfiguration.ephemeral
@@ -89,19 +91,24 @@ final class PlaylistRelay: @unchecked Sendable {
         "http://\(RelayHost.name):\(port)"
     }
 
-    /// 关闭期间（iOS 挂起）`start` 与 `waitUntilListening` 直接返回 false；已在监听的不受影响，要停用 `stopListener`。
+    /// 关闭期间（iOS 挂起）`start` 与 `waitUntilListening` 直接返回 false，`localURL` 不登记新源；已登记的源照常应答，要停用 `stopListener`。
     var allowStart: Bool {
         get { lock.withLock { startAllowed } }
         set { lock.withLock { startAllowed = newValue } }
     }
 
     /// 登记一个新源，返回它的 id 与本地主列表地址。端口还没绑好时触发监听并返回 nil。
+    /// `allowStart` 关闭期间（挂起）即使端口仍绑着也不登记，返回 nil。
     /// 表里已满两个源时淘汰最旧的那个（它的循环与在途一并取消）；调用方换源前应先作废自己的旧源。
     func localURL(
         for rendition: StreamRendition, maxBandwidth: Double, audioSuppressed: Bool,
         renew: (@Sendable () async -> StreamRendition?)? = nil
     ) -> (id: String, url: URL)? {
         lock.lock()
+        guard startAllowed else {
+            lock.unlock()
+            return nil
+        }
         let bound = port
         let id = UUID().uuidString
         guard bound != 0, let url = URL(string: "\(Self.localBase(port: bound))/\(id)/master.m3u8") else {
@@ -521,7 +528,8 @@ final class PlaylistRelay: @unchecked Sendable {
         return true
     }
 
-    /// 停掉监听：代次加一 → 取消监听 → 取消已登记的连接与应答任务 → 清空源表（取消每个源的循环与在途）。
+    /// 停掉监听：一次持锁内代次加一，并原子地摘除旧一代的监听、连接、应答任务、源表、循环与在途；
+    /// 锁外只取消这些已摘除的对象。stop 未返回时 restart 新登记的源不受影响。
     /// 之后旧地址都失效；再 `start` 会换一个新端口。
     func stopListener() {
         lock.lock()
@@ -531,16 +539,22 @@ final class PlaylistRelay: @unchecked Sendable {
         port = 0
         let open = Array(connections.values)
         connections.removeAll()
-        let pending = Array(replies.values)
+        var tasks = Array(replies.values)
         replies.removeAll()
-        lock.unlock()
-        old?.cancel()
-        for connection in open { connection.cancel() }
-        for task in pending { task.cancel() }
-        lock.lock()
-        for id in Array(entries.keys) { cancelSourceLocked(id) }
+        for entry in entries.values {
+            // 续期取消须在源锁内（见 `RenewalCoordinator.isCurrent`）。
+            entry.renewal.cancel()
+            tasks.append(contentsOf: entry.inflight.values)
+        }
+        for perSource in loops.values { tasks.append(contentsOf: perSource.values) }
+        entries.removeAll()
+        loops.removeAll()
         sources.removeAll()
         lock.unlock()
+        stopInterleaveForTesting?()
+        old?.cancel()
+        for connection in open { connection.cancel() }
+        for task in tasks { task.cancel() }
     }
 
     /// 此刻绑定的端口（没在监听为 0）。

@@ -208,6 +208,42 @@ final class LaneSelectionTests: XCTestCase {
         XCTAssertNotEqual(outcome.primary.username, outcome.secondary?.username)
     }
 
+    /// 经过 `updateFeed` 用的入口：可见列表由空变非空（续页、放宽筛选）时按 `.blankResume` 两路都选上。
+    func testFeedChangeFromBlankResumesBothLanes() {
+        let blank = LaneSelection.Snapshot(
+            rooms: [],
+            primary: LaneCursor(username: nil, direction: 1),
+            secondary: LaneCursor(username: nil, direction: 1),
+            focus: .primary
+        )
+        for intent in [LaneSelection.Intent.merge, .filter] {
+            let outcome = LaneSelection.resolveFeedChange(
+                before: blank, afterRooms: ["c", "d", "e"], proposedPrimary: "c", intent: intent
+            )
+            XCTAssertEqual(outcome.primary.username, "c", "\(intent)")
+            XCTAssertEqual(outcome.secondary?.username, "d", "\(intent) 副路也要续上")
+            XCTAssertEqual(outcome.reasons[.primary], .resume, "\(intent)")
+            XCTAssertEqual(outcome.reasons[.secondary], .resume, "\(intent)")
+        }
+        XCTAssertEqual(LaneSelection.feedIntent(.merge, beforeRooms: [], afterRooms: ["a"]), .blankResume)
+        XCTAssertEqual(LaneSelection.feedIntent(.merge, beforeRooms: ["a"], afterRooms: ["a", "b"]), .merge, "非空到非空不改")
+        XCTAssertEqual(LaneSelection.feedIntent(.filter, beforeRooms: [], afterRooms: []), .filter, "仍为空不改")
+        XCTAssertEqual(LaneSelection.feedIntent(.reload, beforeRooms: [], afterRooms: ["a"]), .reload, "整表换源保留原意图")
+        XCTAssertEqual(LaneSelection.feedIntent(.reveal("a"), beforeRooms: [], afterRooms: ["a"]), .reveal("a"))
+    }
+
+    /// 单窗：续页恢复与 FeedStore 的选择一致（macOS 行为不变）。
+    func testFeedChangeFromBlankSingleWindowMatchesFeedStore() {
+        var resumed = FeedStore()
+        resumed.append(CatalogPage(rooms: [room("c"), room("d")], total: 2, nextOffset: 2))
+        let outcome = LaneSelection.resolveFeedChange(
+            before: LaneSelection.Snapshot(rooms: [], primary: LaneCursor(), secondary: nil, focus: .primary),
+            afterRooms: resumed.rooms.map(\.username), proposedPrimary: resumed.currentUsername, intent: .merge
+        )
+        XCTAssertEqual(outcome.primary.username, resumed.currentUsername)
+        XCTAssertNil(outcome.secondary)
+    }
+
     // MARK: reveal
 
     func testRevealTargetOnTheOtherLaneOnlySwitchesFocus() {

@@ -35,6 +35,7 @@ extension StageModel {
     /// 重试目标那一路。点下去之后那一路换了房间或换了一次播放就放弃。
     func retryPlayback(_ target: RoomTarget?) {
         guard let lane = matchedLane(target) else { return }
+        lane.degradedHold.release(.retry)
         lane.skips.reset()
         if let username = name(of: lane) {
             prepared.remove(username)
@@ -231,6 +232,9 @@ extension StageModel {
     private func playTarget(
         for username: String, cap: Double, token: Int, lane: PlaybackLane, life: LifecycleEpoch.Token
     ) async throws -> PlayTarget? {
+        #if os(macOS) && (DEBUG || PERF_PROBE)
+        if let fixed = perfStreamTarget(for: username) { return fixed }
+        #endif
         if let cached = prepared.fresh(username, cap: cap, now: Date()) {
             return PlayTarget(master: nil, playable: cached)
         }

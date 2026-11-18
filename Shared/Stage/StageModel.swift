@@ -315,6 +315,9 @@ final class StageModel: ObservableObject {
     /// 年龄已确认就在模型初始化后发唯一一次目录请求，不等首个视图出现。
     /// 未确认时不发；确认后仍由 `confirmAge` 加载。
     private func kickoffCatalogIfConfirmed() {
+        #if os(macOS) && (DEBUG || PERF_PROBE)
+        if startPerfStreamIfRequested() { return }
+        #endif
         guard startupGate.claimCatalog(ageConfirmed: ageConfirmed) else { return }
         Task { await reload() }
     }
@@ -734,7 +737,8 @@ final class StageModel: ObservableObject {
     /// 不能靠 `$feed` 订阅：`@Published` 在 willSet 发出，回调里读 `feed` 还是旧值。
     /// `installing`：这次改动把列表整体换成了这个来源的；即使当前房间同名也要结算旧来源下的停留，
     /// 且 `loadedSource` 先于结算更新，停留归属取新列表的真实来源（不是用户刚选的来源）。
-    /// `intent`：交给 `LaneSelection` 的意图（§4.1）。单窗时它的结果必须与 FeedStore 自己的选择一致。
+    /// `intent`：交给 `LaneSelection` 的意图（§4.1）；可见列表由空变非空的续页恢复改按 `.blankResume`（`feedIntent`）。
+    /// 单窗时它的结果必须与 FeedStore 自己的选择一致。
     func updateFeed(
         installing: Source? = nil,
         intent: LaneSelection.Intent = .filter,
@@ -744,7 +748,7 @@ final class StageModel: ObservableObject {
         let before = copy.current?.username
         let snapshot = laneSnapshot(of: copy)
         body(&copy)
-        let outcome = LaneSelection.resolve(
+        let outcome = LaneSelection.resolveFeedChange(
             before: snapshot, afterRooms: copy.rooms.map(\.username),
             proposedPrimary: copy.current?.username, intent: intent
         )
@@ -819,13 +823,13 @@ final class StageModel: ObservableObject {
     /// 主路的播放门控（菜单、提示文案等只看主路的地方用）。
     var playbackAllowed: Bool { laneAllowed(primary) }
 
-    /// 每路的播放门控 = 全局闸门 ∧ !本路手动暂停 ∧ 本路可见（§4.2）。
+    /// 每路的播放门控 = 全局闸门 ∧ !本路手动暂停 ∧ 本路可见（§4.2）∧ 未被资源降级扣住（§4.4）。
     /// 起播、重试、换档、恢复都经过该路 PlayerController 里的这一个开关。
     func laneAllowed(_ lane: PlaybackLane) -> Bool {
-        PlaybackPolicy.allowed(
+        lane.degradedHold.gate(PlaybackPolicy.allowed(
             windowVisible: pointVisible && lane.visible, manuallyPaused: lane.manuallyPaused,
             bossHidden: bossHidden, systemInactive: systemInactive
-        )
+        ))
     }
 
     /// 把「窗口对用户不可见」同步给各路播放器，决定停播后要不要释放播放项。
