@@ -103,13 +103,13 @@ private struct MenuBarFavoriteRow: View {
 /// 走 `RoomThumbnailCache` 的小缩略图；加载中与失败都显示占位。
 private struct CachedThumbnail: View {
     var url: URL?
-    @State private var image: NSImage?
+    @State private var image: CGImage?
 
     var body: some View {
         ZStack {
             Rectangle().fill(.white.opacity(0.08))
             if let image {
-                Image(nsImage: image).resizable().scaledToFill()
+                Image(decorative: image, scale: 1).resizable().scaledToFill()
             } else {
                 Image(systemName: "person.fill")
                     .font(.system(size: 13))

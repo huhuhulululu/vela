@@ -112,6 +112,8 @@
 		273A7A1C0A4127872757F4FD /* ButtonStyles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ButtonStyles.swift"; sourceTree = "<group>"; };
 		B81969383A625186A1D10B2F /* AgeGateContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgeGateContent.swift"; sourceTree = "<group>"; };
 		530F0A44EED4FAE366351B2E /* ClickRegion+Phone.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ClickRegion+Phone.swift"; sourceTree = "<group>"; };
+		935884F8DC5DDF529EF71817 /* RoomThumbnailCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RoomThumbnailCache.swift"; sourceTree = "<group>"; };
+		488826C51F96116531219AE0 /* SwapBackdrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SwapBackdrop.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -282,6 +284,8 @@
 		CB34A6584F241E6CEF4433EF /* Stage */ = {
 			isa = PBXGroup;
 			children = (
+				488826C51F96116531219AE0 /* SwapBackdrop.swift */,
+				935884F8DC5DDF529EF71817 /* RoomThumbnailCache.swift */,
 				B81969383A625186A1D10B2F /* AgeGateContent.swift */,
 				273A7A1C0A4127872757F4FD /* ButtonStyles.swift */,
 			);
@@ -364,6 +368,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5F01D196FC0522F63E4FF56D /* SwapBackdrop.swift in Sources */,
+				2D7DFD0216EDAE1C0351A990 /* RoomThumbnailCache.swift in Sources */,
 				85783787A307E861A831B7AF /* AgeGateContent.swift in Sources */,
 				FDFBDD0CA7ECB48B64CAEB93 /* ButtonStyles.swift in Sources */,
 				07CE08A845318DB2581EB2F6 /* AgeGateView.swift in Sources */,
@@ -706,6 +712,8 @@
 		FDFBDD0CA7ECB48B64CAEB93 /* ButtonStyles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 273A7A1C0A4127872757F4FD /* ButtonStyles.swift */; };
 		85783787A307E861A831B7AF /* AgeGateContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = B81969383A625186A1D10B2F /* AgeGateContent.swift */; };
 		EC1323DECFCC9557631A3CCC /* ClickRegion+Phone.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 530F0A44EED4FAE366351B2E /* ClickRegion+Phone.swift */; };
+		2D7DFD0216EDAE1C0351A990 /* RoomThumbnailCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 935884F8DC5DDF529EF71817 /* RoomThumbnailCache.swift */; };
+		5F01D196FC0522F63E4FF56D /* SwapBackdrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = 488826C51F96116531219AE0 /* SwapBackdrop.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin XCBuildConfiguration section */
