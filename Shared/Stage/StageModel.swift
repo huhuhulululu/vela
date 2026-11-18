@@ -14,6 +14,8 @@ protocol AudioFocusing: AnyObject {
     func syncVolume(to lane: PlaybackLane)
     /// 起播前按当前静音状态做一次初始转换；会话已按配置激活着返回 nil。
     func prepareSession(muted: Bool) -> AudioOutcome?
+    /// 最后一路停播后停用会话、通知他人恢复；会话本来没激活（或画中画还在播）返回 nil。
+    func releaseAfterLastLaneStopped() -> AudioOutcome?
 }
 
 @MainActor

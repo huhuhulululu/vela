@@ -86,6 +86,14 @@ final class AudioFocusController: AudioFocusing, AudioLaneControlling {
         return perform(.prepare(muted: muted))
     }
 
+    /// 最后一路停播（筛选清空、播放失败、进入访问确认）：停用会话并通知他人恢复（§3.3）。
+    /// 会话本来就没激活、或画中画还在播时不做。运行时静音意图不变。
+    func releaseAfterLastLaneStopped() -> AudioOutcome? {
+        guard sessionPrepared, !pictureInPictureActive() else { return nil }
+        Self.log.info("audio last lane stopped")
+        return perform(.deactivate(.lastLaneStopped))
+    }
+
     /// 记下这次转换之后会话的状态。
     private func noteSession(_ outcome: AudioOutcome) {
         if let active = outcome.sessionActiveAfter {

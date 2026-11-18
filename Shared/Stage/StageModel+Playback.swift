@@ -74,6 +74,7 @@ extension StageModel {
         }
         lane.dwell.markFailed()
         lane.state = .failed
+        noteLaneStopped()
         // Swiping away on every stall turns a hiccup into a freeze. Stay on the room and show why.
         let note = lane.player.lastError ?? "画面中断了"
         lane.playerNote = note
@@ -121,7 +122,7 @@ extension StageModel {
         // 没有失败文案时再赋 nil 也会发 objectWillChange，起播瞬间多一次整树失效。
         AssignIf.changed(from: lane.playbackNote, to: nil as String?) { lane.playbackNote = $0 }
         guard let room = room(of: lane) else {
-            lane.player.stop()
+            stopLane(lane)
             lane.state = .empty
             if lane.id == .primary { idleStart.markIdle() }
             return
@@ -152,7 +153,7 @@ extension StageModel {
         guard listening else {
             // 中继被挂起（不允许起监听）时不是故障：静默放弃，恢复后由生命周期重新起播。macOS 恒允许，不会走到这里。
             guard PlaylistRelay.shared.allowStart else { return false }
-            lane.player.stop()
+            stopLane(lane)
             lane.playbackNote = "本地中继没能启动，暂时无法播放"
             chromeVisible = true
             log.error("relay not listening")
@@ -171,7 +172,7 @@ extension StageModel {
             await presentPlaybackChallenge(token: token, lane: lane)
         case is EndpointBackedOff:
             // 退避窗口内没发请求：不是这一间不可播。留在当前房间，窗口结束后再解析，不跳房、不耗 SkipTracker。
-            lane.player.stop()
+            stopLane(lane)
             lane.playbackNote = EndpointBackoff.pendingNote(playbackAllowed: allowed)
             chromeVisible = true
             lane.dwell.markFailed()
@@ -180,11 +181,11 @@ extension StageModel {
             }
         case StreamDecodeError.unavailable:
             // 普通 403 / 503（限流、关播、地区封锁）：不是质询，不弹确认页，走现有的提示与自动跳过。
-            lane.player.stop()
+            stopLane(lane)
             lane.playbackNote = Copy.failure(.unavailable)
             scheduleSkip(token: token, on: lane)
         default:
-            lane.player.stop()
+            stopLane(lane)
             if NetworkFailure.isOffline(error) {
                 // 断网：说清楚并停在这一间等重试；连跳几间只会各失败一遍。
                 lane.playbackNote = NetworkFailure.message
@@ -199,7 +200,7 @@ extension StageModel {
 
     private func presentPlaybackChallenge(token: Int, lane: PlaybackLane) async {
         // 无论弹不弹确认页，先停掉当前播放：确认页下面不能继续放上一间的声音。
-        lane.player.stop()
+        stopLane(lane)
         guard allowChallengePrompt() else {
             // 连续质询已达上限：不再弹确认页，提示后按失败处理自动跳过。
             lane.playbackNote = "站点连续要求确认，这一间先跳过"
@@ -247,7 +248,7 @@ extension StageModel {
         let origin = sourced.origin.rawValue
         Self.playbackLog.info("start-source \(origin, privacy: .public)")
         guard ticket.isPlayable, let master = ticket.url else {
-            lane.player.stop()
+            stopLane(lane)
             noteUnplayable(ticket.failure, username: username, token: token, lane: lane)
             return nil
         }
@@ -324,6 +325,20 @@ extension StageModel {
             guard let self, let lane else { return }
             await self.prefetchAhead(on: lane)
         }
+    }
+
+    /// 停掉一路（没有房间、解析失败、进入访问确认等）。若各路都已停播，释放音频会话（§3.3「最后一路停播」）。
+    func stopLane(_ lane: PlaybackLane) {
+        lane.player.stop()
+        noteLaneStopped()
+    }
+
+    /// 没有哪一路还在出画面（都没有播放项，或都已失败）时，经音频控制器停用会话。macOS 没有控制器，不做事。
+    func noteLaneStopped() {
+        guard let audioFocus else { return }
+        let anyLive = lanes.contains { $0.player.hasItem && $0.state != .failed }
+        guard !anyLive, let outcome = audioFocus.releaseAfterLastLaneStopped() else { return }
+        applyAudioOutcome(outcome)
     }
 
     func resolve(_ username: String) async throws -> StreamTicket {

@@ -200,7 +200,7 @@ final class AudioFocusControllerTests: XCTestCase {
         XCTAssertEqual(Array(driver.calls.prefix(2)), ["category playback mix=true", "active true notify=false"])
         XCTAssertTrue(stage.primary.player.hasItem, "随后确实起播了（播放器拿到了播放项）")
     }
-    // MARK: 审计修复：后台不改静音意图
+    // MARK: 审计修复：后台不改静音意图、最后一路停播
 
     /// 出声进后台再回前台：运行时与设置一致（仍是出声），回前台起播前按出声重新准备会话。
     func testAudibleBackgroundThenForegroundKeepsIntentAndPreparesAudibleSession() {
@@ -234,5 +234,31 @@ final class AudioFocusControllerTests: XCTestCase {
         stage.prepareAudioSession()
         XCTAssertEqual(driver.calls, ["category playback mix=true", "active true notify=false"])
         XCTAssertTrue(stage.muted)
+    }
+
+    /// 最后一路停播（播放失败）：停用会话并通知他人恢复；下次起播重新准备。
+    func testLastLaneStoppingDeactivatesSession() {
+        let (stage, controller, driver) = make()
+        stage.prepareAudioSession()
+        driver.calls = []
+        stage.notePlaybackFailed(true, on: stage.primary)
+        XCTAssertEqual(driver.calls.last, "active false notify=true", "\(driver.calls)")
+        XCTAssertFalse(controller.sessionPrepared)
+        XCTAssertTrue(stage.muted)
+        driver.calls = []
+        stage.notePlaybackFailed(true, on: stage.primary)
+        XCTAssertTrue(driver.calls.isEmpty, "会话已停用就不再重复：\(driver.calls)")
+    }
+
+    /// 最后一路停播不改运行时静音意图（出声的用户下次起播仍出声）。
+    func testLastLaneStoppingKeepsAudibleIntent() {
+        let (stage, _, driver) = make()
+        stage.toggleMute()
+        stage.prepareAudioSession()
+        driver.calls = []
+        stage.stopLane(stage.primary)
+        XCTAssertEqual(driver.calls.last, "active false notify=true", "\(driver.calls)")
+        XCTAssertFalse(stage.muted)
+        XCTAssertFalse(stage.settings.muted)
     }
 }
