@@ -22,10 +22,13 @@ public struct AudioOutcome: Equatable, Sendable {
     public var pausesPlayback: Bool
     public var ignored: Bool
     public var failed: Bool
+    /// 这次成功执行的 `setActive` 的结果：true 已激活，false 已停用；nil 表示没有这一步或这一步失败。
+    public var sessionActiveAfter: Bool?
 
     public init(
         mutedAfter: Bool?, audibleLane: PlaybackLaneRole?, writesSettings: Bool,
-        notice: String?, pausesPlayback: Bool, ignored: Bool, failed: Bool
+        notice: String?, pausesPlayback: Bool, ignored: Bool, failed: Bool,
+        sessionActiveAfter: Bool? = nil
     ) {
         self.mutedAfter = mutedAfter
         self.audibleLane = audibleLane
@@ -34,6 +37,7 @@ public struct AudioOutcome: Equatable, Sendable {
         self.pausesPlayback = pausesPlayback
         self.ignored = ignored
         self.failed = failed
+        self.sessionActiveAfter = sessionActiveAfter
     }
 }
 
@@ -52,6 +56,7 @@ public enum AudioTransitionRunner {
         }
         var categoryOK = true
         var activeOK = true
+        var sessionActiveAfter: Bool?
         var index = 0
         steps: while index < plan.steps.count {
             let step = plan.steps[index]
@@ -84,6 +89,7 @@ public enum AudioTransitionRunner {
             case .setActive(let active, let notify):
                 do {
                     try driver.setActive(active, notifyOthers: notify)
+                    sessionActiveAfter = active
                     log("audio step active=\(active) notify=\(notify)")
                 } catch {
                     activeOK = false
@@ -109,7 +115,8 @@ public enum AudioTransitionRunner {
             notice: final.notice,
             pausesPlayback: final.pausesPlayback,
             ignored: final.ignored,
-            failed: failed
+            failed: failed,
+            sessionActiveAfter: sessionActiveAfter
         )
     }
 

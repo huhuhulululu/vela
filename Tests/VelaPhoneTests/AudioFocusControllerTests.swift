@@ -200,4 +200,39 @@ final class AudioFocusControllerTests: XCTestCase {
         XCTAssertEqual(Array(driver.calls.prefix(2)), ["category playback mix=true", "active true notify=false"])
         XCTAssertTrue(stage.primary.player.hasItem, "随后确实起播了（播放器拿到了播放项）")
     }
+    // MARK: 审计修复：后台不改静音意图
+
+    /// 出声进后台再回前台：运行时与设置一致（仍是出声），回前台起播前按出声重新准备会话。
+    func testAudibleBackgroundThenForegroundKeepsIntentAndPreparesAudibleSession() {
+        let (stage, controller, driver) = make()
+        stage.toggleMute()
+        stage.prepareAudioSession()
+        XCTAssertFalse(stage.muted)
+        XCTAssertFalse(stage.settings.muted)
+
+        stage.platform.scenePhaseChanged(.inactive, stage: stage)
+        stage.platform.scenePhaseChanged(.background, stage: stage)
+        XCTAssertTrue(driver.calls.contains("active false notify=true"), "后台释放会话")
+        XCTAssertFalse(stage.muted, "后台停用不把运行时改成静音")
+        XCTAssertEqual(stage.muted, stage.settings.muted, "运行时与设置一致")
+        XCTAssertFalse(controller.sessionPrepared, "会话已停用，下次起播要重新准备")
+
+        stage.platform.scenePhaseChanged(.inactive, stage: stage)
+        stage.platform.scenePhaseChanged(.active, stage: stage)
+        driver.calls = []
+        stage.prepareAudioSession()
+        XCTAssertEqual(driver.calls, ["category playback mix=false", "active true notify=false"], "按出声重新准备")
+        XCTAssertFalse(stage.muted)
+        XCTAssertFalse(isMuted(stage))
+        XCTAssertEqual(stage.muted, stage.settings.muted)
+    }
+
+    /// 冷启动仍按设置：设置里是静音就以静音准备。
+    func testColdStartStillFollowsSettings() {
+        let (stage, _, driver) = make()
+        XCTAssertTrue(stage.settings.muted)
+        stage.prepareAudioSession()
+        XCTAssertEqual(driver.calls, ["category playback mix=true", "active true notify=false"])
+        XCTAssertTrue(stage.muted)
+    }
 }

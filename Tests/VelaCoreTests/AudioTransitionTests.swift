@@ -166,6 +166,18 @@ final class AudioTransitionTests: XCTestCase {
         XCTAssertFalse(nonFocus.attemptsAudible)
     }
 
+    /// 进后台与最后一路停播只是释放会话：照样停用并通知他人，但不改运行时的静音意图（设置仍是出声时，回前台照样出声）。
+    /// 只有用户的再静音才把运行时改成静音并写设置。
+    func testBackgroundAndLastLaneDeactivationKeepRuntimeMuteIntent() {
+        for reason in [AudioSessionPolicy.DeactivationReason.background, .lastLaneStopped] {
+            let planned = plan(.deactivate(reason), audible: .primary)
+            XCTAssertTrue(planned.preservesAudibleLane, "\(reason) 不改运行时静音")
+            XCTAssertFalse(planned.writesSettings)
+            XCTAssertEqual(planned.steps.last, .setActive(false, notifyOthersOnDeactivation: true))
+        }
+        XCTAssertFalse(plan(.deactivate(.mute), audible: .primary).preservesAudibleLane, "再静音照旧改成静音")
+    }
+
     /// 首次起播前的初始转换（静音）：播放类别 + 混音并激活，不取消任何路的静音，不写设置。
     func testPrepareMutedActivatesMixedPlaybackSession() {
         let planned = plan(.prepare(muted: true), audible: nil)

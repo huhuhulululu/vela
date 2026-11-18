@@ -36,7 +36,8 @@ final class AudioFocusController: AudioFocusing, AudioLaneControlling {
     var focus: () -> PlaybackLaneRole = { .primary }
 
     var focusRole: PlaybackLaneRole { focus() }
-    /// 首次起播前的初始转换做过没有。冷启动静音起播也要先落实会话类别，否则停在系统默认类别。
+    /// 会话此刻是否按我们的配置激活着。冷启动静音起播也要先落实会话类别，否则停在系统默认类别。
+    /// 成功激活时置真，成功停用（再静音、进后台、最后一路停播）时复位，下次起播按当时的静音状态重新准备。
     private(set) var sessionPrepared = false
 
     init(
@@ -71,16 +72,25 @@ final class AudioFocusController: AudioFocusing, AudioLaneControlling {
             lanes: roles,
             pictureInPictureActive: pictureInPictureActive()
         )
-        return AudioTransitionRunner.run(plan, lanes: roles, driver: driver, sink: self) { line in
+        let outcome = AudioTransitionRunner.run(plan, lanes: roles, driver: driver, sink: self) { line in
             Self.log.info("\(line, privacy: .public)")
         }
+        noteSession(outcome)
+        return outcome
     }
 
+    /// 起播前：按当前静音状态准备会话（已按配置激活着就不重复）。
     func prepareSession(muted: Bool) -> AudioOutcome? {
         guard !sessionPrepared else { return nil }
-        sessionPrepared = true
         Self.log.info("audio prepare muted=\(muted)")
         return perform(.prepare(muted: muted))
+    }
+
+    /// 记下这次转换之后会话的状态。
+    private func noteSession(_ outcome: AudioOutcome) {
+        if let active = outcome.sessionActiveAfter {
+            sessionPrepared = active
+        }
     }
 
     func syncVolume(to lane: PlaybackLane) {

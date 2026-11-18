@@ -12,7 +12,7 @@ protocol AudioFocusing: AnyObject {
     func perform(_ intent: AudioIntent) -> AudioOutcome
     /// 不动会话，只把模型当前的音量与静音同步给一路（新路接入、起播、拖音量条）。
     func syncVolume(to lane: PlaybackLane)
-    /// 首次起播前按当前静音状态做一次初始转换；已经做过返回 nil。
+    /// 起播前按当前静音状态做一次初始转换；会话已按配置激活着返回 nil。
     func prepareSession(muted: Bool) -> AudioOutcome?
 }
 

@@ -193,13 +193,17 @@ public enum AudioTransition {
             let keepSession = reason == .mute && AudioSessionPolicy.keepsSessionActiveWhenMuting(
                 pictureInPicturePlaying: pictureInPictureActive
             )
-            return silence(
+            var planned = silence(
                 detach: detach,
                 notifyOthers: AudioSessionPolicy.deactivatesNotifyingOthers(on: reason),
                 writesSettings: reason == .mute,
                 pausesPlayback: false,
                 keepSessionActive: keepSession
             )
+            // 进后台、最后一路停播只是释放会话：不改运行时的静音意图，下次起播按它重新准备会话。
+            // 只有用户的再静音才把运行时改成静音。
+            planned.preservesAudibleLane = reason != .mute
+            return planned
         case .interruptionBegan(let wasSuspended):
             if AudioSessionPolicy.ignoresInterruptionBegan(wasSuspended: wasSuspended) {
                 return hold(detach: detach, ignored: true)

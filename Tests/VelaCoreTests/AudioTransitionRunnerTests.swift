@@ -171,4 +171,10 @@ final class AudioTransitionRunnerTests: XCTestCase {
         XCTAssertFalse(outcome.failed)
         XCTAssertNil(outcome.notice, "静音本来就不出声，激活失败不打扰用户")
     }
+    func testBackgroundDeactivationLeavesRuntimeMuteUnchanged() {
+        let rec = Recorder()
+        let outcome = run(.deactivate(.background), audible: .primary, rec)
+        XCTAssertNil(outcome.mutedAfter, "进后台停用会话不把出声改成静音")
+        XCTAssertEqual(rec.calls.last, "active false notify=true")
+    }
 }
