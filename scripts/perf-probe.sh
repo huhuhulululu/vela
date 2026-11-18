@@ -10,7 +10,7 @@
 #   起本机服务（scripts/serve-test-stream.py）、带 --perf-stream 参数启动 App，结束清理。
 #   App 须带 PERF_PROBE 或 DEBUG 钩子：加 --build 时探针自己以 PERF_PROBE 构建（输出到 /tmp/vela-perf-dd-fixed），
 #   否则检查给定 App 的二进制含该参数。结果 JSON 记 stream_mode 与码率。
-#   运行前若有他人的 perf-probe / selftest / xcodebuild / Vela 在跑，每 30 秒等一次，最多 PERF_WAIT_MIN 分钟（默认 90）。
+#   运行前若有他人的 perf-probe / xcodebuild / Vela 在跑，每 30 秒等一次，最多 PERF_WAIT_MIN 分钟（默认 90）。
 # idle 场景：先正常起播，再用 --idle-method 让 App 进入非播放态，等 10 秒后才开始采样。
 #   lock（默认）：投递分布式通知 com.apple.screenIsLocked，走 SystemActivity -> PlaybackPolicy.systemInactive，
 #                 不碰窗口、不需任何权限；结束前投递 screenIsUnlocked。
@@ -60,16 +60,17 @@ if [ -z "${SSH_CONNECTION:-}" ]; then
     echo "      请改用：ssh localhost 'cd <仓库> && scripts/perf-probe.sh ...'" >&2
     echo "################################################################" >&2
 fi
-# 他人的 perf-probe / selftest / xcodebuild / Vela。按进程命令的开头匹配（与 selftest.sh 同一写法），排除自己。
+# 他人的 perf-probe / xcodebuild / Vela。按进程命令的开头匹配（与 selftest.sh 同一写法），排除自己。
+# 不匹配 selftest.sh 本身：它在等占用时也会等 perf-probe，两边互等会死锁；它真正干活时的 xcodebuild 与 Vela 进程会被上面两项挡住。
 busy_procs() {
     ps -axo pid=,ppid=,command= | awk -v me="$$" '$1!=me && $2!=me {$2=""; print}' | sed -E 's/^ +//; s/  +/ /' \
-        | grep -E '^[0-9]+ +(/bin/)?(ba)?sh [^ ]*(perf-probe|selftest)\.sh|^[0-9]+ +[^ ]*/xcodebuild( |$)|^[0-9]+ +[^ ]*Contents/MacOS/Vela$'
+        | grep -E '^[0-9]+ +(/bin/)?(ba)?sh [^ ]*perf-probe\.sh|^[0-9]+ +[^ ]*/xcodebuild( |$)|^[0-9]+ +[^ ]*Contents/MacOS/Vela$'
 }
 if [ "$FIXED" = 1 ]; then
     waited=0
     while [ -n "$(busy_procs)" ]; do
         if [ "$waited" -ge $((WAIT_MIN * 60)) ]; then
-            echo "等待 ${WAIT_MIN} 分钟后仍有他人的 perf-probe / selftest / xcodebuild / Vela 在运行，放弃" >&2
+            echo "等待 ${WAIT_MIN} 分钟后仍有他人的 perf-probe / xcodebuild / Vela 在运行，放弃" >&2
             rm -rf "$WORK"; exit 1
         fi
         sleep 30; waited=$((waited + 30))
