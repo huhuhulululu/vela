@@ -48,6 +48,9 @@ internal class Lane(
     val lastInfo = HashMap<LaneTrack, MediaPlaylistInfo>()
     val productive = HashMap<LaneTrack, Boolean>()
 
+    /** 刷新线程先看到序号回退时，下一次播放器来取同一条列表也要报重置。 */
+    val pendingReset = HashSet<LaneTrack>()
+
     fun snapshot(): StreamRendition = lock.withLock { rendition.isolated() }
 }
 
@@ -276,12 +279,18 @@ class LaneHub internal constructor(
         if (response.code !in 200..299) throw httpFailure(response.code, errorUri, response.body)
         val bytes = rewrite(response)
         val info = MediaPlaylistInfo.parse(bytes.toString(Charsets.UTF_8))
-        if (info != null && isPlaylistReset(lane, track, info)) {
+        if (resetPending(lane, track) || (info != null && isPlaylistReset(lane, track, info))) {
+            // 刷新线程和播放器都会来取这一条。回退只有一次，先到的把异常吞掉的话，
+            // 播放器下一次仍要看见重置，否则 R1 不会原地重新 prepare。
+            lane.lock.withLock { lane.pendingReset.add(track) }
             throw HlsPlaylistTracker.PlaylistResetException(errorUri)
         }
         note(lane, track, bytes)
         return bytes
     }
+
+    private fun resetPending(lane: Lane, track: LaneTrack): Boolean =
+        lane.lock.withLock { track in lane.pendingReset }
 
     /** 序号回退且带 DISCONTINUITY：不是 403，不续期，交给加载错误策略。 */
     private fun isPlaylistReset(lane: Lane, track: LaneTrack, info: MediaPlaylistInfo): Boolean {

@@ -41,33 +41,50 @@ class LaneFrame(context: Context) : FrameLayout(context) {
     var appliedVideoRect: DisplayFit.Rect = DisplayFit.Rect.zero
         private set
 
-    var onSurface: ((Surface?) -> Unit)? = null
     var onVideoRect: ((DisplayFit.Rect) -> Unit)? = null
 
+    private var surfaceCallback: ((Surface?) -> Unit)? = null
+    private var currentSurface: Surface? = null
     private var thumbnail: Bitmap? = null
     private var blurred: Bitmap? = null
     private var lastLine: String? = null
+
+    /**
+     * 播放器要等真正的 Surface 才交出首帧、才回报画面尺寸。
+     * 回调可能晚于 surfaceCreated，挂上时把当前 Surface 补交一次。
+     */
+    var onSurface: ((Surface?) -> Unit)?
+        get() = surfaceCallback
+        set(value) {
+            surfaceCallback = value
+            val surface = currentSurface
+            if (value != null && surface != null) value.invoke(surface)
+        }
 
     init {
         setBackgroundColor(DisplayCheck.FALLBACK_TOP)
         backdrop.scaleType = ImageView.ScaleType.FIT_XY
         backdrop.setImageDrawable(gradient)
         addView(backdrop, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
-        videoSurface.visibility = INVISIBLE
         addView(videoSurface, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         videoSurface.holder.addCallback(object : SurfaceHolder.Callback {
             override fun surfaceCreated(holder: SurfaceHolder) {
-                onSurface?.invoke(holder.surface)
+                deliverSurface(holder.surface)
             }
 
             override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-                onSurface?.invoke(holder.surface)
+                deliverSurface(holder.surface)
             }
 
             override fun surfaceDestroyed(holder: SurfaceHolder) {
-                onSurface?.invoke(null)
+                deliverSurface(null)
             }
         })
+    }
+
+    private fun deliverSurface(surface: Surface?) {
+        currentSurface = surface
+        surfaceCallback?.invoke(surface)
     }
 
     fun setThumbnail(bitmap: Bitmap?) {
@@ -108,6 +125,11 @@ class LaneFrame(context: Context) : FrameLayout(context) {
             val videoRight = (video.x + video.width).toInt()
             val videoBottom = (video.y + video.height).toInt()
             videoSurface.layout(videoLeft, videoTop, videoRight, videoBottom)
+            videoSurface.visibility = VISIBLE
+        } else if (width >= 2 && height >= 2) {
+            // 尺寸还没来。先铺满窗格，否则 Surface 不会创建，
+            // 软件解码也不交出首帧，画面尺寸一直是 0。
+            videoSurface.layout(0, 0, width, height)
             videoSurface.visibility = VISIBLE
         } else {
             videoSurface.layout(0, 0, 0, 0)

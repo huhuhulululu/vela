@@ -51,6 +51,13 @@ internal class ExoLanePlayer(
             listener?.onFirstFrame()
         }
 
+        override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
+            if (!current()) return
+            // 主列表的 RESOLUTION 比解码出帧更早。先把窗格留对，
+            // 否则要等首帧才有尺寸，而没有尺寸就没有 Surface。
+            reportTrackVideoSize(tracks)
+        }
+
         override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
             if (!current()) return
             if (videoSize.width <= 0 || videoSize.height <= 0) return
@@ -155,6 +162,20 @@ internal class ExoLanePlayer(
 
     override fun setListener(listener: LanePlayerListener?) {
         this.listener = listener
+    }
+
+    private fun reportTrackVideoSize(tracks: androidx.media3.common.Tracks) {
+        for (group in tracks.groups) {
+            if (group.type != C.TRACK_TYPE_VIDEO) continue
+            for (index in 0 until group.length) {
+                if (!group.isTrackSelected(index)) continue
+                val format = group.getTrackFormat(index)
+                if (format.width > 0 && format.height > 0) {
+                    listener?.onVideoSize(format.width, format.height)
+                    return
+                }
+            }
+        }
     }
 
     private fun current(): Boolean = playingEpoch >= 0 && playingEpoch == epoch

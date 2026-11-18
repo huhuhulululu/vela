@@ -47,6 +47,26 @@ class LaneSurfaceTest {
     }
 
     @Test
+    fun testUnknownPresentationKeepsARealSurface() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val frame = LaneFrame(context)
+        frame.laneLabel = "primary"
+        val width = View.MeasureSpec.makeMeasureSpec(270, View.MeasureSpec.EXACTLY)
+        val height = View.MeasureSpec.makeMeasureSpec(480, View.MeasureSpec.EXACTLY)
+        frame.measure(width, height)
+        frame.layout(0, 0, 270, 480)
+
+        assertEquals(270, frame.videoSurface.width)
+        assertEquals(480, frame.videoSurface.height)
+        assertEquals(View.VISIBLE, frame.videoSurface.visibility)
+        assertEquals(0.0, frame.appliedVideoRect.width, 0.001)
+        assertEquals(0.0, frame.appliedVideoRect.height, 0.001)
+        val line = LaneLog.snapshot().last { it.startsWith("display-check") }
+        assertTrue(line.contains("presentation=0.00x0.00"))
+        assertTrue(line.contains("uncropped=false"))
+    }
+
+    @Test
     fun testStretchedRectLogsCropped() {
         val presentation = DisplayFit.Size(1920.0, 1080.0)
         val bounds = DisplayFit.Rect(0.0, 0.0, 100.0, 100.0)
