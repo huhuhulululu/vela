@@ -24,6 +24,36 @@ enum LanePaging {
     }
 }
 
+/// 双窗共享的「最近划走」：任一路因划动离开的房间，30 分钟内另一路向前划时不再落上去。
+/// 只在内存里；不用定时器，到期按读取时刻判断；超过容量丢最旧。
+public struct RecentSkips: Equatable, Sendable {
+    public static let window: TimeInterval = 30 * 60
+    public static let capacity = 200
+
+    private struct Entry: Equatable, Sendable {
+        var name: String
+        var at: Date
+    }
+
+    private var entries: [Entry] = []
+
+    public init() {}
+
+    public var count: Int { entries.count }
+
+    public mutating func record(_ name: String, at now: Date) {
+        let key = name.lowercased()
+        entries.removeAll { $0.name == key }
+        entries.append(Entry(name: key, at: now))
+        if entries.count > Self.capacity { entries.removeFirst(entries.count - Self.capacity) }
+    }
+
+    /// `now` 时仍在期内的房间（小写）。
+    public func active(at now: Date) -> Set<String> {
+        Set(entries.lazy.filter { now.timeIntervalSince($0.at) < Self.window }.map(\.name))
+    }
+}
+
 /// 变更后两路各停在哪一间、焦点在哪一路，以及房间变了的原因。
 ///
 /// 单窗（`secondary == nil`）时，除划动外主路直接采用副本上 FeedStore 已经选出的
@@ -58,12 +88,17 @@ public enum LaneSelection {
         public var primary: LaneCursor
         public var secondary: LaneCursor?
         public var focus: LaneID
+        /// 此刻仍在期内的「最近划走」房间（小写）。只有双窗划动用它。
+        public var recent: Set<String>
 
-        public init(rooms: [String], primary: LaneCursor, secondary: LaneCursor?, focus: LaneID) {
+        public init(
+            rooms: [String], primary: LaneCursor, secondary: LaneCursor?, focus: LaneID, recent: Set<String> = []
+        ) {
             self.rooms = rooms
             self.primary = primary
             self.secondary = secondary
             self.focus = focus
+            self.recent = recent
         }
     }
 
@@ -293,9 +328,13 @@ public enum LaneSelection {
         var secondary = before.secondary ?? LaneCursor()
         switch lane {
         case .primary:
-            primary = step(primary, delta: delta, rooms: afterRooms, skipping: skipping(secondary.username))
+            primary = step(
+                primary, delta: delta, rooms: afterRooms, skipping: skipping(secondary.username), recent: before.recent
+            )
         case .secondary:
-            secondary = step(secondary, delta: delta, rooms: afterRooms, skipping: skipping(primary.username))
+            secondary = step(
+                secondary, delta: delta, rooms: afterRooms, skipping: skipping(primary.username), recent: before.recent
+            )
         }
         return outcome(before, primary: primary, secondary: secondary, placed: .move)
     }
@@ -315,7 +354,10 @@ public enum LaneSelection {
 
     // MARK: 找房间
 
-    private static func step(_ cursor: LaneCursor, delta: Int, rooms: [String], skipping: Set<String>) -> LaneCursor {
+    /// `recent` 里的房间先一并跳过（本路自己的上一间除外）；这样没有落点时放宽成只避开另一路，仍不行才原地。
+    private static func step(
+        _ cursor: LaneCursor, delta: Int, rooms: [String], skipping: Set<String>, recent: Set<String> = []
+    ) -> LaneCursor {
         var cursor = cursor
         guard delta != 0 else { return cursor }
         cursor.direction = delta > 0 ? 1 : -1
@@ -324,7 +366,15 @@ public enum LaneSelection {
             return cursor
         }
         let origin = cursor.username.flatMap { index(of: $0, in: rooms) } ?? 0
-        let landed = LanePaging.landingIndex(from: origin, delta: delta, names: rooms, skipping: skipping)
+        var landed = LanePaging.landingIndex(from: origin, delta: delta, names: rooms, skipping: skipping)
+        if !recent.isEmpty {
+            var shunned = recent
+            if let previous = cursor.previous?.lowercased() { shunned.remove(previous) }
+            let banned = Set(skipping.map { $0.lowercased() }).union(shunned)
+            let strict = LanePaging.landingIndex(from: origin, delta: delta, names: rooms, skipping: banned)
+            // 过滤后原地不动（或只剩被避开的房间，如本路当前房间也在最近里）才放宽（列表短或已到头）。
+            if strict != origin, !banned.contains(rooms[strict].lowercased()) { landed = strict }
+        }
         cursor.username = rooms[landed]
         return cursor
     }
