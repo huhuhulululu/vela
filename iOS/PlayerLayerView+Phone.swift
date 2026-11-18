@@ -13,6 +13,8 @@ struct PlayerLayerView: UIViewRepresentable {
     var laneLabel: String
     /// 所在页面容器的几何。播放层自己的 bounds 被撑大时，只拿它比是看不出裁切的。
     var pane: PaneGeometry
+    /// 焦点路才传：播放层进窗口时挂上画中画控制器（修订 A2）。其余路与不支持画中画的设备为 nil。
+    var pip: PictureInPictureCoordinator? = nil
     var onDisplaySize: @MainActor (CGSize) -> Void
 
     func makeUIView(context: Context) -> PlayerUIView {
@@ -20,6 +22,7 @@ struct PlayerLayerView: UIViewRepresentable {
         view.laneLabel = laneLabel
         view.onDisplaySize = onDisplaySize
         view.pane = pane
+        view.pip = pip
         view.bind(player)
         return view
     }
@@ -29,6 +32,7 @@ struct PlayerLayerView: UIViewRepresentable {
         view.laneLabel = laneLabel
         view.onDisplaySize = onDisplaySize
         if view.pane !== pane { view.pane = pane }
+        if view.pip !== pip { view.pip = pip }
         if view.playerLayer.player !== player {
             view.bind(player)
         }
@@ -49,6 +53,15 @@ final class PlayerUIView: UIView {
         didSet {
             pane?.onResize = { [weak self] in self?.refreshDisplay() }
             refreshDisplay()
+        }
+    }
+
+    /// 画中画控制器。换了（或撤了）就把本层从旧的上面拆下，在窗口里时挂到新的上面。
+    var pip: PictureInPictureCoordinator? {
+        didSet {
+            guard pip !== oldValue else { return }
+            oldValue?.detach(playerLayer)
+            if window != nil { pip?.attach(playerLayer) }
         }
     }
 
@@ -86,6 +99,15 @@ final class PlayerUIView: UIView {
             DispatchQueue.main.async { self?.refreshDisplay() }
         }
         refreshDisplay()
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window != nil {
+            pip?.attach(playerLayer)
+        } else {
+            pip?.detach(playerLayer)
+        }
     }
 
     override func layoutSubviews() {

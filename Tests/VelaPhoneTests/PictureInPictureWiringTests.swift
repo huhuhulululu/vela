@@ -26,8 +26,12 @@ final class PictureInPictureWiringTests: XCTestCase {
     }
 
     private var suites: [String] = []
+    private var stages: [StageModel] = []
 
     override func tearDown() {
+        // 回到前台撤掉还在等的回退计时，免得它在后面的测试里改全局的中继开关。
+        for stage in stages { stage.platform.scenePhaseChanged(.active, stage: stage) }
+        stages = []
         for name in suites { UserDefaults().removePersistentDomain(forName: name) }
         suites = []
         PlaylistRelay.shared.allowStart = true
@@ -44,6 +48,7 @@ final class PictureInPictureWiringTests: XCTestCase {
     /// 主路 alice 正在播；会话用桩，不碰真实 `AVAudioSession`。回退等待缩短到 50 毫秒。
     private func makeStage(pip: FakePiP?, playing: Bool = true) -> (StageModel, FakeDriver) {
         let stage = StageModel(settings: makeSettings())
+        stages.append(stage)
         stage.updateFeed { $0.insertDirect(Room.direct(username: "alice")!) }
         XCTAssertFalse(stage.ageConfirmed, "测试依赖年龄未确认：起播与目录不发请求")
         let driver = FakeDriver()

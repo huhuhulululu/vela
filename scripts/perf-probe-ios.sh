@@ -6,7 +6,8 @@
 # 兼容 macOS 自带 bash 3.2。依赖：xcrun simctl、ps、top、footprint、nettop、python3。
 # 全程静音（正式 App 的 --perf-autoplay 强制静音；Spike 的 AVPlayer.volume 恒为 0）；只 simctl boot，不打开 Simulator.app，不截屏、不点击。
 # --profile vela（默认）：正式 App 的 Perf 构建，bundle 缺省 com.vela.stage.ios.perf，日志子系统 com.vela.stage，
-#   启动参数 --perf-autoplay，只支持 single 与 background（双窗、画中画尚未接入）。
+#   启动参数 --perf-autoplay，支持 single、background 与 pip（双窗尚未接入）。正式 App 的画中画默认自动进入：
+#   pip 用 iPad 模拟器（DEVICE_MODEL），iPhone 模拟器不支持画中画，background 照旧全停。
 # --profile spike：旧 Spike 原型，bundle 缺省 com.vela.stage.spike，日志子系统 com.vela.stage.spike，场景参数如下。
 # 场景：
 #   single      单窗（--autoplay-single）
@@ -60,7 +61,7 @@ case "$PROFILE" in
     vela)
         LOG_SUBSYSTEM=com.vela.stage
         BUNDLE="${BUNDLE:-com.vela.stage.ios.perf}"
-        case "$SCENARIO" in single|background) ;; *) echo "--profile vela 只支持 single|background" >&2; exit 2 ;; esac
+        case "$SCENARIO" in single|background|pip) ;; *) echo "--profile vela 只支持 single|background|pip" >&2; exit 2 ;; esac
         ;;
     spike)
         LOG_SUBSYSTEM=com.vela.stage.spike

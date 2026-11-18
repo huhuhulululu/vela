@@ -49,6 +49,9 @@ struct PhoneChrome: View {
                             .frame(maxWidth: .infinity)
                             .phoneSheet()
                     }
+                if let pip = model.platform.pipCoordinator {
+                    PhonePiPPill(pip: pip) { model.platform.setPictureInPictureAutoEnter($0, stage: model) }
+                }
                 PhonePill(title: model.muted ? "静音" : "出声", active: !model.muted) { model.toggleMute() }
                     .accessibilityLabel(model.muted ? "已静音，点按出声" : "正在出声，点按静音")
             }
@@ -105,6 +108,22 @@ struct PhoneSourceTabs: View {
                 .accessibilityAddTraits(on ? .isSelected : [])
             }
         }
+    }
+}
+
+/// 画中画按钮（修订 A2 的 7a）：点按进入或退出；长按菜单开关「回桌面自动进入画中画」。
+/// 不支持画中画的设备不创建控制器，按钮不出现。
+struct PhonePiPPill: View {
+    @ObservedObject var pip: PictureInPictureCoordinator
+    var setAutoEnter: (Bool) -> Void
+
+    var body: some View {
+        PhonePill(title: "画中画", active: pip.active) { pip.toggle() }
+            .opacity(pip.possible || pip.active ? 1 : 0.5)
+            .contextMenu {
+                Toggle("回桌面自动进入画中画", isOn: Binding(get: { pip.autoEnter }, set: setAutoEnter))
+            }
+            .accessibilityLabel(pip.active ? "正在画中画，点按退出" : "画中画")
     }
 }
 

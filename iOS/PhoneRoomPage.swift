@@ -16,7 +16,9 @@ struct PhoneRoomPage: View {
     var body: some View {
         ZStack {
             if active {
-                PlayerLayerView(player: lane.player.player, laneLabel: lane.player.laneLabel, pane: pane) { size in
+                PlayerLayerView(
+                    player: lane.player.player, laneLabel: lane.player.laneLabel, pane: pane, pip: pipController
+                ) { size in
                     lane.displaySize = size
                 }
                 .opacity(videoReady ? 1 : 0)
@@ -36,6 +38,11 @@ struct PhoneRoomPage: View {
         .background { SwapBackdrop(room: room) }
         .clipped()
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { pane.frame = $0 }
+    }
+
+    /// 只有焦点路挂画中画（单窗恒为主路）。
+    private var pipController: PictureInPictureCoordinator? {
+        lane.id.role == (model.platform.audioFocus?.focusRole ?? .primary) ? model.platform.pipCoordinator : nil
     }
 
     private var videoReady: Bool { active && playback.readyUsername == room.username }
