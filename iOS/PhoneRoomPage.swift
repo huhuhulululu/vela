@@ -33,7 +33,7 @@ struct PhoneRoomPage: View {
             // 读已发布的 `playbackGateOpen` 让闸门变化能触发重绘，再按本路自己的闸门判断（副路可能单独暂停或被释放）。
             if Self.showsLoadingLine(
                 active: active, videoReady: videoReady, hasNote: lane.playbackNote != nil,
-                laneAllowed: model.playbackGateOpen && model.laneAllowed(lane)
+                laneAllowed: Self.loadingLaneAllowed(model: model, lane: lane)
             ) {
                 PhoneLoadingLine()
             }
@@ -56,7 +56,8 @@ struct PhoneRoomPage: View {
 
     /// 加载线用的本路闸门。读已发布的 `playbackGateOpen` 只为让闸门变化触发重绘，判断只看本路。
     static func loadingLaneAllowed(model: StageModel, lane: PlaybackLane) -> Bool {
-        model.playbackGateOpen && model.laneAllowed(lane)
+        _ = model.playbackGateOpen
+        return model.laneAllowed(lane)
     }
 
     private var pipController: PictureInPictureCoordinator? {
