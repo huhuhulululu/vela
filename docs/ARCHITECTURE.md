@@ -29,7 +29,8 @@
 | 文件 | 层 | 职责 |
 |---|---|---|
 | `App/VelaApp.swift` | App | 入口、窗口场景、菜单栏图标场景（`MenuBarExtra`，开关在「播放」菜单）、「播放」菜单与快捷键（含「重试当前房间」），`AppDelegate` 固定深色外观 |
-| `Shared/Stage/StageModel.swift` | Shared | 主状态机：来源 / 筛选 / 播放门控 / 指针与窗口状态 / 设置读写，持有各子系统（平台能力经 `platform`（`PlatformHooks`），模型本身不直接持有 `GlobalHotKey` / `SystemActivity`）；`effectiveFill` 受 `platform.allowsCrop` 约束，iOS 恒为不裁切；冷启动闸门 `startupGate`（`StartupGate`）：初始化里年龄已确认就先领目录请求，`bootstrap` 再进时不重发；画面订阅的播放镜像 `playback`（`PlaybackFace`）；同值不写（`AssignIf`），`presence` / `chromeVisible` / `playbackNote` 不变不通知；`syncPlayerHidden` 把窗口不可见同步给播放器，`refreshPointerPolling` 让窗口桥接重判指针轮询 |
+| `Shared/Stage/StageModel.swift` | Shared | 主状态机：来源 / 筛选 / 播放门控 / 指针与窗口状态 / 设置读写，持有各子系统（平台能力经 `platform`（`PlatformHooks`），模型本身不直接持有 `GlobalHotKey` / `SystemActivity`）；每路播放 `primary`、`secondary`（均为 `PlaybackLane`；`secondary` 当前代码无赋值点，恒为 nil）与 `lanes`（`[primary]`，`secondary` 非空时为 `[primary, secondary]`）；每路门控 `laneAllowed(_:)` = 全局闸门 ∧ 本路未手动暂停 ∧ 本路可见；`updateFeed(installing:intent:_:)` 先在副本上变更，再交 `LaneSelection.resolve` 定各路房间，单窗时它与 FeedStore 的选择不一致只记日志、保留 FeedStore 的选择，双窗时主路改用联合结果；`effectiveFill` 受 `platform.allowsCrop` 约束，iOS 恒为不裁切；冷启动闸门 `startupGate`（`StartupGate`）：初始化里年龄已确认就先领目录请求，`bootstrap` 再进时不重发；画面订阅的播放镜像 `playback`（`PlaybackFace`）；同值不写（`AssignIf`），`presence` / `chromeVisible` / `playbackNote` 不变不通知；`syncPlayerHidden` 把窗口不可见同步给播放器，`refreshPointerPolling` 让窗口桥接重判指针轮询 |
+| `Shared/Stage/PlaybackLane.swift` | Shared | 一路播放的全部状态（`PlaybackLane`：播放器 `player`、画面镜像 `playback`、已就绪 / 在播房间名、起播与离开重试、停留与画质、竖屏自动完整画面、本路房间 `username`、`manuallyPaused`、`visible`、`state`（`LaneState`：idle / playing / failed / degraded / empty）、窗格与画面尺寸；`playbackNote`、`portraitFit`、`manuallyPaused` 为 `@Published`）；`StageModel` 的按路入口：`attach(_:)` 接播放器回调（`failureFilter` 经 `classifyFailure` 交 `PlaybackFailureClassifier`；`resourceDegraded` 进 `degrade`）并转发 `objectWillChange`；`degrade` 挂起本路播放器并提示「双窗暂不可用」，不记失败、不自动跳过；转发到主路的属性（macOS 只有主路）；`findLane` / `room(of:)` / `name(of:)` / `target(_:)`（生成 `RoomTarget`，记房间与播放代次）/ `matchedLane(_:)`（房间或代次对不上则返回 nil）；`laneSnapshot` / `applySelection` / `settleSecondary`（接 `LaneSelection` 的联合选房结果，副路换房后结算并起播） |
 | `Shared/Stage/StageModel+Catalog.swift` | Shared | 目录加载：重新加载、翻页、补拉到出现可见房间、确认页；记录最近取回的目录供收藏比对；常规目录先安装并起播，按口味定向的候选并发拉取（各自 6 秒超时）、完成后并入当前位置之后；全站搜索的临时列表（`searchSite`，回车且本地无匹配时触发，重新加载时结束搜索）；新开播用站点的新开播筛选；冷启动只等首页（`fetchOpening`）：猜你喜欢 / 新开播的后续页由 `catalogRestTask` 在后台顺序续拉（`CatalogRest`），经 `mergePageAfterCurrent` 并入当前项之后，失败只记日志、不换房不起播；定向候选等续页并完后再发；换来源、重新加载、全站搜索时取消续页 |
 | `Shared/Stage/StageModel+Playback.swift` | Shared | 起播链：解析流地址、取档、重试与重新解析、预取下一个、失败自动跳过（先请求房间状态取 `hls_source`、拿不到再走 ajax 与侧车，见 `StreamSourcing`，并记录起播来源日志；暂时离开停留 60 秒只重试一次（`AwayRetry`）；到列表尽头时保留原失败原因并说明，不占连续次数）；普通 403 / 503 与质询分开，只有质询才弹确认页（先停掉当前播放；等待期间被换房取代时恢复侧车），连续质询经 `ChallengeGate` 限次，达到上限改为提示并跳过；起播同一时间只保留一个任务（`playTask`），新的划动 / 选择 / 重试取消旧的解析，取消按取消处理，不当网络故障；起播前等本地中继监听就绪，不就绪则提示并停下，不把低延迟主列表交给 AVPlayer |
 | `Shared/Stage/StageModel+Quality.swift` | Shared | 离开后降画质：计时、取档、重建播放项 |
@@ -37,7 +38,7 @@
 | `Shared/Stage/StageModel+Taste.swift` | Shared | 推荐理由查询、口味面板操作（加强 / 不想看 / 恢复 / 移除 / 暂停 / 重置 / 清除；改标签后立即对当前位置之后重排并更新推荐理由）、对当前房间不感兴趣 |
 | `Shared/Stage/StageModel+Curation.swift` | Shared | 收藏、屏蔽、名单提交与换房 |
 | `Shared/Stage/StageModel+Favorites.swift` | Shared | 收藏来源：解析全部收藏的在线状态（目录与缓存优先，其余逐个查；同一时间只有一批，直连被拦后经侧车重查）、刷新、离线收藏的上次开播时间按需补查、点击切换（清掉会挡住目标的搜索条件）、手动添加、导出导入（数据在模型里，`exportFavoritesData()` / `importFavorites(_:)`；macOS 文件面板在 `App/StageModel+Mac.swift`） |
-| `Shared/Playback/PlayerController.swift` | Shared | AVPlayer 封装（起播看门狗、卡住看门狗：到点时若缓冲末端仍在增长或续期进行中则重新计时，不消耗重试；重试、暂停恢复、开播音轨日志）；静音时不选独立音轨并通知中继停刷音频清单（`MuteAudioPolicy`）；停播且窗口不可见满 30 秒释放播放项与中继源（`setHidden` / `releasePausedSource`，日志 `paused-release`）；每个媒体项首次真正播放记一条 `playing-started`（Release 也有，探针以它为起播时刻） |
+| `Shared/Playback/PlayerController.swift` | Shared | AVPlayer 封装（起播看门狗、卡住看门狗：到点时若缓冲末端仍在增长或续期进行中则重新计时，不消耗重试；重试、暂停恢复、开播音轨日志）；静音时不选独立音轨并通知中继停刷音频清单（`MuteAudioPolicy`）；停播且窗口不可见满 30 秒释放播放项与中继源（`setHidden` / `releasePausedSource`，日志 `paused-release`）；每个媒体项首次真正播放记一条 `playing-started`（Release 也有，探针以它为起播时刻）；失败先经 `failureFilter`（`PlaybackFailureClassifier`）归类，`resourceDegrade` 走 `resourceDegraded` 回调、不耗重试，结构化错误 `PlaybackFailureInfo` 存入 `lastFailure`；Release 级 `first-frame lane=<id>` 日志与 signpost 区间 `first-frame`（新播放项起计，第一次有效画面尺寸到达时结束）；`suspendNow()` 立即挂起；`laneLabel` 标识所属路 |
 | `Shared/Relay/PlaylistRelay.swift` | Shared（SwiftPM 目标 `VelaRelay`） | 本地 HLS 中继，多源：每个源按 id 各有列表、循环与在途请求，刷新与静音标志记在 `RelaySourceTable`（最多两个源，再登记淘汰最旧的）；`localURL(...audioSuppressed:)` 登记新源并返回 `(id, url)`，`setRefreshing` / `setAudioSuppressed` / `deactivate` / `isRenewing` 都带 `source:`；监听代次（`start` 与 `stopListener` 各加一，旧监听回调与新连接先核对代次），`stopListener` 取消监听、已登记连接与应答任务并清空源表；`allowStart` 关闭时不起监听（macOS 恒开）；本地地址统一由 `localBase(port:)` 与 `RelayHost.name` 生成；internal `init(session:)` 供测试注入上游会话。每个源：起播选一次档、视频与音轨各自后台刷新、按完整分片进展判新鲜（超宽限先有界挂起等待再 503）、本地主列表；续期换过子列表地址后，每一路下一次成功取回直接采纳新列表（`addressChanged`）；从不 302 到上游；`waitUntilListening` 供起播前等监听就绪；静音且播放器能空选音轨时（`setAudioSuppressed`）停掉音频清单的后台刷新，不取消在途、不清已缓存列表，播放器来要 `audio.m3u8` 仍按需取；取消静音立即恢复刷新；`deactivate(source:)` 只丢掉该源状态 |
 | `Shared/Playback/SiteSidecar.swift` | Shared | 离屏 WKWebView（闲置 30 秒销毁，`SidecarIdlePolicy`；只拆视图，默认数据仓库里的通关 cookie 保留，下次使用重建）：站点要求确认时代为请求流地址与收藏状态（`SidecarHTTPClient`）；清理旧会话期间先等清理完成；宿主视图由注入的 `host`（`SidecarHost`；macOS 版在 `App/SidecarHost+Mac.swift`，由 `WindowBridge` 经 `hold(window:)` 设置窗口）挂载，加载页面前经注入的 `beforeLoad`（默认等 `LegacyLoginCleanup.waitUntilDone()`） |
 | `Shared/Playback/URLSessionHTTPClient.swift` | Shared | `HTTPClient` 的 URLSession 实现（ephemeral，不收发 cookie，请求超时 12 秒；不等待网络恢复，断网立刻失败，界面给出「网络不通」与重试） |
@@ -137,6 +138,8 @@
 VelaApp ──> StageModel ──> StageView ──> PagerView ──> RoomCanvas ──> PlayerController
                 │              └──> ChromeView / CurationPanel ──> FavoritesPanel / TasteView ──> TastePanel / ChallengeSheet / AgeGateView
                 │
+                ├─ PlaybackLane         ──> PlayerController, PlaybackFace（`primary` / `secondary` 各一份，`lanes` 为二者列表）
+                │                          PlaybackLane 扩展 ──> LaneSelection, LaneCursor, RoomTarget, PlaybackFailureClassifier (Core)
                 ├─ StageModel+Catalog   ──> CatalogAPI, CatalogWindow, PageMerge, SiteSearch, TimedFanOut, FeedStore.mergeAfterCurrent / mergePageAfterCurrent, ChallengeGate (Core)
                 │                          FeedStore, PagingState, LoadSlot, IdleStart, StartupGate, Recommender (Core)
                 │                          SiteSidecar（质询后的备路）
@@ -155,7 +158,7 @@ VelaApp ──> StageModel ──> StageView ──> PagerView ──> RoomCanva
                                            CurationStore, SettingsStore, URLSessionHTTPClient,
                                            PlatformHooks（macOS 版 `App/PlatformHooks+Mac.swift` 持有 `GlobalHotKey`、`SystemActivity`）
 
-PlayerController ──> PlaybackPolicy, MuteAudioPolicy, RefreshTracker, PlaybackErrorCopy (Core)
+PlayerController ──> PlaybackPolicy, MuteAudioPolicy, RefreshTracker, PlaybackErrorCopy, PlaybackFailureClassifier (Core)
                  ──> PlaylistRelay（Shared/Relay/PlaylistRelay.swift，SwiftPM 目标 VelaRelay）──> RelaySourceTable / RelayTrack, PlaylistLadder, StreamRendition, RelayFeed, RelayPolicy, RenewalPolicy, RenewalBudget, UserAgent (Core)
 SiteSidecar      ──> StreamDecoder, UserAgent, SidecarIdlePolicy (Core)
 WindowBridge     ──> StageModel, WheelInterpreter, WindowDragPolicy, PointerPolling (Core), SiteSidecar.hold（定义在 `App/SidecarHost+Mac.swift`）, ClickableRegionView
@@ -224,12 +227,12 @@ App 引用 Core，Core 不引用 App。`PlayerController` 与 `StageModel` 的�
 
 ### 5.3 失败重试与重新解析
 
-- 播放项失败：`PlayerController.itemFailed` 对同一房间静默重试一次（`retried`，换房间或非重试起播时重置），经 `refreshRequested` 让 `StageModel.refreshCurrent` 丢弃缓存、重新解析当前房间再起播；第二次失败才进界面（`failed` 加中文文案）。
+- 播放项失败：先经 `failureFilter`（`StageModel.classifyFailure` → `PlaybackFailureClassifier`，单窗恒为 `.roomRetry`）归类；`.resourceDegrade`（仅双窗副路命中白名单码）不耗重试、不进失败态，交 `resourceDegraded` → `StageModel.degrade` 释放该路（`suspendNow`）并显示「双窗暂不可用」。其余进入 `PlayerController.itemFailed`：对同一房间静默重试一次（`retried`，换房间或非重试起播时重置），经 `refreshRequested` 让 `StageModel.refreshCurrent` 丢弃缓存、重新解析当前房间再起播；第二次失败才进界面（`failed` 加中文文案）。
 - 暂停恢复三段式（`PlaybackPolicy.resumeAction`，`PlayerController.resumeIfNeeded`）：暂停不超过 `liveRejoinAfter`（15 秒）直接 `play()` 续播（播放项开着 `automaticallyPreservesTimeOffsetFromLive`，自动贴回直播偏移）；15 秒到 `reresolveAfter`（30 秒）重建播放项回直播点；超过 30 秒重新解析地址。依据：子列表地址闲置约 35 秒才过期。
 - 音轨复查：开播后 `audioCheckDelay`（2 秒）检测可听音轨，没有则不立刻报错，再等 `audioRecheckDelay`（3 秒）复查，仍没有才记 error（`audio tracks=… (no audible track)`），通过记 info；判定 `PlaybackPolicy.audioCheckStep`，换项 / 停止时取消（`audioTask`）。
 - 起播看门狗：`PlaybackPolicy.startupTimeout` 16 秒内没出画面报「迟迟没有开始」；只在应当播放时计时，暂停或等待新地址（`refresh.pending`）时不报。
 - 卡住看门狗：已开播的项持续不在播放超过 `PlaybackPolicy.stuckAfter`（10 秒）且播放门控允许、不在等待新地址时，走上面同一条「重新解析并重建」路径，占用该房间那一次自动重试预算；预算用完不再恢复，改为显示失败与重试（不循环）。暂停 / 老板键 / 休眠 / 换项 / 停止时取消。
-- 刷新任务校验 `playGeneration` 与当前房间，被取代就放弃并清 `RefreshTracker`，旧项不会被永远挡住。
+- 刷新任务校验该路的 `lane.playGeneration` 与该路当前房间，被取代就放弃并清 `RefreshTracker`，旧项不会被永远挡住。
 - 解析失败（离线、私密、地区等）：显示原因，1.6 秒后（`SkipTracker.noticeSeconds`）沿用户最后一次划动方向自动跳过；连续自动跳过上限 3（`SkipTracker.limit`），到限停下并提示重试。自动跳过不清手动暂停（`MoveRules`）。播放失败不自动跳走，停在原房间显示原因。
 - 暂时离开（`away`，`AwayRetry`）：不自动跳过，停在房间显示「暂时离开，稍后自动重试」，并排一个一次性延迟任务（`awayTask`，`AwayRetry.delay` 60 秒）：到点仍是同一房间、`playGeneration` 没变、播放门控允许（`AwayRetry.shouldFire`）才重新起播一次。仍离开就显示「暂时离开，可稍后手动重试或换个房间」，不再自动重试，由用户决定。`playCurrent` 开头取消该任务并在换房时清零（`AwayRetry.enter`），成功起播清零（`AwayRetry.clear`）；暂停等播放门控关闭时立即作废待触发任务（`AwayRetryTimer.gateChanged`，到期前恢复也不再触发，提示改为手动重试文案）。自动重试次数只在到点真正开始解析时记（`AwayRetry.beginRetry`），被取消的排程不消耗。直连取流在退避窗口内不发请求时抛 `EndpointBackedOff`（与真实 403 / 503 的 `.unavailable` 分开）：留在当前房间显示限流提示、窗口结束（`EndpointBackoff.window`）后自动再解析，不跳房、不耗 `SkipTracker`；目录侧同样用退避文案。解析途中已暂停时（门控关闭），away 与退避结果只给手动重试提示、不建自动重试任务（`AwayRetry.gated`、`EndpointBackoff.pendingNote`）。没有常驻定时器。
 
@@ -288,6 +291,15 @@ App 引用 Core，Core 不引用 App。`PlayerController` 与 `StageModel` 的�
 - 状态：在线（公开可播放）、离线（含私密、群组、离开、需密码）、地区受限（公开但 `hls_source` 字段在而为空，`FavoriteStatus.restricted`，收藏夹显示「当前地区不可观看」，排在离线之后；与其他结果一样缓存 3 分钟，不反复补查；字段缺失或为 null 时不下结论，照旧算在线）、不存在（404 或 403 已删除）。直连被站点拦截（HTML 质询页）时，没答案的部分改经侧车（`SidecarHTTPClient`，浏览器里的会话）重查并让 `sidecarUntil` 延后 600 秒；侧车也被拦才停止发起新请求，走确认流程。确认完成后 `retryAfterChallenge` 重跑被中断的任务（`challengeResume`：目录加载重跑 `reload`，收藏查询重跑 `checkFavorites`；多个发起者取「做得最多」的，`reload` 优先于 `checkFavorites`，确认后若已切到收藏来源则改为 `reload` 以装入列表），首次加载不再停在空白，切来源时也不再继续播旧来源的列表。
 - 收藏来源的列表只含在线房间，按人数从多到少、同人数按收藏先后；一次给全，没有后续页。收藏来源只显示当前收藏名单里的房间（`RoomQuery.only`，名单变化时随 `FeedStore.setFilters` 同步，屏蔽后解除屏蔽不会让已移出收藏的房间重新出现）。收藏夹里点在线的收藏：`FeedStore.reveal` 保证播放的就是它，搜索条件会挡住目标时清掉，已在列表里就切过去，否则插到当前房间之后播放。
 - 收藏来源下增删收藏会重取列表（命中缓存不发请求）；屏蔽当前房间不触发重取。导出为 `{"app","version","favorites":[...]}` JSON；导入接受该格式或纯字符串数组，格式不合格的丢弃，已有的保持先后、新的接在后面，遵守 300 个上限，屏蔽名单里的不收（`Curation.importing`）。
+
+### 5.9 播放路（`PlaybackLane`）与目标路操作
+
+- **每路状态**（`Shared/Stage/PlaybackLane.swift`，计划 §4.2）：播放器与画面镜像、就绪 / 在播房间、失败文案、竖屏完整画面、起播代次与任务（`playGeneration` / `playTask` / `skipTask` / `awayTask`）、跳过与离开重试、停留与来源（`dwell` / `dwellSource`）、画质（`quality` / `qualitySignature` / `currentMaster` / `currentPlayable` / `currentCap`）、`username`、`manuallyPaused`、`visible`、`state`（`LaneState`）、`paneSize` / `displaySize`。两路共享的列表、口味、收藏、侧车、退避、预取缓存留在 `StageModel`。
+- **持有方式**：`StageModel.primary` 恒在，`secondary` 只在 iOS 双窗时有（macOS 恒为 nil），`lanes` 依次给出。原来模型上的 `@Published` 字段（`playbackNote`、`portraitFit`、`manuallyPaused`）在路上同样发布，`attach(_:)` 把每路 `objectWillChange` 转发到模型，界面失效时机不变；模型上保留同名属性转发到主路，界面与菜单的读写处不改。`playGeneration`、`playTask`、`skipTask`、`currentCap`、`qualitySignature`、`dwellSource` 不设转发，`StageModel*.swift` 只能经 `lane.` 访问。
+- **按路函数**：`playCurrent`、`refreshCurrent`、`renewRendition`、`prefetchAhead`、`scheduleSkip`、`autoSkip`、`move`、`step`、`noteReady`、`notePlaying`、`notePlaybackFailed`、`noteNoAudio`、`currentRoomChanged`、`updateDwellActive`、`refreshQuality`、`applyQuality` 都带 `on:`（缺省为主路）；播放器回调在 `attach` 里按路绑定。每路闸门 `laneAllowed(_:)` = 全局闸门 ∧ `!lane.manuallyPaused` ∧ `lane.visible`；`applyPower` 逐路下发。主路的房间仍取 `feed.current` / `feed.currentUsername`，副路按 `lane.username` 在可见列表里找（`room(of:)` / `name(of:)`）。热门关联只看主路。
+- **目标路操作**（`RoomTarget`）：收藏 / 取消收藏、屏蔽、不感兴趣、重试、暂停 / 继续接收点击时固定的 `RoomTarget(laneID, username, generation)`（`StageModel.target()`，macOS 恒为主路），执行时由 `matchedLane(_:)` 核对该路的房间与起播代次，对不上就放弃。暂停在没有房间时（目标为 nil）落在主路，与原来一样。来源、筛选、搜索、口味标签是全局操作。
+- **联合选房**：`updateFeed(installing:intent:_:)` 先在副本上执行变更，再用变更前快照调 `LaneSelection.resolve`。单窗时它的结果必须与 FeedStore 自己的选择一致，不一致只记 `lane-selection mismatch single-window` 日志并保留 FeedStore 的选择（macOS 行为不变）；双窗时主路改用联合结果，副路经 `settleSecondary` 结算停留并起播。意图：重载 `.reload`、全站搜索装入 `.searchInstall`、合并 / 重排 / 前置 `.merge`、点收藏 `.reveal`、划动 `.move`，其余 `.filter`。
+- **播放器（每路一个 `PlayerController`）**：`laneLabel` 标路；结构化失败信息 `lastFailure`（`PlaybackFailureInfo`：阶段、房间、错误链、文案）；`suspendNow()` 立刻放掉播放项并作废自己的中继源，`pausedAt` 为空时补写、`allowed` 置假，恢复时重新解析起播。首帧日志 `first-frame lane=<id> <秒>s size=WxH`（Release 也有）与同名 signpost 区间：从登记播放项起，到开播（`timeControlStatus` 首次为 playing）之后播放项第一次有有效 `presentationSize` 为止；`AVPlayerLayer.isReadyForDisplay` 在视图层，控制器拿不到，两端统一用这个口径。
 
 ## 6. 本地存储
 
