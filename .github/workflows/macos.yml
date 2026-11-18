@@ -4,20 +4,72 @@ on:
   push:
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  vela:
+  logic:
+    name: Logic tests
     runs-on: macos-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - name: Logic tests
+      - name: swift test
         run: swift test
-      - name: Build app
+      - name: Perf gate negative samples
+        run: |
+          if [ -x scripts/test-perf-gate.sh ]; then bash scripts/test-perf-gate.sh; else echo "skip: no perf gate yet"; fi
+
+  mac:
+    name: macOS build (${{ matrix.configuration }})
+    runs-on: macos-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration: [Debug, Release]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Vela
         run: >
           xcodebuild
           -project Vela.xcodeproj
           -scheme Vela
           -destination 'platform=macOS'
-          -configuration Debug
+          -configuration ${{ matrix.configuration }}
           CODE_SIGN_IDENTITY=-
           CODE_SIGNING_ALLOWED=NO
           build
+
+  ios:
+    name: iOS simulator build and tests
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Detect iOS scheme
+        id: scheme
+        run: |
+          if [ -f Vela.xcodeproj/xcshareddata/xcschemes/VelaPhone.xcscheme ]; then
+            echo "present=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=no" >> "$GITHUB_OUTPUT"
+            echo "VelaPhone scheme not added yet, skipping"
+          fi
+      - name: Build VelaPhone for simulator
+        if: steps.scheme.outputs.present == 'yes'
+        run: >
+          xcodebuild
+          -project Vela.xcodeproj
+          -scheme VelaPhone
+          -sdk iphonesimulator
+          -destination 'generic/platform=iOS Simulator'
+          CODE_SIGNING_ALLOWED=NO
+          build
+      - name: Test VelaPhone on simulator
+        if: steps.scheme.outputs.present == 'yes'
+        run: |
+          if ! grep -q "VelaPhoneTests" Vela.xcodeproj/project.pbxproj; then echo "no VelaPhoneTests target yet, skipping"; exit 0; fi
+          UDID=$(xcrun simctl list devices available -j | python3 -c "import json,sys;d=json.load(sys.stdin)['devices'];print(next(x['udid'] for k,v in d.items() if 'iOS' in k for x in v if 'iPhone' in x['name']))")
+          xcodebuild -project Vela.xcodeproj -scheme VelaPhone -destination "platform=iOS Simulator,id=$UDID" CODE_SIGNING_ALLOWED=NO test
