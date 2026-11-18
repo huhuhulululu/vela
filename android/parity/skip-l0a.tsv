@@ -1,0 +1,11 @@
+# L0a 跳过表。三列制表符：swift_file、swift_test、reason。
+# 理由以 deferred:C9 开头：本条引用了后面组的类型，源码仍可编译；--group l0a 视为已登记。
+swift_file	swift_test	reason
+Tests/VelaCoreTests/EndpointBackoffTests.swift	testAgePageIsChallengeForStreamAndCatalog	deferred:C9 同一条混有 StreamDecoder（C4）；ChatContext 半段等 C9 一起对
+Tests/VelaCoreTests/EndpointBackoffTests.swift	testStreamFetchBacksOffAfterNonJSON	deferred:C9 引用 StreamDecoder.fetch（C4）
+Tests/VelaCoreTests/EndpointBackoffTests.swift	testStreamFetchChallengeDoesNotBackOff	deferred:C9 引用 StreamDecoder.fetch（C4）
+Tests/VelaCoreTests/EndpointBackoffTests.swift	testCatalogBacksOffAndKeepsFailureKind	deferred:C9 引用 CatalogAPI.fetch（C5）
+Tests/VelaCoreTests/EndpointBackoffTests.swift	testFavoriteFetcherBacksOffWithoutCachingOrChallenge	deferred:C9 引用 FavoriteFetcher（C7）
+Tests/VelaCoreTests/EndpointBackoffTests.swift	testFavoriteFetcherDefinitiveStatusesIgnoreBody	deferred:C9 引用 FavoriteFetcher（C7）
+Tests/VelaCoreTests/EndpointBackoffTests.swift	testLastBroadcastFetcherBacksOff	deferred:C9 引用 LastBroadcastFetcher（C7）
+Tests/VelaCoreTests/EndpointBackoffTests.swift	testNoteAfterCancelSwitchesWaitingNotes	deferred:C9 引用 AwayRetry.noteAfterCancel（C3）
