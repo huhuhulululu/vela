@@ -516,6 +516,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A639B4CE712CAE3AF5097EDD /* PiPPolicy.swift in Sources (VelaPhone) */,
 				0ADEEA3622D0027A66998077 /* SwapBackdrop.swift in Sources (VelaPhone) */,
 				E24FE516FC3F91EFA83ECFAB /* RoomThumbnailCache.swift in Sources (VelaPhone) */,
 				662AB64AF56BD21979EE7FBD /* AgeGateContent.swift in Sources (VelaPhone) */,
@@ -619,6 +620,7 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXBuildFile section */
+		A639B4CE712CAE3AF5097EDD /* PiPPolicy.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 77CC74339DCDCD80A583929F /* PiPPolicy.swift */; };
 		B7A0C0DE0000000000000064 /* CatalogAPI.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = B6C2710BAE15BF34AD8D8064 /* CatalogAPI.swift */; };
 		B7A0C0DE0000000000000065 /* DisplayFit.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 6C6318BDB00A5C5629A5771D /* DisplayFit.swift */; };
 		B7A0C0DE0000000000000066 /* LaneCursor.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 3B5557D6CBCE24FB261DDCF2 /* LaneCursor.swift */; };
