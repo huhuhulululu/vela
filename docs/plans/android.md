@@ -60,7 +60,7 @@
 7. **回前台的恢复规则**：每一路在「有房间、没被手动暂停、窗格可见、不在失败态」时重新解析地址后起播；失败态保留失败提示、不自动重播；手动暂停的路保持暂停，只显示垫底缩略图和暂停图标；隐藏的路保持已释放。
 8. **音频规则**：转换按顺序执行，不能出现两路同时出声的瞬间；请求焦点失败时保持静音，只改运行时状态，不写进设置；失去焦点或拔耳机时转为静音，且不自动恢复出声。
 
-**验收标准**：见文末 S-A1 至 S-C6，不可自改。
+**验收标准**：见文末 S-A1 至 S-A6、S-B1 至 S-B2、S-C1 至 S-C3，不可自改。
 
 ---
 
@@ -545,3 +545,28 @@ B1 和 B2 并行时写入范围不相交：B1 写 StageViewModel、LifecycleWiri
 
 Ready for execution
 
+
+
+---
+
+## 修订 2.1（编排者，2026-11-18，按第 2 轮审查的 3 个阻塞项；与上文冲突时以本节为准）
+
+**2.1-1 测试与 PiPPolicy 的跨波依赖**
+- 执行者规则补充：某条 Swift 测试引用了排在后面组的类型时，**不停下**，在 `android/parity/split-<组>.tsv` 登记 `deferred:C9` 并继续；源码本身编译不过才停下报告。
+- 预先登记为 deferred:C9 的条目：EndpointBackoffTests 中引用 StreamDecoder、CatalogAPI.fetch、LastBroadcastFetcher 的条目（L0a）；PreferenceQuarantineTests 中引用 TasteStore、CurationStore 的条目（L0b；`Preferences.maxFileBytes` 改为引用 L0b 自己的常量副本或等 L0a 合入后由 C9 补）；PlaybackRefreshTests 中引用 FeedStore 的条目（C2）；ChallengeGateTests 中引用 StreamDecoder、CatalogAPI 的条目（C3）；PiPPolicyTests 中断言音频会话配置的条目（C3）。C9 的依赖补上 A2。
+- PiPPolicy 的音频输出在安卓上改为平台无关的 `AudioIntent`（例如 `holdsFocus: Boolean`、`mixWithOthers: Boolean`、`releaseNotifyingOthers: Boolean`），定义在 C3 自己的范围 `vela.core.lifecycle.AudioIntent`；A2 的 `AudioFocusPlan` 只消费它。C3 不依赖 A2。
+
+**2.1-2 不能跨文件拆分的 Kotlin 类型**
+拆开的符号一律落成独立的顶层类型，由后面组的类型引用，并在 parity 映射里注明改名：
+- `SiteSearch.normalized` → L0a `vela.core.base.site.SiteSearchText.normalized`；C5 的 `SiteSearch`（含 Submit、Edit、MissRecovery、MissOutcome）调用它。
+- `Curation.key` → L0a `vela.core.base.model.CurationKeys.key`；C7 的 `Curation` 调用它。
+- `LaneSettlement.EndReason` → L0b `vela.core.base.lane.LaneEndReason`；C8 的 `LaneSettlement` 用它（typealias 也可）。
+- `RelayPolicy.defaultTargetDuration` → L0b `vela.core.base.play.RelayDefaults.defaultTargetDuration`；回退包 R1 的 `RelayPolicy` 引用它，不改 L0b 文件。
+
+**2.1-3 验收编号**：冻结区块的编号已更正为 S-A1–S-A6、S-B1–S-B2、S-C1–S-C3。
+
+**采纳建议**
+- 第 6 节权限检查以白名单为准（INTERNET、ACCESS_NETWORK_STATE、androidx 自动合并的 `<包名>.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`），与第 2 节一致。
+- P2 的 `LaneDataSourceAdoptionTest` 对 R1 只断言：序号回退带 DISCONTINUITY 时，错误以可识别类型交给加载错误策略（或列表被采纳），不产生续期；「原地重新 prepare、60 秒内最多 2 次」由 A3 断言。
+- `android.yml` 的路径过滤加上 `scripts/serve-test-stream.py`、`scripts/make-test-stream.sh`（00 已派发；由 T1 在改该工作流时补）。
+- 00 合入后编排者按第 2 节逐项核对 parity 与 check-apk 的实际行为。
