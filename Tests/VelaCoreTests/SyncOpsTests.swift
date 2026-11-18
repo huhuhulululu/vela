@@ -148,14 +148,32 @@ final class SyncOpsTests: XCTestCase {
 
     // MARK: 体积
 
-    func testLocalOpRejectedWhenFull() {
+    func testHonestMaximumDocumentStaysBelowP() {
+        // 各类别都塞满、键与载荷取最长：在用加墓碑也到不了 P（第 6.7 节的估算以实测为准）。
         var d = SyncDocument()
-        for i in 0..<450 { d.veto["t:" + String(format: "%03d", i) + String(repeating: "\u{4E00}", count: 42)] = F.reg(1, "+") }
-        for i in 0..<300 { d.rooms[String(format: "cb:f%03d_", i) + String(repeating: "x", count: 25)] = SyncRoom(f: F.reg(2, "+"), b: F.reg(2, "-"), n: F.reg(2, String(format: "F%03d_", i) + String(repeating: "x", count: 25))) }
-        for i in 0..<300 { d.rooms[String(format: "cb:b%03d_", i) + String(repeating: "x", count: 25)] = SyncRoom(f: F.reg(2, "-"), b: F.reg(2, "+"), n: F.reg(2, String(format: "B%03d_", i) + String(repeating: "x", count: 25))) }
-        XCTAssertLessThan(d.encoded().count, SyncLimits.plaintextBytes, "数量上限内的在用部分远小于 P")
-        // 用很小的上限验证拒写路径：直接调体积函数。
-        let fitted = SyncMerge.fitSize(d, limit: 1_000)
-        XCTAssertFalse(fitted.fits)
+        func user(_ p: String, _ i: Int) -> String { p + String(format: "%04d", i) + String(repeating: "x", count: 25) }
+        let tag = String(repeating: "\u{4E00}", count: 41)
+        for i in 0..<300 { d.rooms["abcdefgh:" + user("f", i)] = SyncRoom(f: F.reg(9, "+"), b: F.reg(9, "-"), n: F.reg(9, user("F", i))) }
+        for i in 0..<300 { d.rooms["abcdefgh:" + user("b", i)] = SyncRoom(f: F.reg(9, "-"), b: F.reg(9, "+"), n: F.reg(9, user("B", i))) }
+        for i in 0..<1_000 { d.rooms["abcdefgh:" + user("t", i)] = SyncRoom(f: F.reg(9, "-"), b: F.reg(9, "-"), n: F.reg(9, user("T", i))) }
+        for i in 0..<450 { d.veto["t:" + String(format: "%02d", i % 100) + String(i / 100) + tag] = F.reg(9, "+") }
+        for i in 0..<500 { d.veto["t:z" + String(format: "%03d", i) + tag] = F.reg(9, "-") }
+        XCTAssertTrue(SyncMerge.withinCounts(d))
+        XCTAssertEqual(d.encodedSize, d.encoded().count)
+        XCTAssertLessThan(d.encodedSize, SyncLimits.plaintextBytes)
+        print("数量上限下的最大文档：\(d.encodedSize) 字节")
+    }
+
+    func testLocalOpRejectedWhenFull() {
+        var r = replica()
+        guard case .applied(let one) = SyncOps.apply(.favorite("averyveryverylongname_0001"), to: r, pt: 1, sizeLimit: 200) else { return XCTFail() }
+        r = one
+        XCTAssertEqual(SyncOps.apply(.favorite("averyveryverylongname_0002"), to: r, pt: 2, sizeLimit: 200), .full)
+        // 有墓碑时先裁最旧墓碑，放得下就照常。
+        guard case .applied(let two) = SyncOps.apply(.unfavorite("averyveryverylongname_0001"), to: r, pt: 3, sizeLimit: 200) else { return XCTFail() }
+        guard case .applied(let three) = SyncOps.apply(.favorite("averyveryverylongname_0002"), to: two, pt: 4, sizeLimit: 200) else {
+            return XCTFail("墓碑裁掉后放得下")
+        }
+        XCTAssertNil(three.doc.rooms["cb:averyveryverylongname_0001"])
     }
 }

@@ -46,7 +46,8 @@ public enum SyncOpOutcome: Equatable, Sendable {
 /// 本地操作到寄存器的映射（docs/plans/sync.md 第 6.4 节）。前置条件按操作发生时的投影判断。
 public enum SyncOps {
     public static func apply(
-        _ op: SyncLocalOp, to replica: SyncReplica, pt: UInt64, localOnlyVetoCount: Int = 0
+        _ op: SyncLocalOp, to replica: SyncReplica, pt: UInt64, localOnlyVetoCount: Int = 0,
+        sizeLimit: Int = SyncLimits.plaintextBytes
     ) -> SyncOpOutcome {
         var r = replica
         let projection = Facts(doc: r.doc)
@@ -97,7 +98,7 @@ public enum SyncOps {
             guard SyncKeys.settingKeys.contains(key) else { return .unchanged }
             r.doc.settings[key] = SyncRegister(hlc: r.clock.tick(pt: pt), payload: value ? "1" : "0")
         }
-        let fitted = SyncMerge.fitSize(r.doc)
+        let fitted = SyncMerge.fitSize(r.doc, limit: sizeLimit)
         guard fitted.fits else { return .full }
         r.doc = fitted.doc
         return .applied(r)
