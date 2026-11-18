@@ -27,8 +27,8 @@ extension StageModel {
     /// 翻页要不要加载下一页：以各路里排得最靠后的房间为锚（单窗就是主路）。
     var furthestLaneUsername: String? {
         lanes.compactMap { name(of: $0) }.max { lhs, rhs in
-            let left = feed.rooms.firstIndex { $0.username == lhs } ?? 0
-            let right = feed.rooms.firstIndex { $0.username == rhs } ?? 0
+            let left = feed.rooms.firstIndex { $0.username.lowercased() == lhs.lowercased() } ?? 0
+            let right = feed.rooms.firstIndex { $0.username.lowercased() == rhs.lowercased() } ?? 0
             return left < right
         }
     }
@@ -75,14 +75,15 @@ extension StageModel {
         }
     }
 
-    /// 界面量到舞台尺寸（点，横屏时按竖屏方向理解：宽取短边、高取长边）。三格每格不足 160 点就最多 2 路（修订 v2 M12）：
-    /// 已开 3 路的临时降到 2 路，不改用户选择；又放得下时按用户选择恢复。同值不动。
+    /// 界面量到舞台尺寸（点）。只用竖屏实测（高不小于宽）：横屏量到的尺寸与竖屏不完全对称，参与判定会在阈值附近来回翻转。
+    /// 三格每格不足 160 点就最多 2 路（修订 v2 M12）：已开 3 路的临时降到 2 路，不改用户选择；又放得下时按用户选择恢复。
+    /// 第一次量到时补开启动时暂缓的第三路。同值不动。
     func notePortraitStageSize(_ size: CGSize) {
-        let portrait = CGSize(width: min(size.width, size.height), height: max(size.width, size.height))
-        guard portrait != portraitStageSize else { return }
-        portraitStageSize = portrait
-        let fits = LaneLayout.fitsThreeLanes(stageHeight: Double(portrait.height))
-        guard fits != threeLanesFit else { return }
+        guard size.height >= size.width, size.width > 0, size != portraitStageSize else { return }
+        let first = portraitStageSize == .zero
+        portraitStageSize = size
+        let fits = LaneLayout.fitsThreeLanes(stageHeight: Double(size.height))
+        guard fits != threeLanesFit || first else { return }
         threeLanesFit = fits
         applyStageFit()
     }
@@ -107,8 +108,10 @@ extension StageModel {
     }
 
     /// 启动时恢复上次的路数：不写设置，列表还没到时新路先空着，列表到达后由 `LaneSelection` 选房。
+    /// 竖屏舞台尺寸还没量到时先最多开 2 路，量到放得下再开第三路，避免矮屏先开 3 路再降。
     func restoreLanesIfRemembered() {
-        let remembered = min(settings.laneCount, maxLaneCount)
+        let ceiling = portraitStageSize == .zero ? min(maxLaneCount, 2) : maxLaneCount
+        let remembered = min(settings.laneCount, ceiling)
         guard platform.supportsDual, !platform.focusLocked, remembered > laneCount else { return }
         openLanes(upTo: remembered)
     }
@@ -158,7 +161,7 @@ extension StageModel {
         }
         laneCount = lanes.count
         if laneCount == 1 {
-            focusLane = .primary
+            if focusLane != .primary { focusLane = .primary }
             primary.dwell.setFocused(true, now: Date())
             if !primary.visible { primary.visible = true }
         }

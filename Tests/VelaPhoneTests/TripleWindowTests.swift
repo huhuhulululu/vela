@@ -92,6 +92,8 @@ final class TripleWindowTests: XCTestCase {
         let store = defaults()
         SettingsStore(defaults: store).laneCount = 3
         let stage = TestPrefs.stage(settings: SettingsStore(defaults: store))
+        XCTAssertEqual(stage.laneCount, 2, "舞台尺寸量到之前先不开第三路")
+        stage.notePortraitStageSize(CGSize(width: 402, height: 874))
         XCTAssertEqual(stage.laneCount, 3)
         XCTAssertNotNil(stage.tertiary)
         install(stage, ["alice", "bob", "carol", "dave"])
@@ -397,7 +399,7 @@ final class TripleWindowTests: XCTestCase {
         stage.notePortraitStageSize(CGSize(width: 402, height: 874))
         XCTAssertTrue(stage.threeLanesFit)
         XCTAssertEqual(stage.laneCount, 3)
-        stage.notePortraitStageSize(CGSize(width: 402, height: 400))
+        stage.notePortraitStageSize(CGSize(width: 300, height: 400))
         XCTAssertFalse(stage.threeLanesFit, "每格不足 160 点")
         XCTAssertEqual(stage.maxLaneCount, 2)
         XCTAssertEqual(stage.laneCount, 2, "临时降到 2 路")
@@ -468,5 +470,46 @@ final class TripleWindowTests: XCTestCase {
         XCTAssertEqual(stage.settings.laneCount, 2, "显式选择即使等于当前临时路数也记住")
         stage.notePortraitStageSize(CGSize(width: 402, height: 874))
         XCTAssertEqual(stage.laneCount, 2, "恢复高度后按用户新的选择，不再开第三路")
+    }
+    // MARK: 审计 low
+
+    /// 启动时记住的是 3 路、屏幕放不下三格：舞台尺寸量到之前只开 2 路，量到之后也不先开再降。
+    func testLaunchOnShortScreenNeverOpensTheThirdLane() {
+        let store = defaults()
+        SettingsStore(defaults: store).laneCount = 3
+        let stage = TestPrefs.stage(settings: SettingsStore(defaults: store))
+        XCTAssertNil(stage.tertiary)
+        stage.notePortraitStageSize(CGSize(width: 300, height: 400))
+        XCTAssertNil(stage.tertiary, "放不下：一直没开过第三路")
+        XCTAssertEqual(stage.laneCount, 2)
+        XCTAssertEqual(stage.settings.laneCount, 3)
+    }
+
+    /// 只用竖屏实测尺寸判定：横屏时量到的尺寸不参与，阈值附近不会因横竖屏切换来回翻转。
+    func testLandscapeMeasurementsDoNotFlipTheThreeLaneFit() {
+        let stage = triple()
+        stage.notePortraitStageSize(CGSize(width: 300, height: 486))
+        XCTAssertTrue(stage.threeLanesFit, "竖屏 486 点：每格 160.67")
+        stage.notePortraitStageSize(CGSize(width: 486, height: 296))
+        XCTAssertTrue(stage.threeLanesFit, "横屏的尺寸不改判定")
+        XCTAssertEqual(stage.portraitStageSize, CGSize(width: 300, height: 486))
+        XCTAssertEqual(stage.laneCount, 3)
+    }
+
+    /// 只留一路时焦点本来就在主路：不重复写 `@Published` 的焦点（同值回写会让整棵视图树失效）。
+    func testClosingToOneLaneWithPrimaryFocusDoesNotRewriteFocus() {
+        let stage = triple()
+        var writes = 0
+        let token = stage.$focusLane.dropFirst().sink { _ in writes += 1 }
+        stage.setLaneCount(1)
+        XCTAssertEqual(writes, 0)
+        token.cancel()
+    }
+
+    /// 翻页锚点按房间名不分大小写比较。
+    func testFurthestLaneComparesNamesCaseInsensitively() {
+        let stage = triple(["alice", "bob", "carol", "dave"])
+        stage.tertiary!.username = "CAROL"
+        XCTAssertEqual(stage.furthestLaneUsername?.lowercased(), "carol", "第三路在 carol，排得最靠后")
     }
 }

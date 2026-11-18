@@ -280,13 +280,13 @@ final class TripleLaneMediaTests: XCTestCase {
         XCTAssertNil(lane.quality.delay(now: Date()), "不排定档换档")
     }
     /// 回归（iPad 三窗冷启动实跑发现）：列表刚到、格子还没布局时就起播，不能落到最低档再换档；
-    /// 按舞台尺寸推算格子（宽取短边，高按路数均分）估算画面高度。横屏时传进来的尺寸按竖屏方向理解。
+    /// 按竖屏实测的舞台尺寸推算格子（高按路数均分）估算画面高度。
     func testStageSizeEstimatesThePaneBeforeLayout() {
         let stage = makeStage()
         stage.screenScale = 3
         let lane = stage.tertiary!
         XCTAssertEqual(stage.playbackCap(on: lane), LaneQuality.minimumBitrate, "什么尺寸都没有：最低档")
-        stage.notePortraitStageSize(CGSize(width: 874, height: 402))
+        stage.notePortraitStageSize(CGSize(width: 402, height: 874))
         XCTAssertEqual(stage.estimatedDisplayHeight(lane), 226.125, accuracy: 0.01, "402 宽里 16:9 画面高 226 点，小于格高 290")
         XCTAssertEqual(stage.playbackCap(on: lane), 1_696_000)
         stage.notePaneSize(CGSize(width: 402, height: 150), on: lane)

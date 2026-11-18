@@ -97,7 +97,7 @@ final class StageModel: ObservableObject {
     var dualWindow: Bool { laneCount > 1 }
     /// 竖屏放得下三格（每格不低于 160 点，修订 v2 M12）。由界面量到舞台高度后更新。
     @Published var threeLanesFit = true
-    /// 舞台尺寸按竖屏方向（宽取短边、高取长边），格子还没布局时据此估算选档（不发布）。
+    /// 竖屏实测的舞台尺寸，格子还没布局时据此估算选档（不发布）。没量到为 `.zero`。
     var portraitStageSize: CGSize = .zero
     /// 路数此刻改不了（画中画启动中或进行中）。界面据此禁用路数菜单并说明原因。
     @Published var laneCountLocked = false
