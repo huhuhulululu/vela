@@ -117,6 +117,14 @@
 		1A486697B1A22114A9A60C90 /* PlatformHooks+Mac.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PlatformHooks+Mac.swift"; sourceTree = "<group>"; };
 		D096B2FF63E8DAD1F896F278 /* StageModel+Mac.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "StageModel+Mac.swift"; sourceTree = "<group>"; };
 		8FBC1ABAEFD8187434B9DBF0 /* PlatformHooks+Phone.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PlatformHooks+Phone.swift"; sourceTree = "<group>"; };
+		9AC06141FBC0557C71D42E18 /* PulseDot+Mac.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PulseDot+Mac.swift"; sourceTree = "<group>"; };
+		EDDF236238A89A159826934E /* SiteWebView+Mac.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SiteWebView+Mac.swift"; sourceTree = "<group>"; };
+		EAC96C9A604DC39521611610 /* ChallengeSheet+Mac.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChallengeSheet+Mac.swift"; sourceTree = "<group>"; };
+		6D7118E8A3C25F19E34481AA /* SidecarHost+Mac.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SidecarHost+Mac.swift"; sourceTree = "<group>"; };
+		FBA7475CB0EAD2FA6559C3B4 /* PulseDot+Phone.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PulseDot+Phone.swift"; sourceTree = "<group>"; };
+		5706678F94874A09042F3437 /* SiteWebView+Phone.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SiteWebView+Phone.swift"; sourceTree = "<group>"; };
+		BD9C5ECA71F7AC479FB56CF1 /* SidecarHost+Phone.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SidecarHost+Phone.swift"; sourceTree = "<group>"; };
+		BFAB95F3C05BDC2A011A19A4 /* PlayerLayerView+Phone.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PlayerLayerView+Phone.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -139,6 +147,10 @@
 		3C3B0F03DC089F93B8457928 /* App */ = {
 			isa = PBXGroup;
 			children = (
+				6D7118E8A3C25F19E34481AA /* SidecarHost+Mac.swift */,
+				EAC96C9A604DC39521611610 /* ChallengeSheet+Mac.swift */,
+				EDDF236238A89A159826934E /* SiteWebView+Mac.swift */,
+				9AC06141FBC0557C71D42E18 /* PulseDot+Mac.swift */,
 				D096B2FF63E8DAD1F896F278 /* StageModel+Mac.swift */,
 				1A486697B1A22114A9A60C90 /* PlatformHooks+Mac.swift */,
 				955DBAD7F72B22E16746405C /* AgeGateView.swift */,
@@ -280,6 +292,10 @@
 		B7A0C0DE0000000000000002 /* iOS */ = {
 			isa = PBXGroup;
 			children = (
+				BFAB95F3C05BDC2A011A19A4 /* PlayerLayerView+Phone.swift */,
+				BD9C5ECA71F7AC479FB56CF1 /* SidecarHost+Phone.swift */,
+				5706678F94874A09042F3437 /* SiteWebView+Phone.swift */,
+				FBA7475CB0EAD2FA6559C3B4 /* PulseDot+Phone.swift */,
 				8FBC1ABAEFD8187434B9DBF0 /* PlatformHooks+Phone.swift */,
 				530F0A44EED4FAE366351B2E /* ClickRegion+Phone.swift */,
 				B7A0C0DE0000000000000001 /* VelaPhoneApp.swift */,
@@ -374,6 +390,10 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				8E337A72BB6D6883438A22BA /* SidecarHost+Mac.swift in Sources */,
+				BC1E02DA8E9D42EAA2E9F3A2 /* ChallengeSheet+Mac.swift in Sources */,
+				753F3B6D7E0EA0E27B032D13 /* SiteWebView+Mac.swift in Sources */,
+				36604C4F6520484E99DBF568 /* PulseDot+Mac.swift in Sources */,
 				A3512B34C2A1F3200213B590 /* StageModel+Mac.swift in Sources */,
 				233B2E30587FB5106D33024C /* PlatformHooks+Mac.swift in Sources */,
 				5F01D196FC0522F63E4FF56D /* SwapBackdrop.swift in Sources */,
@@ -485,6 +505,10 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				011B3C99EF9A74E56D8FEA2D /* PlayerLayerView+Phone.swift in Sources (VelaPhone) */,
+				CBBE54074865E41039D840C5 /* SidecarHost+Phone.swift in Sources (VelaPhone) */,
+				FF217E47A7E0309E4B80308B /* SiteWebView+Phone.swift in Sources (VelaPhone) */,
+				F2DC055FFFFD209CD1EC56A3 /* PulseDot+Phone.swift in Sources (VelaPhone) */,
 				0FE1A2291B975A8E1863BD34 /* PlatformHooks+Phone.swift in Sources (VelaPhone) */,
 				EC1323DECFCC9557631A3CCC /* ClickRegion+Phone.swift in Sources (VelaPhone) */,
 				B7A0C0DE0000000000000064 /* CatalogAPI.swift in Sources (VelaPhone) */,
@@ -726,6 +750,14 @@
 		233B2E30587FB5106D33024C /* PlatformHooks+Mac.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A486697B1A22114A9A60C90 /* PlatformHooks+Mac.swift */; };
 		A3512B34C2A1F3200213B590 /* StageModel+Mac.swift in Sources */ = {isa = PBXBuildFile; fileRef = D096B2FF63E8DAD1F896F278 /* StageModel+Mac.swift */; };
 		0FE1A2291B975A8E1863BD34 /* PlatformHooks+Phone.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 8FBC1ABAEFD8187434B9DBF0 /* PlatformHooks+Phone.swift */; };
+		36604C4F6520484E99DBF568 /* PulseDot+Mac.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AC06141FBC0557C71D42E18 /* PulseDot+Mac.swift */; };
+		753F3B6D7E0EA0E27B032D13 /* SiteWebView+Mac.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDDF236238A89A159826934E /* SiteWebView+Mac.swift */; };
+		BC1E02DA8E9D42EAA2E9F3A2 /* ChallengeSheet+Mac.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAC96C9A604DC39521611610 /* ChallengeSheet+Mac.swift */; };
+		8E337A72BB6D6883438A22BA /* SidecarHost+Mac.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D7118E8A3C25F19E34481AA /* SidecarHost+Mac.swift */; };
+		F2DC055FFFFD209CD1EC56A3 /* PulseDot+Phone.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = FBA7475CB0EAD2FA6559C3B4 /* PulseDot+Phone.swift */; };
+		FF217E47A7E0309E4B80308B /* SiteWebView+Phone.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 5706678F94874A09042F3437 /* SiteWebView+Phone.swift */; };
+		CBBE54074865E41039D840C5 /* SidecarHost+Phone.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = BD9C5ECA71F7AC479FB56CF1 /* SidecarHost+Phone.swift */; };
+		011B3C99EF9A74E56D8FEA2D /* PlayerLayerView+Phone.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = BFAB95F3C05BDC2A011A19A4 /* PlayerLayerView+Phone.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin XCBuildConfiguration section */

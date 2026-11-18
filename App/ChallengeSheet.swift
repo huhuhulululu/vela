@@ -1,9 +1,9 @@
-import AppKit
 import SwiftUI
 import WebKit
 
 /// 站点要求确认访问时弹出的网页：完成确认后回到播放器，画面不在网页里播放。
-struct ChallengeSheet: View {
+/// 这里是两个平台共用的内容；尺寸与配色由各自的外壳决定（macOS 见 `App/ChallengeSheet+Mac.swift`）。
+struct ChallengeContent: View {
     @ObservedObject var model: StageModel
     @State private var progress = 0.0
 
@@ -26,8 +26,6 @@ struct ChallengeSheet: View {
                 .buttonStyle(ChampagneButton())
                 .padding(.vertical, 10)
         }
-        .frame(width: 480, height: CGFloat(SheetLayout.challengeHeight(windowHeight: model.pointHeight)))
-        .preferredColorScheme(.dark)
     }
 
     private var header: some View {
@@ -49,54 +47,6 @@ struct ChallengeSheet: View {
     }
 }
 
-struct SiteWebView: NSViewRepresentable {
-    var url: URL
-    @Binding var progress: Double
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(onProgress: { value in progress = value })
-    }
-
-    func makeNSView(context: Context) -> NSView {
-        let host = NSView(frame: .zero)
-        context.coordinator.install(in: host, url: url)
-        return host
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {}
-
-    final class Coordinator: NSObject {
-        var onProgress: (Double) -> Void
-        private var observation: NSKeyValueObservation?
-
-        init(onProgress: @escaping (Double) -> Void) {
-            self.onProgress = onProgress
-        }
-
-        func install(in host: NSView, url: URL, attempt: Int = 0) {
-            DispatchQueue.main.async { [weak self, weak host] in
-                guard let self, let host, host.subviews.isEmpty else { return }
-                guard host.window != nil || attempt >= 8 else {
-                    self.install(in: host, url: url, attempt: attempt + 1)
-                    return
-                }
-                let configuration = WKWebViewConfiguration()
-                configuration.websiteDataStore = .default()
-                configuration.mediaTypesRequiringUserActionForPlayback = .all
-                let webView = WKWebView(frame: host.bounds, configuration: configuration)
-                webView.autoresizingMask = [.width, .height]
-                webView.customUserAgent = UserAgent.safari
-                self.observation = webView.observe(\.estimatedProgress) { [weak self] view, _ in
-                    let value = view.estimatedProgress
-                    DispatchQueue.main.async { self?.onProgress(value) }
-                }
-                host.addSubview(webView)
-                webView.load(URLRequest(url: url))
-            }
-        }
-    }
-}
-
 @MainActor
 enum WebKitWarmup {
     private static var task: Task<Void, Never>?
@@ -109,7 +59,7 @@ enum WebKitWarmup {
         let task = Task { @MainActor in
             let configuration = WKWebViewConfiguration()
             configuration.websiteDataStore = .default()
-            _ = WKWebView(frame: NSRect(x: 0, y: 0, width: 2, height: 2), configuration: configuration)
+            _ = WKWebView(frame: CGRect(x: 0, y: 0, width: 2, height: 2), configuration: configuration)
         }
         self.task = task
         await task.value
