@@ -114,6 +114,9 @@
 		530F0A44EED4FAE366351B2E /* ClickRegion+Phone.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ClickRegion+Phone.swift"; sourceTree = "<group>"; };
 		935884F8DC5DDF529EF71817 /* RoomThumbnailCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RoomThumbnailCache.swift"; sourceTree = "<group>"; };
 		488826C51F96116531219AE0 /* SwapBackdrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SwapBackdrop.swift"; sourceTree = "<group>"; };
+		1A486697B1A22114A9A60C90 /* PlatformHooks+Mac.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PlatformHooks+Mac.swift"; sourceTree = "<group>"; };
+		D096B2FF63E8DAD1F896F278 /* StageModel+Mac.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "StageModel+Mac.swift"; sourceTree = "<group>"; };
+		8FBC1ABAEFD8187434B9DBF0 /* PlatformHooks+Phone.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PlatformHooks+Phone.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -136,6 +139,8 @@
 		3C3B0F03DC089F93B8457928 /* App */ = {
 			isa = PBXGroup;
 			children = (
+				D096B2FF63E8DAD1F896F278 /* StageModel+Mac.swift */,
+				1A486697B1A22114A9A60C90 /* PlatformHooks+Mac.swift */,
 				955DBAD7F72B22E16746405C /* AgeGateView.swift */,
 				88113C401678D7FED4097166 /* ChromeView.swift */,
 				63EC482ADC51208FA4BF0BBA /* ChallengeSheet.swift */,
@@ -275,6 +280,7 @@
 		B7A0C0DE0000000000000002 /* iOS */ = {
 			isa = PBXGroup;
 			children = (
+				8FBC1ABAEFD8187434B9DBF0 /* PlatformHooks+Phone.swift */,
 				530F0A44EED4FAE366351B2E /* ClickRegion+Phone.swift */,
 				B7A0C0DE0000000000000001 /* VelaPhoneApp.swift */,
 			);
@@ -368,6 +374,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A3512B34C2A1F3200213B590 /* StageModel+Mac.swift in Sources */,
+				233B2E30587FB5106D33024C /* PlatformHooks+Mac.swift in Sources */,
 				5F01D196FC0522F63E4FF56D /* SwapBackdrop.swift in Sources */,
 				2D7DFD0216EDAE1C0351A990 /* RoomThumbnailCache.swift in Sources */,
 				85783787A307E861A831B7AF /* AgeGateContent.swift in Sources */,
@@ -477,6 +485,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0FE1A2291B975A8E1863BD34 /* PlatformHooks+Phone.swift in Sources (VelaPhone) */,
 				EC1323DECFCC9557631A3CCC /* ClickRegion+Phone.swift in Sources (VelaPhone) */,
 				B7A0C0DE0000000000000064 /* CatalogAPI.swift in Sources (VelaPhone) */,
 				B7A0C0DE0000000000000065 /* DisplayFit.swift in Sources (VelaPhone) */,
@@ -714,6 +723,9 @@
 		EC1323DECFCC9557631A3CCC /* ClickRegion+Phone.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 530F0A44EED4FAE366351B2E /* ClickRegion+Phone.swift */; };
 		2D7DFD0216EDAE1C0351A990 /* RoomThumbnailCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 935884F8DC5DDF529EF71817 /* RoomThumbnailCache.swift */; };
 		5F01D196FC0522F63E4FF56D /* SwapBackdrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = 488826C51F96116531219AE0 /* SwapBackdrop.swift */; };
+		233B2E30587FB5106D33024C /* PlatformHooks+Mac.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A486697B1A22114A9A60C90 /* PlatformHooks+Mac.swift */; };
+		A3512B34C2A1F3200213B590 /* StageModel+Mac.swift in Sources */ = {isa = PBXBuildFile; fileRef = D096B2FF63E8DAD1F896F278 /* StageModel+Mac.swift */; };
+		0FE1A2291B975A8E1863BD34 /* PlatformHooks+Phone.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 8FBC1ABAEFD8187434B9DBF0 /* PlatformHooks+Phone.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin XCBuildConfiguration section */

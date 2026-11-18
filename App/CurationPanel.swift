@@ -3,6 +3,9 @@ import SwiftUI
 /// 收藏夹弹窗的状态装配：把收藏、状态缓存、当前目录整理成 `FavoritesBoard`，接上回调。
 struct CurationPanel: View {
     @ObservedObject var model: StageModel
+    /// 导出、导入走平台回调：macOS 弹文件面板，iOS 用 `.fileExporter` / `.fileImporter`。
+    var exportFile: () -> Void
+    var importFile: () -> Void
 
     var body: some View {
         FavoritesPanel(
@@ -25,8 +28,8 @@ struct CurationPanel: View {
                     await model.refreshLastBroadcastsIfStale()
                 }
             },
-            exportFile: { model.exportFavorites() },
-            importFile: { model.importFavorites() }
+            exportFile: exportFile,
+            importFile: importFile
         )
         .task {
             await model.refreshFavoritesIfStale()

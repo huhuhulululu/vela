@@ -1,6 +1,4 @@
 import AVFoundation
-import AppKit
-import Carbon.HIToolbox
 import Combine
 import Foundation
 import os
@@ -130,9 +128,8 @@ final class StageModel: ObservableObject {
     let watchLedgerStore: WatchLedgerStore
     let watchLedgerSaver: DeferredSaver<WatchLedger>
     @Published var watchLedger = WatchLedger()
-    var terminationObserver: NSObjectProtocol?
-    var unhideObserver: NSObjectProtocol?
-    var hideObserver: NSObjectProtocol?
+    /// 平台钩子：老板键、系统活跃度、应用通知与隐藏 / 终止。macOS 与 iOS 各有一份同名实现。
+    let platform = PlatformHooks()
     /// 播放闸门或 App 隐藏变化后，让窗口桥接重判指针轮询。`BridgeView` 挂上时登记。
     var refreshPointerPolling: (() -> Void)?
     /// 口味画像：停留结算、收藏、面板操作都更新它；只存本机。
@@ -144,8 +141,6 @@ final class StageModel: ObservableObject {
     var dwell = DwellTracker()
     var relatedTask: Task<Void, Never>?
     var skips = SkipTracker()
-    let bossKey = GlobalHotKey()
-    var activity: SystemActivity?
     var systemInactive = false
     var toastTask: Task<Void, Never>?
     /// 推荐用的常规候选（不含按口味定向拉来的额外页）与它的标签稀有度；记账与排序共用。
@@ -238,30 +233,20 @@ final class StageModel: ObservableObject {
         qualityObserver = objectWillChange.sink { [weak self] _ in
             DispatchQueue.main.async { self?.refreshQuality() }
         }
-        unhideObserver = NotificationCenter.default.addObserver(
-            forName: NSApplication.didUnhideNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
+        platform.observeApp(
+            unhidden: { [weak self] in
                 self?.windowShownByUser()
                 self?.syncPlayerHidden()
                 // 老板键先改闸门再 unhide，当时 isHidden 还是 true，轮询要等隐藏状态落下再判。
                 self?.refreshPointerPolling?()
-            }
-        }
-        hideObserver = NotificationCenter.default.addObserver(
-            forName: NSApplication.didHideNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
+            },
+            hidden: { [weak self] in
                 self?.syncPlayerHidden()
                 self?.refreshPointerPolling?()
-            }
-        }
-        // 系统 ⌘Q 不经过 quit()：在终止通知里把最后一个房间的停留与未落盘的修改同步写出。
-        terminationObserver = NotificationCenter.default.addObserver(
-            forName: NSApplication.willTerminateNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.flushForTermination() }
-        }
+            },
+            // 系统 ⌘Q 不经过 quit()：在终止通知里把最后一个房间的停留与未落盘的修改同步写出。
+            terminating: { [weak self] in self?.flushForTermination() }
+        )
     }
 
     /// 「播放」菜单里无修饰键等效键（空格、M、F、I、方向键）是否可用；与键盘监视器同一条规则（`ShortcutGate`）。
@@ -318,16 +303,15 @@ final class StageModel: ObservableObject {
     func bootstrap() {
         guard startupGate.enterBootstrap() else { return }
         LegacyLoginCleanup.runOnce(settings: settings)
-        if !bossKey.register(
-            keyCode: kVK_ANSI_V,
-            modifiers: controlKey | optionKey | cmdKey,
-            action: { [weak self] in self?.toggleBoss() }
-        ) {
+        let hooked = platform.startSystemHooks(
+            bossKey: { [weak self] in self?.toggleBoss() },
+            inactiveChanged: { [weak self] inactive in
+                self?.systemInactive = inactive
+                self?.applyPower()
+            }
+        )
+        if !hooked {
             log.error("boss key unavailable")
-        }
-        activity = SystemActivity { [weak self] inactive in
-            self?.systemInactive = inactive
-            self?.applyPower()
         }
         guard ageConfirmed else { return }
         hintVisible = !settings.hintSeen
@@ -362,7 +346,7 @@ final class StageModel: ObservableObject {
     }
 
     func quit() {
-        NSApp.terminate(nil)
+        platform.terminate()
     }
 
     func flushForTermination() {
@@ -565,8 +549,8 @@ final class StageModel: ObservableObject {
         settings.engagedOpacity = clamped
     }
 
-    /// 当前房间实际用不用铺满：全局铺满时竖屏房间改用完整画面。
-    var effectiveFill: Bool { portraitFit.fill(global: fitFill, current: feed.currentUsername) }
+    /// 当前房间实际用不用铺满：全局铺满时竖屏房间改用完整画面。平台不允许裁切（iOS，裁决 5）时恒为 false。
+    var effectiveFill: Bool { platform.allowsCrop && portraitFit.fill(global: fitFill, current: feed.currentUsername) }
 
     /// 出画面时按视频尺寸判断竖屏（不另发请求）；尺寸未知按横屏处理。
     private func notePortrait(_ username: String?) {
@@ -623,10 +607,9 @@ final class StageModel: ObservableObject {
         bossHidden.toggle()
         applyPower()
         if bossHidden {
-            NSApp.hide(nil)
+            platform.hide()
         } else {
-            NSApp.unhide(nil)
-            NSApp.activate(ignoringOtherApps: true)
+            platform.unhide()
         }
     }
 
@@ -787,7 +770,7 @@ final class StageModel: ObservableObject {
     /// 把「窗口对用户不可见」同步给播放器，决定停播后要不要释放播放项。
     func syncPlayerHidden() {
         player.setHidden(PlaybackPolicy.windowInvisible(
-            windowVisible: pointVisible, bossHidden: bossHidden, systemInactive: systemInactive, appHidden: NSApp.isHidden
+            windowVisible: pointVisible, bossHidden: bossHidden, systemInactive: systemInactive, appHidden: platform.appHidden
         ))
     }
 
