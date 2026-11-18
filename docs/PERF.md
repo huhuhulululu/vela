@@ -162,7 +162,7 @@
 判定口径（2026-11-17 编排者裁决）：
 - CPU：`cpu_app = cpu_avg − vtdecoder_cpu_avg`，要求 `cpu_app ≤ 基线 cpu_app × 1.15 + 0.3` 个百分点；总 `cpu_avg` 只打印不判（各房间码率不同，硬解波动会淹没 App 自身变化）。结果缺 `vtdecoder_cpu_avg` 即不合格。
 - 起播：`startup_to_play_s > 0` 且 `≤ 基线中位数 + 1.0 秒`（方案 A；同一份代码单轮起播波动约 1.1 秒以上，单值 + 0.5 秒会误判）。基线缺 `startup_median` 时退回单值并打印警告。
-- 其余：footprint ≤ 基线 + 5 MB，wakeups ≤ 基线 × 1.2，app_size ≤ 基线 + 0.3 MB，`runtime_issues` = 0；play 场景 `cpu_avg > 0` 而 wakeups 恰为 0 判测量可疑。
+- 其余：footprint ≤ 基线 + 5 MB，app_size ≤ 基线 + 0.3 MB，`runtime_issues` = 0。**2026-11-17 编排者裁决：wakeups 只作 idle 门**（idle 保留绝对阈值 ≤ 2/s）；play 的 wakeups 只打印，play 场景 `cpu_avg > 0` 而 wakeups 恰为 0 仅在 stderr 警告，不拒绝。
 
 | 轮次 | cpu_avg | vtdecoder | cpu_app | footprint | wakeups/s | 起播 | 网络入 |
 |---|---|---|---|---|---|---|---|
@@ -175,8 +175,8 @@
 
 `runtime_issues` 全部为 0，`app_size` 3.5 MB。
 
-观察（需编排者决定，未改阈值）：
-- **wakeups 在 main 自身的 5 轮里就是 0.0 到 24.0 的双峰**，不是脚本或 shell 优先级问题：工具 shell 里的 3 轮也是 3.2、16.0、24.9。与码流（房间、网络段间隔，对应网络入 11 与 35 MB/min 两档）有关的可能性最大，但未做对照。用此基线中位数 2.2 判，main 自己的 5 轮就有 2 轮（18.8、24.0）因 wakeups 不合格；第 3 轮（0.0）会被「wakeups 为 0 可疑」拒掉。建议 wakeups 不做 play 硬门，只在同一房间、同一码流下对照，或改为只看 idle。
+观察：
+- **wakeups 在 main 自身的 5 轮里就是 0.0 到 24.0 的双峰**，不是脚本或 shell 优先级问题：工具 shell 里的 3 轮也是 3.2、16.0、24.9。与码流（对应网络入 11 与 35 MB/min 两档）有关的可能性最大，未做对照。据此 wakeups 不作 play 门（上面的裁决）。
 - 第 2 轮 cpu_app 2.70%、起播 4.51 秒，疑似该轮遇到断流重连，单轮离群；中位数基线不受其影响，但同样说明 5 轮的单次判定会有误报。
 - idle：main 因 `LoadingLine` 在播放器释放（`paused-release`，约 31 秒）后空转（`repeatForever` 动画让 `NSHostingView` 每帧重排）不达标，热修分支 `fix/idle-loading-line`（PR #1）处理中；idle 绝对阈值不放宽，待合入后重测 idle 基线。`docs/perf-baseline-main.json` 的 idle 段是合入前的旧值，仅供留痕。
 

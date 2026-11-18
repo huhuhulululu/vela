@@ -54,7 +54,6 @@ mut() { # 名称 python 表达式（修改 d）
     gate "$T/base.json" "$T/m.json"; check "$1 判不合格" "$([ $? -eq 1 ] && echo 1 || echo 0)"
 }
 mut "samples=0" 'd["samples"]=0'
-mut "play 有 cpu 但 wakeups=0（测量可疑）" 'd["wakeups_avg"]=0'
 mut "startup=-1" 'd["startup_to_play_s"]=-1'
 mut "带 skipped" 'd["skipped"]="x"'
 mut "缺 cpu_avg" 'del d["cpu_avg"]'
@@ -68,7 +67,8 @@ mut_ok "高码率总 cpu 高但 cpu_app 正常（7.0 - 6.0 = 1.0）" 'd["cpu_avg
 mut "cpu_app 超限（4.2 - 2.9 = 1.3 > 1.22）" 'd["vtdecoder_cpu_avg"]=2.9'
 mut "缺 vtdecoder_cpu_avg" 'del d["vtdecoder_cpu_avg"]'
 mut "footprint 超基线 5MB" 'd["footprint_avg_mb"]=306'
-mut "wakeups 超基线 1.2 倍" 'd["wakeups_avg"]=37'
+mut_ok "play wakeups 超阈值仍通过（wakeups 只作 idle 门）" 'd["wakeups_avg"]=37'
+mut_ok "play wakeups=0 仅警告仍通过" 'd["wakeups_avg"]=0'
 mut "app_size 超基线 0.3MB" 'd["app_size_mb"]=10.4'
 # 起播方案 A：基线中位数 + 1.0 s
 cat >"$T/base-med.json" <<'J'
@@ -86,6 +86,8 @@ cat >"$T/idle.json" <<'J'
 J
 gate "$T/base.json" "$T/idle.json"; check "idle 合格样本判合格" "$([ $? -eq 0 ] && echo 1 || echo 0)"
 sed 's/"net_in_mb_per_min":0/"net_in_mb_per_min":0.5/' "$T/idle.json" >"$T/idle-bad.json"
+sed 's/"wakeups_avg":1.5/"wakeups_avg":2.5/' "$T/idle.json" >"$T/idle-wk.json"
+gate "$T/base.json" "$T/idle-wk.json"; check "idle wakeups 超 2/s 判不合格" "$([ $? -eq 1 ] && echo 1 || echo 0)"
 gate "$T/base.json" "$T/idle-bad.json"; check "idle 有网络判不合格" "$([ $? -eq 1 ] && echo 1 || echo 0)"
 
 [ "$fail" = 0 ] && echo "全部负样本被正确拒绝" || echo "存在未被拒绝的负样本"

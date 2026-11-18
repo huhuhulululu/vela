@@ -46,10 +46,11 @@ def validate(res, scenario):
     for k in COMMON_FIELDS + (IDLE_FIELDS if scenario == "idle" else PLAY_FIELDS):
         if num(res, k) is None:
             bad.append("指标缺失或非有限数值: %s" % k)
-    # 播放中必有周期唤醒；cpu 大于 0 而 wakeups 恰为 0，多半是 top 的 IDLEW 采样被干扰而冻结，视为测量可疑
+    # 2026-11-17 编排者裁决：wakeups 只作 idle 门；play 的 wakeups 随码流在 0 到 30/s 间波动，只打印。
+    # cpu 大于 0 而 wakeups 恰为 0 仅在 stderr 警告（可能是 IDLEW 被冻结，不拒绝）
     if (scenario == "play" and num(res, "cpu_avg") and num(res, "wakeups_avg") is not None
             and res["cpu_avg"] > 0 and res["wakeups_avg"] == 0):
-        bad.append("play 场景 cpu_avg > 0 但 wakeups_avg = 0，测量可疑（IDLEW 可能被冻结或有其他进程干扰），请在安静环境重测")
+        print("警告: play 场景 cpu_avg > 0 但 wakeups_avg = 0（IDLEW 可能被冻结，或码流静止），wakeups 不作 play 门，仅提示", file=sys.stderr)
     if num(res, "samples") is not None and res["samples"] <= 0:
         bad.append("samples = %s" % res["samples"])
     if num(res, "startup_to_play_s") is not None and res["startup_to_play_s"] <= 0:
@@ -72,12 +73,12 @@ def gate(base, res, scenario):
         return rows
     limits = [
         ("footprint_avg_mb", lambda b: b + 5, "基线 + 5 MB"),
-        ("wakeups_avg", lambda b: b * 1.2, "基线 x 1.2"),
         ("app_size_mb", lambda b: b + 0.3, "基线 + 0.3 MB"),
     ]
     # CPU：2026-11-17 编排者裁决，扣除硬解（各房间码率不同，硬解波动会淹没 App 自身变化）：
     # cpu_app = cpu_avg - vtdecoder_cpu_avg <= 基线 cpu_app x 1.15 + 0.3 个百分点；总 cpu_avg 只打印不判
     cpu_app = res["cpu_avg"] - res["vtdecoder_cpu_avg"]
+    print("wakeups_avg(仅打印) %s" % res["wakeups_avg"])
     print("cpu_avg(仅打印) %.2f  vtdecoder_cpu_avg %.2f  cpu_app %.2f" % (res["cpu_avg"], res["vtdecoder_cpu_avg"], cpu_app))
     check("cpu_app", base["cpu_app"], round(cpu_app, 2), "<= 基线 cpu_app x 1.15 + 0.3", cpu_app <= base["cpu_app"] * 1.15 + 0.3 + 1e-9)
     for k, f, desc in limits:
@@ -132,7 +133,7 @@ def main(argv):
         if not isinstance(base, dict):
             bad.append("基线不是 JSON 对象")
         else:
-            for k in [x for x in PLAY_FIELDS if x not in ("cpu_avg", "vtdecoder_cpu_avg")] + ["cpu_app"]:
+            for k in [x for x in PLAY_FIELDS if x not in ("cpu_avg", "vtdecoder_cpu_avg", "wakeups_avg")] + ["cpu_app"]:
                 if num(base, k) is None:
                     bad.append("基线缺失或非有限数值: %s" % k)
             if num(base, "startup_median") is None and num(base, "startup_to_play_s") is None:

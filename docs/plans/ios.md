@@ -327,7 +327,7 @@ Bundle ID：
    |---|---|
    | CPU | `cpu_app = cpu_avg − vtdecoder_cpu_avg ≤ 基线 cpu_app × 1.15 + 0.3` 个百分点；总 `cpu_avg` 只打印不判，缺 `vtdecoder_cpu_avg` 即不合格（2026-11-17 编排者裁决：各房间码率不同，硬解波动会误判退化） |
    | `footprint` | ≤ 基线 + 5 MB |
-   | `wakeups` | ≤ 基线 × 1.2 |
+   | play 的 `wakeups` | 只打印，不判（2026-11-17 编排者裁决：wakeups 只作 idle 门；main 自身 5 轮就在 0 到 24/s 间波动） |
    | `app_size` | ≤ 基线 + 0.3 MB |
    | 起播时间 | 大于 0，且 ≤ 基线中位数 + 1.0 s（2026-11-17 编排者裁决采用 A：同一份代码单轮起播波动约 1.1 s，基线取 5 轮中位数，见 `docs/PERF.md`） |
    | idle 场景 | `cpu ≤ 0.1%`，`wakeups ≤ 2/s`，网络为 0 |
