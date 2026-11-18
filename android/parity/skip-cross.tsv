@@ -1,0 +1,4 @@
+# C9 跳过。三列制表符：swift_file、swift_test、reason。
+# 组 cross 的用例都已移植，这里没有跳过行。
+# deferred:C9 由 split-cross.tsv 里真正跑过的映射消化，不在本文件用非 deferred 理由销掉。
+swift_file	swift_test	reason

@@ -50,8 +50,7 @@ jobs:
         run: |
           groups=$(ls android/parity 2>/dev/null | sed -n 's/^\(skip\|split\)-\(.*\)\.tsv$/\2/p' | sort -u)
           for g in $groups; do echo "== $g"; python3 -I android/tools/parity.py --group "$g"; done
-      - name: Parity --all (informational until C9 merges; C9 makes it required)
-        continue-on-error: true
+      - name: Parity --all
         run: python3 -I android/tools/parity.py --all
       - name: Check release APK
         run: |
