@@ -1,0 +1,53 @@
+name: Android
+
+on:
+  push:
+    paths:
+      - "android/**"
+      - "scripts/serve-test-stream.py"
+      - "scripts/make-test-stream.sh"
+      - ".github/workflows/android.yml"
+  pull_request:
+    paths:
+      - "android/**"
+      - "scripts/serve-test-stream.py"
+      - "scripts/make-test-stream.sh"
+      - ".github/workflows/android.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android-unit:
+    name: Android unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+          cache-dependency-path: |
+            android/**/*.gradle.kts
+            android/**/*.toml
+            android/gradle/wrapper/gradle-wrapper.properties
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Install SDK packages
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager --install "platforms;android-37.0" "build-tools;36.0.0"
+      - name: Unit tests and assemble
+        working-directory: android
+        run: ./gradlew :core:test :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease
+      - name: Parity
+        run: python3 -I android/tools/parity.py --all
+      - name: Check release APK
+        run: |
+          apk=$(find android/app/build/outputs/apk/release -name '*.apk' -type f | head -n 1)
+          test -n "$apk"
+          sh android/tools/check-apk.sh "$apk"

@@ -7,3 +7,12 @@ xcuserdata/
 
 # 本地签名配置（团队 ID 等），不入库
 Config/Local.xcconfig
+
+# 安卓构建产物与签名材料，不入库
+android/**/build
+.gradle
+local.properties
+*.jks
+*.keystore
+keystore.properties
+preview/
