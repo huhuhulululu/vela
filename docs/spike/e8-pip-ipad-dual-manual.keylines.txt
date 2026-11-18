@@ -1,0 +1,61 @@
+18:56:00.432 [audio] audio step setCategory playback+mixWithOthers
+18:56:00.440 [audio] audio step setActive(true) mixed
+18:56:00.440 [audio] audio muted category=AVAudioSessionCategoryPlayback mode=AVAudioSessionModeMoviePlayback mixWithOthers=true active=true otherPlaying=false
+18:56:00.509 [pip] pip supported=true slot=1
+18:56:00.539 [pip] pip possible=false slot=1
+18:56:00.543 [pip] pip supported=true slot=0
+18:56:00.544 [pip] pip possible=false slot=0
+18:56:00.687 [pip] pip supported=true slot=1
+18:56:00.688 [pip] pip possible=false slot=1
+18:56:00.688 [pip] pip supported=true slot=0
+18:56:00.689 [pip] pip possible=false slot=0
+18:56:00.928 [spike] scenePhase active
+18:56:00.930 [spike] scenePhase active
+18:56:01.205 [relay] relay sources=1
+18:56:01.211 [lane] lane-start slot=0 cap=max bw=5128000 res=1920x1080
+18:56:01.213 [relay] relay sources=2
+18:56:01.217 [lane] lane-start slot=1 cap=max bw=3096000 res=1280x720
+18:56:01.513 [display] display-check lane=ROOM gravity=AVLayerVideoGravityResizeAspect presentation=1280x720 bounds=375x250 videoRect=375x211 uncropped=true
+18:56:01.513 [lane] first-frame lane=ROOM slot=1 ms=542
+18:56:01.543 [display] display-check lane=ROOM gravity=AVLayerVideoGravityResizeAspect presentation=1920x1080 bounds=375x250 videoRect=375x211 uncropped=true
+18:56:01.544 [lane] first-frame lane=ROOM slot=0 ms=572
+18:56:01.544 [lane] first-frame lane=ROOM slot=0 ms=573
+18:56:01.572 [pip] pip possible=true slot=1
+18:56:01.574 [pip] pip possible=true slot=1
+18:56:01.595 [pip] pip possible=true slot=0
+18:56:01.596 [pip] pip possible=true slot=0
+18:56:37.609 [spike] scenePhase inactive
+18:56:37.652 [pip] pip possible=false slot=1
+18:56:37.653 [pip] pip possible=false slot=1
+18:56:37.658 [relay] relay sources=1 (deactivate)
+18:56:37.658 [pip] pip manual-start slot=0 possible=true
+18:56:37.659 [pip] pip failed AVKitErrorDomain -1001 Failed to start picture in picture.
+18:56:37.662 [spike] scenePhase inactive
+18:56:37.663 [pip] pip manual-start slot=0 possible=true
+18:56:37.663 [pip] pip failed AVKitErrorDomain -1001 Failed to start picture in picture.
+18:56:39.274 [spike] scenePhase background
+18:56:39.274 [spike] suspend pip-keep slot=0 pipState=none
+18:56:39.328 [spike] scenePhase background
+18:56:39.328 [spike] suspend pip-keep slot=0 pipState=none
+18:56:42.497 [spike] suspend pip-not-started fallback release-lanes
+18:56:42.501 [pip] pip possible=false slot=0
+18:56:42.502 [pip] pip possible=false slot=0
+18:56:42.507 [relay] relay sources=0 (deactivate)
+18:56:42.508 [relay] relay listener stopped
+18:56:42.509 [audio] audio deactivated category=AVAudioSessionCategoryPlayback mode=AVAudioSessionModeMoviePlayback mixWithOthers=true active=false otherPlaying=false
+18:56:42.509 [spike] suspend pip-not-started fallback release-lanes
+18:56:42.510 [relay] relay listener stopped
+18:56:42.510 [audio] audio deactivated category=AVAudioSessionCategoryPlayback mode=AVAudioSessionModeMoviePlayback mixWithOthers=true active=false otherPlaying=false
+18:57:23.850 [spike] scenePhase inactive
+18:57:23.852 [spike] scenePhase inactive
+18:57:24.466 [spike] scenePhase active
+18:57:24.466 [spike] resume after=45s pipState=none
+18:57:24.472 [spike] scenePhase active
+18:57:24.758 [relay] relay sources=1
+18:57:24.764 [lane] lane-start slot=0 cap=max bw=5128000 res=1920x1080
+18:57:24.766 [relay] relay sources=2
+18:57:24.773 [lane] lane-start slot=1 cap=max bw=3096000 res=1280x720
+18:57:25.085 [lane] first-frame lane=ROOM slot=1 ms=617
+18:57:25.104 [lane] first-frame lane=ROOM slot=0 ms=636
+18:57:25.136 [pip] pip possible=true slot=1
+18:57:25.178 [pip] pip possible=true slot=0

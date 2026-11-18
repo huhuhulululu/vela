@@ -46,11 +46,14 @@ struct StageRoot: View {
         .onAppear {
             model.bootstrap()
             model.syncPlaybackFace()
+            #if DEBUG
+            SelfTest.startIfRequested(model)
+            #endif
         }
-        // @Published 在 willSet 发出：回调里一律用收到的新值，不回读 model.player 上的同名属性。
-        .onReceive(model.player.$failed) { model.notePlaybackFailed($0) }
-        .onReceive(model.player.$readyUsername) { model.noteReady($0) }
-        .onReceive(model.player.$playingUsername) { model.notePlaying($0) }
+        // @Published 在 willSet 发出：回调里一律用收到的新值，不回读 model.primary.player 上的同名属性。macOS 只有主路。
+        .onReceive(model.primary.player.$failed) { model.notePlaybackFailed($0, on: model.primary) }
+        .onReceive(model.primary.player.$readyUsername) { model.noteReady($0, on: model.primary) }
+        .onReceive(model.primary.player.$playingUsername) { model.notePlaying($0, on: model.primary) }
         .sheet(isPresented: $model.showChallenge, onDismiss: { model.webSheetDismissed() }) {
             ChallengeSheet(model: model)
         }

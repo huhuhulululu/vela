@@ -2,6 +2,8 @@
 
 ## 测量方法
 
+**实测一律经 `ssh localhost` 回环运行**：`ssh localhost "bash <仓库>/scripts/perf-probe.sh --duration 60"`。工具（如 Claude Code）里的 shell 被降优先级只跑能效核，CPU 与 wakeups 会失真（wakeups 可能读成 0）。脚本检测不到 `SSH_CONNECTION` 时在 stderr 打印醒目警告（不拒绝运行）。测量前确认没有 booted 模拟器、`perf-probe-ios.sh`、`xcodebuild` 与其他 Vela 进程。
+
 `scripts/perf-probe.sh [--duration 秒] [--app 路径] [--build]`。先 `defaults write` 打开年龄确认（`ageConfirmed`）并静音（`muted`），记下原状，结束后原样恢复；用 `open -g -j -n` 后台隐藏启动，不抢前台、不截屏、不发输入。启动前先开 `log stream --level info`（只看 Vela 进程），以 PlayerController 在 Release 下也会打的 `audio tracks=N enabled=1` 为「开始播放」标志计算启动耗时（`first-frame` 日志只在 DEBUG 构建里有，不可用）。稳态再等 5 秒后，每 5 秒采样：`ps` 取 RSS，`footprint <pid>` 取 Physical footprint，`top -l 2 -s 2` 取第二次采样的 %CPU、线程数，空闲唤醒（idle wakeups）用两次采样的累计值之差除以间隔。子进程归属判定：`launchctl procinfo` 需要 root，改用 libSystem 的 `responsibility_get_pid_responsible_for_pid`（python3 ctypes 调用），ppid 为 1 或本 App 的进程里 responsible pid 等于本 App 的才算子进程；其中 `VTDecoderXPCService`（硬解 XPC）单列为 `vtdecoder_cpu_avg`，不计入 `children_*`（那是 WebKit 等其他子进程）。统计 `Publishing changes from within view updates` 与日志行数。中继刷新只能数 `relay` 分类下的 `renew ok/failed`（URL 过期后的换票）；清单抓取本身只在慢或失败时才打日志，无法按次数统计，所以 `relay_refreshes_per_min` 目前恒为换票频率，不代表清单轮询频率。
 
 注意：`log stream` 本身会放大系统框架的日志量与少量 CPU；`app_log_lines` 含 CFNetwork、CoreMedia 等系统子系统的行，Vela 自己（`com.vela.stage`）的日志在 180 秒内只有个位数到几十行。
@@ -152,3 +154,108 @@
 - 播放态 `sample <pid> 5`：主线程 3658 个样本全部停在 `mach_msg2_trap`（RunLoop 空闲），非空闲样本 0，基线约 97。剩余非空闲热点（样本数）：`coremedia.imagequeue.coreanimation.common` 74、`vtdecoder-callback-queue`（XPC 回调进 VideoToolbox）32、`audio.IOThread.client`（AudioToolbox `IO_PerformOutput`）24、`coremedia.videomediaconverter` 14、`libdispatch` 协作线程各 1 到 3。全是解码、上屏、音频必需路径，App 自己的代码已不在热点里。
 - 另一轮带 `sample` 的 play（60 秒）cpu 5.28%、vtdecoder 3.90%，是码流和 sample 自身开销导致，不作对比口径。
 
+
+## G-mac 基线（固定测试流，2026-11-17，现行）
+
+**口径变更（ADR-005）**：实跑门改用固定测试流，CPU 直接比较主进程。原因：活直播每轮随机房间，码率不同；`vtdecoder` 是独立进程，用它去扣 `cpu_avg` 会让另一个进程的负载抵消主进程的回退。
+
+固定测试流：`scripts/make-test-stream.sh` 用 ffmpeg 生成 testsrc2 彩条（自带计时），1920x1080 30fps，H.264 固定码率，平均约 3.1 Mbps，2 秒分片、240 秒素材，视频档加静音 AAC 独立音轨（`EXT-X-MEDIA`，与线上主列表结构一致）；`scripts/serve-test-stream.py` 把它按墙钟变成滑动窗口的直播列表（3 个分片，到尾回绕并带 `EXT-X-DISCONTINUITY`），只绑 `127.0.0.1` 的系统分配端口；生成物在 `/tmp`，不入库。`perf-probe.sh --fixed-stream` 自动生成、起服务，并以 `--perf-stream <地址>` 启动 App：钩子（`App/PerfStream+Mac.swift`，仅 DEBUG 或 PERF_PROBE 构建）跳过目录与站点解析，把一个测试房间塞进列表后走正常的 `playCurrent`、本地中继与 `PlayerController`，所以中继开销测得到。加 `--build` 时探针以 `SWIFT_ACTIVE_COMPILATION_CONDITIONS=PERF_PROBE` 构建 Release；Release 产物不含钩子（`scripts/check-release-no-perf-hook.sh`，CI 里跑）。注意 Swift 把 15 字节以内的字符串编进指令，`strings` 搜不到 `--perf-stream`，所以检测的是钩子里的长标识串。
+
+基线来源：origin/main 没有钩子，无法在它上面测，改用 feat/ios 1375e19 合并本分支后的 Release（PERF_PROBE 构建，与 Release 只差测试流钩子），经 `ssh localhost` 回环，`--fixed-stream` play 60 秒 x 3 轮取中位数，idle 60 秒 1 轮（编排者裁决从 120 秒 x 5 轮缩减：固定流本身稳定）。逐轮值在 `docs/perf-baseline-fixed.json`。判定：`python3 -I scripts/perf_gate.py docs/perf-baseline-fixed.json <结果.json> [--scenario idle]`。
+
+| 轮次 | cpu_avg（主进程） | vtdecoder（独立进程，只打印） | footprint | wakeups/s | 起播 |
+|---|---|---|---|---|---|
+| 1 | 2.71% | 2.30% | 36.5 MB | 1.3 | 1.77 秒 |
+| 2 | 2.46% | 1.92% | 35.3 MB | 1.5 | 1.22 秒 |
+| 3 | 2.79% | 2.20% | 36.3 MB | 1.5 | 1.20 秒 |
+| 中位数（基线） | 2.71% | 2.20% | 36.3 MB | 1.5 | 1.22 秒 |
+
+`runtime_issues` 全 0，`app_size` 3.7 MB，每轮 12 个有效样本、0 个无效。idle（60 秒，锁屏后等 10 秒再采样）：cpu 0.0%、wakeups 0.0/s、网络 0，达标。判定规则：主进程 `cpu_avg ≤ 基线 x 1.15 + 0.3`（基线 2.71 即上限 3.42）；footprint ≤ 基线 + 5 MB；app_size ≤ 基线 + 0.3 MB；起播中位数 + 1 秒；`runtime_issues` = 0；wakeups 只作 idle 门。基线与结果都必须是 `stream_mode=fixed`，模式不同拒绝比较；footprint 或 app_size 为 0、有效样本 < 5、无效样本占比 > 10%、样本数与时长不符一律拒绝。
+
+### 固定流与活直播的离散度对照（同一构建、同为 60 秒 x 3 轮）
+
+| 模式 | cpu_avg 各轮 | 均值 | 标准差（总体 / 样本） | 网络入 MB/min |
+|---|---|---|---|---|
+| 固定测试流 | 2.71、2.46、2.79 | 2.65% | 0.14 / 0.17 | 0（回环；分片 22.7 到 23.4） |
+| 活直播 | 2.83、3.04、3.16 | 3.01% | 0.14 / 0.17 | 11.4、22.0、36.6 |
+
+**结论要如实写：这 3 轮里，固定流并没有让 cpu_avg 的标准差明显变小，两组几乎相同（样本标准差 0.17 对 0.17）。** 能确认的是：活直播这 3 轮的码率相差三倍（11 到 37 MB/min），cpu_avg 随码率单调上升（2.83 到 3.16），说明码率是混杂因素；固定流把它去掉了，且固定流恒定 3.1 Mbps、各轮分片流量一致（22.7 到 23.4 MB/min）。但 3 轮样本太小，噪声（约 0.15 个百分点）压过了码率带来的约 0.3 个百分点的差，不能据此说固定流离散度小。已有的旁证：main 上活直播 5 轮 60 秒的 cpu_avg 为 2.42、4.29、2.03、1.80、2.56（标准差约 1.0），其中第 2 轮疑似断流重连，固定流因为是本机服务，不会出现这类外部离群。要量化「离散度明显更小」，需要更多轮次，本次按裁决缩减未做。门限 `x 1.15 + 0.3`（约 0.7 个百分点）仍大于本次噪声（约 0.15），可用。
+
+## 历史：G-mac 基线（main，活直播，已作废）
+
+下面是 2026-11-17 早先在活直播上取的基线与口径（`cpu_app` 扣除硬解），已由上一节取代；保留作留痕。其中的 `docs/perf-baseline-main.json` 已删除，数据以下表为准。
+
+构建：`origin/main`（6ad572f），Release，经 `ssh localhost` 回环运行 `scripts/perf-probe.sh --duration 60`，静音，play 共 5 轮，各指标取中位数（逐轮值见下表）。
+
+判定口径（2026-11-17 编排者裁决）：
+- CPU：`cpu_app = cpu_avg − vtdecoder_cpu_avg`，要求 `cpu_app ≤ 基线 cpu_app × 1.15 + 0.3` 个百分点；总 `cpu_avg` 只打印不判（各房间码率不同，硬解波动会淹没 App 自身变化）。结果缺 `vtdecoder_cpu_avg` 即不合格。
+- 起播：`startup_to_play_s > 0` 且 `≤ 基线中位数 + 1.0 秒`（方案 A；同一份代码单轮起播波动约 1.1 秒以上，单值 + 0.5 秒会误判）。基线缺 `startup_median` 时退回单值并打印警告。
+- 其余：footprint ≤ 基线 + 5 MB，app_size ≤ 基线 + 0.3 MB，`runtime_issues` = 0。**2026-11-17 编排者裁决：wakeups 只作 idle 门**（idle 保留绝对阈值 ≤ 2/s）；play 的 wakeups 只打印，play 场景 `cpu_avg > 0` 而 wakeups 恰为 0 仅在 stderr 警告，不拒绝。
+
+| 轮次 | cpu_avg | vtdecoder | cpu_app | footprint | wakeups/s | 起播 | 网络入 |
+|---|---|---|---|---|---|---|---|
+| 1 | 2.42% | 1.77% | 0.65% | 35.5 MB | 18.8 | 1.20 秒 | 11.5 MB/min |
+| 2 | 4.29% | 1.59% | 2.70% | 40.7 MB | 2.2 | 4.51 秒 | 36.6 MB/min |
+| 3 | 2.03% | 1.22% | 0.81% | 40.4 MB | 0.0 | 1.74 秒 | 35.6 MB/min |
+| 4 | 1.80% | 0.98% | 0.82% | 39.1 MB | 1.7 | 1.19 秒 | 35.0 MB/min |
+| 5 | 2.56% | 1.83% | 0.73% | 36.9 MB | 24.0 | 1.78 秒 | 11.1 MB/min |
+| 中位数（基线） | 2.42% | 1.59% | 0.81% | 39.1 MB | 2.2 | 1.74 秒 | 35.0 MB/min |
+
+`runtime_issues` 全部为 0，`app_size` 3.5 MB。
+
+观察：
+- **wakeups 在 main 自身的 5 轮里就是 0.0 到 24.0 的双峰**，不是脚本或 shell 优先级问题：工具 shell 里的 3 轮也是 3.2、16.0、24.9。与码流（对应网络入 11 与 35 MB/min 两档）有关的可能性最大，未做对照。据此 wakeups 不作 play 门（上面的裁决）。
+- 第 2 轮 cpu_app 2.70%、起播 4.51 秒，疑似该轮遇到断流重连，单轮离群；中位数基线不受其影响，但同样说明 5 轮的单次判定会有误报。
+- idle：main 因 `LoadingLine` 在播放器释放（`paused-release`，约 31 秒）后空转（`repeatForever` 动画让 `NSHostingView` 每帧重排）不达标，热修分支 `fix/idle-loading-line`（PR #1）处理中；idle 绝对阈值不放宽，待合入后重测 idle 基线。
+
+复核记录：先前一版（play wakeups 0.0、idle 6.0/s）受并行模拟器实验干扰，已作废。改动前后的 `perf-probe.sh` 在同一产物、模拟器全部关闭下对照 60 秒，play 2.93%/28.8 对 2.41%/27.0，idle 3.67%/19.9 对 3.55%/19.4，两版一致，脚本无问题。idle 偏高的证据：锁屏后前约 20 秒正常（cpu 0.0%、wakeups 0.5/s），`paused-release` 之后 cpu 升到 5% 以上、wakeups 约 30/s，`sample` 显示主线程 `NSHostingView.layout()` 每帧重排。
+
+## iOS Spike（模拟器）
+
+PR0 实验（计划修订 A1 / A2：不用真机，全程模拟器）。实验目标 `VelaSpike`（分支 `spike/ios`，代码不合并，打 tag 留档），探针 `scripts/perf-probe-ios.sh`（分析器 `scripts/perf-probe-ios-analyze.py`，负样本 `scripts/test-perf-probe-ios.sh`）。原始指标与关键日志行在 `docs/spike/`（`*.json` 为探针输出，`*.keylines.txt` 为脱敏后的关键日志，房间名一律替换为 `ROOM`，完整日志不入库）。
+
+### 方法与环境
+
+- 设备：iPhone 17 Pro 模拟器（iOS 26.2），PiP 另用 iPad Pro 11 英寸（M5）模拟器；宿主 Mac16,10（10 核）。构建：Release、`-sdk iphonesimulator CODE_SIGNING_ALLOWED=NO`。
+- 只 `simctl boot`，不开 Simulator.app 窗口，不截屏不点击；Spike 的 `AVPlayer.volume` 恒为 0，全程无声。
+- 采样：宿主上按 App 进程 pid，每 5 秒 `top -l 2`（CPU、线程、IDLEW 增量）、`footprint`、`ps` rss，`nettop` 累计字节（只计非回环连接，窗口基线取窗口起点快照）；日志用 `simctl spawn log config ... level:debug,persist:debug` 后 `log show`。
+- 资源竞争：采样每轮检查 `perf-probe.sh` 与 `Contents/MacOS/Vela`，出现即退出码 3、该轮作废；两次因此作废（E2 单窗、E3 首轮），等安静后重跑。
+- 直播是真实网络，每次起播的房间不同，所选档位不同。**跨轮比较必须按所选档位带宽归一**，下表同列出 `selected_bw_kbps`。
+
+### 实验结果
+
+| 实验 | 数据 | 结论 |
+|---|---|---|
+| E1 回环 HLS 与 ATS | 全部 `*.json` 的 `first_frame_s`、`item_failed=[]`；Info.plist 仅 `NSAllowsLocalNetworking` | 通过。`http://127.0.0.1:<端口>/…/master.m3u8` 在只放行本地网络的 ATS 下起播，所有轮次零 `item-failed`，无需 `NSExceptionDomains` 或 `ForMedia`（不触发需用户授权的第三步）。起播：`lane-start` 到首帧 0.5 到 1.0 秒，启动到首帧 1.2 到 1.5 秒（含目录与解析）。 |
+| E2 双窗两路 10 分钟 | `e2-dual.json`（601 秒，118 样本）；对照 `e2-single.json`（300 秒，59 样本） | 双窗（3096k + 3096k）：cpu_avg 24.5%（p95 28.2%）、footprint 75.1 MB（峰值 79）、线程 31、wakeups 14.2/s（IDLEW 读数不稳，见 E6）、net_in 45.4 MB/min、**流量比 1.026**、重叠 0.992。单窗（5128k）：cpu 20.3%、footprint 66.9 MB、net_in 37.4 MB/min、流量比 1.019。两轮房间不同，按档位归一：cpu 都是约 3.96% 每 Mbps；footprint 双窗比单窗多 8.2 MB；net_in 比值 1.22 对应带宽和比值 1.21。**双/单 比值：cpu 1.21，footprint +8.2 MB，流量 1.22（按带宽归一为 1.0）。** |
+| E2 附带异常 | `e2-dual-run1-renew403.json`（探针改进前的首轮，无健康日志，仅作观察） | 双窗（3096k + 7128k）约 2 分钟后出现持续 `fetch-failed http-403` 与 `renew failed`，cpu 由约 38% 掉到约 11%，流量比 0.454：Spike 的最简续期在换票失败后没有恢复，其中一路停摆。该轮作废，不进阈值。正式实现的续期必须有独立验证（计划已列）。 |
+| E3 第三路 | `e3-third.json`（5128k + 7128k + 3096k，91 秒） | 模拟器上三路都起播并持续前进，零 `item-failed`、零解码器错误（模拟器用 Mac 解码器，**不代表真机的硬件解码并发上限**）。cpu 45.6%、footprint 126.7 MB、net_in 106 MB/min，流量比 1.212（窗口只有 91 秒，含新增第三路起播突发）。`PlaybackFailureClassifier` 白名单没有实测样本，继续只收候选码。 |
+| E4 音频会话 | `e4-audio.keylines.txt`（`--audio-seq`，全程 volume 0） | 顺序符合 A2/7b：静音 = `playback + mixWithOthers` 且 active=true；取消静音 = 各路先静音，再 `setCategory(playback)`（mixWithOthers=false）、`setActive(true)`，最后取消目标路静音；切焦点先静音旧路再取消目标路；再静音 = 各路先静音，`setCategory(playback+mixWithOthers)`，`setActive(false, notifyOthersOnDeactivation)`，随后为 PiP 就绪重新 `setActive(true)`（混音）。全程无 `audio set-failed`。模拟器没有别的 App 的音频，`otherPlaying` 恒为 false，「不打断他人 / 对方恢复」只验证了调用顺序，未验证效果。 |
+| E5 后台与返回 | `e5-background.json`（单窗，`--no-pip`，后台 30 秒） | 挤到后台后依次出现 `suspend release-lanes`、`relay listener stopped`、`audio deactivated`；5 秒后窗口内 cpu 0.13%、非回环流量 0、线程 26→8、footprint 45→30 MB，窗口内零中继请求。切回：`resume after=34s`，首帧 1.29 秒（含重新解析与选档）。 |
+| E6 指标齐全性 | 探针输出的字段 | 齐全：cpu_avg/p95/max、footprint（均值与峰值）、rss、线程、wakeups、net_in/out、回环流量、所选档位、流量比、首帧（每路）、重叠、display-check、relay sources、样本数。**缺口**：wakeups 来自 `top` 的 IDLEW 增量，模拟器进程上读数不稳（同配置 0 到 14/s），只作参考，不进门；footprint 与 cpu 只含 App 进程，不含宿主解码与上屏的开销（真机上这部分在进程内外的划分不同）。 |
+| E7 画面比例 | 所有 `*.json` 的 `uncropped_all`、`display_samples` | 横屏流单窗（窗格 402x658）、双窗（窗格 402x328），720p 与 1080p 各路 `display-check` 全部 `gravity=ResizeAspect`、`videoRect=402x226`（16:9）、`uncropped=true`。竖屏流：目录前 13 个房间都是横屏，没有专门去找，未验证。 |
+| 热状态注入 | `e9-thermal.json`、`e9-thermal.keylines.txt`（启动后 40 秒注入 `.serious`，70 秒注入 `.fair`） | 逻辑正确：`.serious` 时两路按显示高度 226pt x 3 = 678px 取 1696k 档并重启（`lane-start cap=1696000 bw=1696000`），换档后 `relay sources` 不超过 2；`.fair` 持续满 60 秒（15:42.786）才回升到最高档，两路首帧都再次出现。真实热状态模拟器无法产生。 |
+| E8 画中画（A2） | `e8-pip-*.json`、`e8-pip-*.keylines.txt` | **iPhone 模拟器不支持**：`isPictureInPictureSupported() = false`，回桌面后走整体挂起（与 E5 一致）。**iPad 模拟器支持**：单窗时回桌面约 1 秒后自动 `pip will-start`、`pip started`（静音 `playback + mixWithOthers` 下可用，`UIBackgroundModes=audio`），其余路释放；PiP 期间 `currentTime` 持续前进（`timeControlStatus=playing`），中继持续供应清单（40 秒内约 50 次），只有一路在联网：net_in 35.4 MB/min（5128k 档对应约 38 MB/min），cpu 15.8%、footprint 66.4 MB、线程 27（对比后台无 PiP 的 0.13%、0 流量、线程 8）；切回 App 时 `pip exit-on-foreground` 后 `pip stopped`，该路不重启（无首帧重来）。**双窗时（iPad）4 次尝试自动进入均未触发**（含 inactive 时先释放非焦点路）；`startPictureInPicture()` 手动调用得到 `AVKitErrorDomain -1001`（该轮日志里每路有重复的视图与控制器，不排除干扰）。该结论只来自模拟器，待真机复核；T18b 设计不能假定「双窗回桌面必能自动进 PiP」，需有失败回退（3 秒内未进入即整体挂起，已在 Spike 验证）。 |
+
+### 哪些不代表真机
+
+- 解码在 Mac 的硬件解码器上，CPU 与功耗绝对值、并发解码上限（E3）、热状态（只能注入）、PiP 的系统行为（尤其 iPhone 与双窗）都不能外推到手机。
+- 网络是本机 Wi-Fi 到直播 CDN，不代表大陆网络。
+- 可用的是同机同运行时的相对口径：cpu 按每 Mbps 归一、流量 ÷ 所选档位带宽之和、双/单 比值、后台归零与日志顺序。
+
+### G-sim 阈值草案（按计划 §6 口径，待评审）
+
+| 指标 | 实测基准 | 草案阈值 |
+|---|---|---|
+| cpu（按所选档位归一） | 3.96% 每 Mbps（E2 双窗与单窗一致） | 每 Mbps ≤ 4.75%（x 1.2） |
+| cpu 绝对值（参考） | 双窗 3096k x 2 为 24.5%；单窗 5128k 为 20.3% | 随档位按上式折算，不用固定值 |
+| footprint | 双窗 75.1 MB（峰值 79）；单窗 66.9 MB | 双窗 ≤ 90 MB；单窗 ≤ 82 MB（实测 + 15 MB） |
+| 起播（lane-start 到首帧） | 0.5 到 1.0 秒；启动到首帧 1.2 到 1.5 秒 | ≤ 实测 + 1 秒（即 ≤ 2.0 秒 / 2.5 秒） |
+| 流量比 | 1.02 到 1.04（10 分钟与 5 分钟窗口） | ≤ 1.15；窗口 < 2 分钟的轮次不按此判（起播突发） |
+| 双窗重叠时长 | 0.992 | ≥ 90% |
+| 后台（无 PiP）5 秒后 | cpu 0.13%，流量 0，线程 8 | cpu ≤ 0.5%，非回环流量 = 0，依次出现 suspend、relay listener stopped、audio deactivated |
+| 画面比例 | 全部 uncropped=true | 横屏流所有 display-check 为 `ResizeAspect` 且 `uncropped=true` |
+| relay sources | 最大值 = 当前路数 | N、M ≤ 当前路数 |
+| 热状态注入 | `.serious` 降到 1696k；`.fair` 满 60 秒回升 | 日志序列同上 |
+
+负样本（`docs/spike/negative-tests.txt`）：无样本退出码 6、采样中进程退出 5、起播超时 4、参数错 2、App 不存在 1，全部按预期非 0。

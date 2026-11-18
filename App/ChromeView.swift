@@ -44,9 +44,13 @@ struct ChromeView: View {
                     FilterPanel(model: model)
                 }
                 HeartButton(isFavorite: model.currentIsFavorite, canToggle: model.feed.current != nil,
-                            toggle: { model.toggleFavorite() }, openList: { model.showCuration = true })
+                            toggle: { model.toggleFavorite(model.target()) }, openList: { model.showCuration = true })
                 .popover(isPresented: $model.showCuration, arrowEdge: .top) {
-                    CurationPanel(model: model)
+                    CurationPanel(
+                        model: model,
+                        exportFile: { model.exportFavorites() },
+                        importFile: { model.importFavorites() }
+                    )
                 }
                 icon("sparkles", active: model.showTaste || model.taste.paused, help: "我的口味", label: "我的口味") {
                     model.showTaste = true

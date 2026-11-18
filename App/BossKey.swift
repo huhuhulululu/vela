@@ -62,6 +62,11 @@ final class SystemActivity {
         }))
     }
 
+    #if DEBUG
+    /// 自测：与真实锁屏通知走同一条记账与回调路径。
+    func selftestSet(inactive: Bool) { set("selftest", active: inactive) }
+    #endif
+
     private func set(_ reason: String, active: Bool) {
         let wasInactive = !reasons.isEmpty
         if active { reasons.insert(reason) } else { reasons.remove(reason) }

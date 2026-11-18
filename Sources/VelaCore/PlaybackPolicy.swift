@@ -165,3 +165,32 @@ public struct PreparedCache: Sendable {
         entries.removeValue(forKey: username)
     }
 }
+
+/// 双窗副路资源降级后的独立门控（§4.4）。降级后普通的闸门重算（`applyPower`）不会重新放行；
+/// 只有 `Release` 列出的入口：用户显式重试、这一路切房、回前台恢复，才清除。
+/// 单窗不会降级（失败分类恒为房间重试），`gate` 恒等于传入的闸门。
+public struct DegradedHold: Equatable, Sendable {
+    public enum Release: Equatable, Sendable {
+        case retry
+        case roomSwitch
+        case foregroundResume
+    }
+
+    public private(set) var held = false
+
+    public init() {}
+
+    public mutating func degrade() {
+        held = true
+    }
+
+    /// 只接受规定的清除入口，调用处必须写明原因。
+    public mutating func release(_ reason: Release) {
+        held = false
+    }
+
+    /// 本路最终闸门：原闸门 ∧ 未被降级扣住。
+    public func gate(_ allowed: Bool) -> Bool {
+        allowed && !held
+    }
+}

@@ -1,7 +1,16 @@
 #!/bin/bash
 # Vela 本机性能探针：后台静音播放一段时间，周期采样 CPU / 内存 / 唤醒 / 子进程，输出一行 JSON。
-# 用法：scripts/perf-probe.sh [--duration 秒] [--app 路径] [--build] [--scenario play|idle] [--idle-method lock|hide]
+# 用法：scripts/perf-probe.sh [--duration 秒] [--app 路径] [--build] [--scenario play|idle] [--idle-method lock|hide] [--fixed-stream]
 # 兼容 macOS 自带 bash 3.2。依赖：log、top、ps、footprint、nettop、python3（查 responsible pid、解析 nettop、投递通知）。
+# 须经 ssh localhost 运行（见 docs/PERF.md「测量方法」）；否则打印警告，结果不可信。
+# 退出码：起播超时、idle 跳过、采样期间进程退出、samples=0、指标缺失或 NaN 一律非 0（结果 JSON 仍会写出）。
+#   采样失败（top 找不到进程行、footprint 取不到、解析失败）记为无效样本，不补 0、不计入 samples；
+#   无效样本占比 > 10% 或有效样本 < 5 即非 0 退出。开头先删旧结果文件，提前退出时不会留下上一轮的 JSON。
+# --fixed-stream：用固定测试流代替活直播（回归门唯一口径，见 docs/PERF.md）。自动生成合成 HLS（scripts/make-test-stream.sh）、
+#   起本机服务（scripts/serve-test-stream.py）、带 --perf-stream 参数启动 App，结束清理。
+#   App 须带 PERF_PROBE 或 DEBUG 钩子：加 --build 时探针自己以 PERF_PROBE 构建（输出到 /tmp/vela-perf-dd-fixed），
+#   否则检查给定 App 的二进制含该参数。结果 JSON 记 stream_mode 与码率。
+#   运行前若有他人的 perf-probe / xcodebuild / Vela 在跑，每 30 秒等一次，最多 PERF_WAIT_MIN 分钟（默认 90）。
 # idle 场景：先正常起播，再用 --idle-method 让 App 进入非播放态，等 10 秒后才开始采样。
 #   lock（默认）：投递分布式通知 com.apple.screenIsLocked，走 SystemActivity -> PlaybackPolicy.systemInactive，
 #                 不碰窗口、不需任何权限；结束前投递 screenIsUnlocked。
@@ -17,8 +26,14 @@ INTERVAL=5
 SCENARIO=play
 IDLE_METHOD=lock
 IDLE_SETTLE=10
-PLAY_TIMEOUT=120
-OUT_JSON=/tmp/vela-perf-result.json
+PLAY_TIMEOUT=${PLAY_TIMEOUT:-120}   # 可用环境变量覆盖；起播超时即判失败（退出码 1）
+FINAL_RC=0
+FIXED=0
+STREAM_DIR=${PERF_STREAM_DIR:-/tmp/vela-teststream}
+WAIT_MIN=${PERF_WAIT_MIN:-90}
+SERVER_PID=""
+OUT_JSON=${PERF_RESULT_JSON:-/tmp/vela-perf-result.json}   # 测试可改路径
+rm -f "$OUT_JSON"   # 提前退出时调用方不得读到上一轮的结果
 WORK=$(mktemp -d /tmp/vela-perf-work.XXXXXX)
 
 while [ $# -gt 0 ]; do
@@ -28,6 +43,7 @@ while [ $# -gt 0 ]; do
         --build) BUILD=1; shift ;;
         --scenario) SCENARIO="$2"; shift 2 ;;
         --idle-method) IDLE_METHOD="$2"; shift 2 ;;
+        --fixed-stream) FIXED=1; shift ;;
         -h|--help) sed -n 2,4p "$0"; exit 0 ;;
         *) echo "未知参数: ${1}" >&2; exit 2 ;;
     esac
@@ -37,15 +53,45 @@ case "$SCENARIO" in play|idle) ;; *) echo "--scenario 只能是 play 或 idle" >
 case "$IDLE_METHOD" in lock|hide) ;; *) echo "--idle-method 只能是 lock 或 hide" >&2; exit 2 ;; esac
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
+# 工具（如 Claude Code）里的 shell 被降优先级只跑能效核，wakeups 会读成 0、CPU 失真；实测一律经 ssh localhost 回环运行。
+if [ -z "${SSH_CONNECTION:-}" ]; then
+    echo "################################################################" >&2
+    echo "警告：未经 ssh 回环启动（无 SSH_CONNECTION）。工具 shell 里测出的 wakeups、CPU 不可信。" >&2
+    echo "      请改用：ssh localhost 'cd <仓库> && scripts/perf-probe.sh ...'" >&2
+    echo "################################################################" >&2
+fi
+# 他人的 perf-probe / xcodebuild / Vela。按进程命令的开头匹配（与 selftest.sh 同一写法），排除自己。
+# 不匹配 selftest.sh 本身：它在等占用时也会等 perf-probe，两边互等会死锁；它真正干活时的 xcodebuild 与 Vela 进程会被上面两项挡住。
+busy_procs() {
+    ps -axo pid=,ppid=,command= | awk -v me="$$" '$1!=me && $2!=me {$2=""; print}' | sed -E 's/^ +//; s/  +/ /' \
+        | grep -E '^[0-9]+ +(/bin/)?(ba)?sh [^ ]*perf-probe\.sh|^[0-9]+ +[^ ]*/xcodebuild( |$)|^[0-9]+ +[^ ]*Contents/MacOS/Vela$'
+}
+if [ "$FIXED" = 1 ]; then
+    waited=0
+    while [ -n "$(busy_procs)" ]; do
+        if [ "$waited" -ge $((WAIT_MIN * 60)) ]; then
+            echo "等待 ${WAIT_MIN} 分钟后仍有他人的 perf-probe / xcodebuild / Vela 在运行，放弃" >&2
+            rm -rf "$WORK"; exit 1
+        fi
+        sleep 30; waited=$((waited + 30))
+    done
+fi
 if [ "$BUILD" = 1 ]; then
-    echo "Release 构建到 /tmp/vela-perf-dd ..." >&2
+    DD=/tmp/vela-perf-dd
+    EXTRA=""
+    if [ "$FIXED" = 1 ]; then DD=/tmp/vela-perf-dd-fixed; EXTRA="SWIFT_ACTIVE_COMPILATION_CONDITIONS=PERF_PROBE"; fi
+    echo "Release 构建到 ${DD} ..." >&2
     (cd "$ROOT" && xcodebuild -project Vela.xcodeproj -scheme Vela -configuration Release \
-        -derivedDataPath /tmp/vela-perf-dd build >/tmp/vela-perf-build.log 2>&1) \
+        -derivedDataPath "$DD" $EXTRA build >/tmp/vela-perf-build.log 2>&1) \
         || { echo "构建失败，见 /tmp/vela-perf-build.log" >&2; rm -rf "$WORK"; exit 1; }
-    APP=/tmp/vela-perf-dd/Build/Products/Release/Vela.app
+    APP=$DD/Build/Products/Release/Vela.app
 fi
 [ -d "$APP" ] || { echo "找不到 App: ${APP}（加 --build 或 --app）" >&2; rm -rf "$WORK"; exit 1; }
 BIN=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Contents/Info.plist")
+if [ "$FIXED" = 1 ] && ! strings "$APP/Contents/MacOS/$BIN" | grep -q 'vela-perf-stream-hook'; then
+    echo "App 不含 --perf-stream 钩子（须 PERF_PROBE 或 DEBUG 构建）；加 --build 或换 --app" >&2
+    rm -rf "$WORK"; exit 1
+fi
 if pgrep -x "$BIN" >/dev/null 2>&1; then
     echo "已有 ${BIN} 在运行，拒绝测量（会污染 defaults 与结果）。请先自行退出。" >&2
     rm -rf "$WORK"; exit 1
@@ -96,6 +142,7 @@ cleanup() {
     [ "$CLEANED" = 1 ] && return
     CLEANED=1
     [ -n "$LOG_PID" ] && kill "$LOG_PID" 2>/dev/null
+    [ -n "$SERVER_PID" ] && kill "$SERVER_PID" 2>/dev/null
     if [ "$IDLE_ENTERED" = 1 ] && [ "$IDLE_METHOD" = lock ]; then post_note com.apple.screenIsUnlocked; fi
     if [ -n "$APP_PID" ] && alive "$APP_PID"; then
         kill "$APP_PID" 2>/dev/null
@@ -164,8 +211,21 @@ sleep 1
 
 now() { perl -MTime::HiRes=time -e 'printf "%.3f\n", time'; }
 
+STREAM_ARGS=""
+STREAM_KBPS=0
+if [ "$FIXED" = 1 ]; then
+    "$ROOT/scripts/make-test-stream.sh" "$STREAM_DIR" >&2 || { echo "生成测试流失败" >&2; exit 1; }
+    STREAM_KBPS=$(grep -oE 'AVERAGE-BANDWIDTH=[0-9]+' "$STREAM_DIR/master.m3u8" | head -1 | awk -F= '{printf "%d", $2/1000}')   # 平均码率，kbps
+    PORTF="$WORK/stream.port"
+    python3 -I "$ROOT/scripts/serve-test-stream.py" "$STREAM_DIR" --port-file "$PORTF" >&2 &
+    SERVER_PID=$!
+    n=0; while [ ! -s "$PORTF" ] && [ $n -lt 40 ]; do sleep 0.25; n=$((n + 1)); done
+    [ -s "$PORTF" ] || { echo "测试流服务没有起来" >&2; exit 1; }
+    STREAM_ARGS="--perf-stream http://127.0.0.1:$(cat "$PORTF")/master.m3u8"
+    echo "固定测试流 ${STREAM_ARGS#--perf-stream }" >&2
+fi
 T0=$(now)
-open -g -j -n "$APP"
+if [ -n "$STREAM_ARGS" ]; then open -g -j -n "$APP" --args $STREAM_ARGS; else open -g -j -n "$APP"; fi
 n=0
 while [ -z "$APP_PID" ] && [ $n -lt 40 ]; do
     APP_PID=$(pgrep -nx "$BIN")
@@ -193,8 +253,9 @@ while :; do
     alive "$APP_PID" || { echo "App 提前退出" >&2; exit 1; }
     el=$(perl -e 'printf "%d", $ARGV[0]-$ARGV[1]' "$(now)" "$T0")
     if [ "$el" -ge "$PLAY_TIMEOUT" ]; then
-        echo "WARN: ${PLAY_TIMEOUT} 秒内未见开始播放日志，继续采样（startup_to_play_s=-1）" >&2
-        break
+        echo "失败：${PLAY_TIMEOUT} 秒内未见开始播放日志（startup_to_play_s=-1）" >&2
+        echo '{"error":"play timeout","startup_to_play_s":-1,"samples":0}' >"$OUT_JSON"; cat "$OUT_JSON"
+        exit 1
     fi
     sleep 0.5
 done
@@ -203,11 +264,11 @@ sleep 5   # 让首帧后的瞬态过去
 
 if [ "$SCENARIO" = idle ]; then
     if [ "$IDLE_METHOD" = lock ]; then
-        post_note com.apple.screenIsLocked || { echo "投递通知失败，跳过 idle" >&2; echo '{"scenario":"idle","skipped":"post notification failed"}' >"$OUT_JSON"; cat "$OUT_JSON"; exit 0; }
+        post_note com.apple.screenIsLocked || { echo "投递通知失败，跳过 idle" >&2; echo '{"scenario":"idle","skipped":"post notification failed"}' >"$OUT_JSON"; cat "$OUT_JSON"; exit 1; }
     else
         if ! err=$(osascript -e 'tell application "System Events" to set visible of process "'"$BIN"'" to false' 2>&1); then
             echo "osascript 失败（多半缺辅助功能 / 自动化授权），跳过 idle: ${err}" >&2
-            echo '{"scenario":"idle","skipped":"osascript not permitted"}' >"$OUT_JSON"; cat "$OUT_JSON"; exit 0
+            echo '{"scenario":"idle","skipped":"osascript not permitted"}' >"$OUT_JSON"; cat "$OUT_JSON"; exit 1
         fi
     fi
     IDLE_ENTERED=1
@@ -226,10 +287,11 @@ net_snap() { echo "#t $(now)" >>"$NETF"; nettop -x -n -L 1 -p "$APP_PID" -J byte
 net_snap
 END=$(perl -e 'printf "%.3f", $ARGV[0]+$ARGV[1]' "$TS" "$DURATION")
 ni=0
+INVALID=0
 while :; do
     t_loop=$(now)
     if [ "$(perl -e 'print $ARGV[0] >= $ARGV[1] ? 1 : 0' "$t_loop" "$END")" = 1 ]; then break; fi
-    alive "$APP_PID" || { echo "采样中 App 退出" >&2; break; }
+    alive "$APP_PID" || { echo "失败：采样中 App 退出" >&2; FINAL_RC=1; break; }
 
     PSF="$WORK/ps.txt"
     ps -axo pid=,ppid=,rss=,command= >"$PSF"
@@ -250,7 +312,7 @@ EOF
     kids_rss=$(awk -v ks="$KIDSEP" 'index(ks, "|" $1 "|") {s+=$3} END {print s+0}' "$PSF")
     fp=$(footprint "$APP_PID" 2>/dev/null | awk '/Footprint:/ {
         for (i=1;i<=NF;i++) if ($i=="Footprint:") {v=$(i+1); u=$(i+2)}
-        m=(u=="KB")?v/1024:(u=="GB")?v*1024:(u=="B")?v/1048576:v; printf "%.1f", m; exit }')
+        m=(u=="KB")?v/1024:(u=="GB")?v*1024:(u=="B")?v/1048576:v; if (m > 0) printf "%.1f", m; exit }')
 
     # top 两次采样，取第二次（第一次的 CPU 是自启动以来的平均，不可用）
     TOPF="$WORK/top.txt"
@@ -258,17 +320,23 @@ EOF
     read -r m_cpu m_thr m_idle k_cpu vt_cpu <<EOF
 $(awk -v app="$APP_PID" -v ks="$KIDSEP" -v vs="$VTSEP" '
     /^PID/ {blk++; next}
-    blk==1 && $1==app {i1=$4; gsub(/[+-]/, "", i1)}
+    blk==1 && $1==app {i1=$4; gsub(/[+-]/, "", i1); s1=1}
     blk==2 && $1 ~ /^[0-9]+$/ {
         thr=$3; sub(/.*\//, "", thr); idle=$4; gsub(/[+-]/, "", idle)
-        if ($1==app) {mc=$2; mt=thr; mi=(idle-i1)/2}
+        if ($1==app) {mc=$2; mt=thr; mi=(idle-i1)/2; s2=1}
         else if (index(ks, "|" $1 "|")) kc+=$2
         if (index(vs, "|" $1 "|")) vc+=$2
     }
-    END {printf "%.1f %d %.1f %.1f %.1f\n", mc+0, mt+0, mi+0, kc+0, vc+0}' "$TOPF")
+    END {if (s1 && s2 && mc ~ /^[0-9.]+$/) printf "%.1f %d %.1f %.1f %.1f\n", mc+0, mt+0, mi+0, kc+0, vc+0; else print "NA 0 0 0 0"}' "$TOPF")
 EOF
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-        "$ni" "$m_cpu" "${main_rss:-0}" "${fp:-0}" "$m_thr" "$m_idle" "${kids_rss:-0}" "$k_cpu" "$vt_cpu" >>"$SAMPLES"
+    # 采样失败（进程行缺失、footprint 取不到、top 解析失败）记无效样本：不补 0，不计入 samples
+    if [ "$m_cpu" = NA ] || [ -z "${main_rss:-}" ] || [ -z "${fp:-}" ]; then
+        INVALID=$((INVALID + 1))
+        echo "无效样本 #${ni}（cpu=${m_cpu} rss=${main_rss:-缺} footprint=${fp:-缺}）" >&2
+    else
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+            "$ni" "$m_cpu" "$main_rss" "$fp" "$m_thr" "$m_idle" "${kids_rss:-0}" "$k_cpu" "$vt_cpu" >>"$SAMPLES"
+    fi
     ni=$((ni + 1))
     net_snap
     # 把循环补到 INTERVAL 秒
@@ -277,13 +345,19 @@ EOF
     sleep "$wait_s"
 done
 TE=$(now)
+VALID=$((ni - INVALID))
+if [ "$VALID" -lt 5 ] || [ $((INVALID * 10)) -gt "$ni" ]; then
+    echo "失败：有效样本 ${VALID}、无效 ${INVALID}（有效须 >= 5，无效占比须 <= 10%）" >&2
+    FINAL_RC=1
+fi
 sleep 2   # 让 log stream 落盘
 L1=$(wc -l <"$LOGF" | tr -d ' ')
 WIN="$WORK/window.log"
 sed -n "$((L0 + 1)),${L1}p" "$LOGF" >"$WIN"
 ELAPSED=$(perl -e 'printf "%.1f", $ARGV[0]-$ARGV[1]' "$TE" "$TS")
 
-ISSUES=$(grep -c 'Publishing changes from within view updates' "$WIN")
+# runtime_issues：SwiftUI 视图更新期发布 / 修改状态、AttributeGraph 环，以及 com.vela.stage 的 fault 级日志（compact 样式里级别列为 F）
+ISSUES=$(grep -cE 'Publishing changes from within view updates|Modifying state during view update|AttributeGraph: cycle|^[^ ]+ [^ ]+ F +.*\[com\.vela\.stage' "$WIN")
 LOGLINES=$(grep -c . "$WIN")
 # 中继日志里可数的只有 renew（URL 过期后的换票）；清单抓取本身只在慢 / 失败时才记，无法按次数统计
 RENEWS=$(grep -cE '\[com\.vela\.stage:relay\] renew (ok|failed)' "$WIN")
@@ -366,7 +440,10 @@ HTTP=$(grep -E 'CFNetwork:Summary\] Task .* summary for task' "$WIN" | grep -oE 
 [ -n "$HTTP" ] || HTTP='"http_requests_per_min":-1'
 
 JSON=$(printf '%s' "$JSON" | sed -E 's/\}$//')
-JSON="${JSON},\"scenario\":\"${SCENARIO}\",\"idle_method\":\"$([ "$SCENARIO" = idle ] && echo "$IDLE_METHOD" || echo none)\",${HTTP},$(printf '%s' "$NET" | sed -E 's/^\{//')"
+JSON="${JSON},\"invalid_samples\":${INVALID},\"interval_s\":${INTERVAL},\"duration_s\":${DURATION},\"stream_mode\":\"$([ "$FIXED" = 1 ] && echo fixed || echo live)\",\"stream_bitrate_kbps\":${STREAM_KBPS:-0},\"scenario\":\"${SCENARIO}\",\"idle_method\":\"$([ "$SCENARIO" = idle ] && echo "$IDLE_METHOD" || echo none)\",${HTTP},$(printf '%s' "$NET" | sed -E 's/^\{//')"
 
 echo "$JSON" >"$OUT_JSON"
 echo "$JSON"
+# 结果自检：samples=0、起播 -1、指标缺失或 NaN 都不合格
+if ! python3 -I "$ROOT/scripts/perf_gate.py" --validate "$OUT_JSON" >&2; then FINAL_RC=1; fi
+exit "$FINAL_RC"

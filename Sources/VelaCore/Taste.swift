@@ -106,20 +106,36 @@ public struct Taste: Codable, Equatable, Sendable {
     /// 3 秒内划走是弱落空（0.3），20 秒 1、60 秒 1.5、180 秒及以上 2，3 到 20 秒不计。
     /// `rarity` 为当前候选集合的标签稀有度：每个标签的证据乘以它的稀有度权重，几乎每个房间都有的标签只得到一小份。
     /// 每日命中率口径不变：命中以 ≥20 秒计、落空以 <3 秒计，只统计「猜你喜欢」。
+    /// 学习与每日统计仍共用这一个秒数。要分开时用 `recording(learnSeconds:daily:)`。
     public func recording(
         room: Room, watched seconds: TimeInterval, source: FeedSource, now: Date, rarity: TagRarity? = nil
     ) -> Taste {
-        settling(room: room, feedback: Feedback.grade(watched: seconds), dwell: seconds, source: source, now: now, rarity: rarity)
+        recording(room: room, learnSeconds: seconds, daily: seconds, source: source, now: now, rarity: rarity)
+    }
+
+    /// 学习秒数与每日统计分开记。双窗里非焦点时间折进 `learnSeconds`，每日命中率只看 `daily`。
+    /// 某一边传 nil 表示这一边不记（仍标记已看过）。两边传入同一个秒数时，结果与 `recording(room:watched:source:now:)` 相同。
+    public func recording(
+        room: Room, learnSeconds: TimeInterval?, daily dailySeconds: TimeInterval?,
+        source: FeedSource, now: Date, rarity: TagRarity? = nil
+    ) -> Taste {
+        settling(
+            room: room, feedback: learnSeconds.map { Feedback.grade(watched: $0) } ?? .none, dwell: dailySeconds,
+            source: source, now: now, rarity: rarity
+        )
     }
 
     private func settling(
-        room: Room, feedback: Feedback, dwell: TimeInterval, source: FeedSource, now: Date, rarity: TagRarity?
+        room: Room, feedback: Feedback, dwell: TimeInterval?, source: FeedSource, now: Date, rarity: TagRarity?
     ) -> Taste {
         let base = marking(seen: room.username, now: now)
-        guard !paused, feedback != .none else { return base }
-        let scale = source == .guess ? 1.0 : Self.otherSourceScale
-        var next = base.applying(room, hit: feedback.hit * scale, miss: feedback.miss * scale, now: now, rarity: rarity)
-        if source == .guess, let isHit = Feedback.dailyOutcome(watched: dwell) { next.tally(isHit: isHit, now: now) }
+        guard !paused else { return base }
+        var next = base
+        if feedback != .none {
+            let scale = source == .guess ? 1.0 : Self.otherSourceScale
+            next = base.applying(room, hit: feedback.hit * scale, miss: feedback.miss * scale, now: now, rarity: rarity)
+        }
+        if source == .guess, let dwell, let isHit = Feedback.dailyOutcome(watched: dwell) { next.tally(isHit: isHit, now: now) }
         return next
     }
 
