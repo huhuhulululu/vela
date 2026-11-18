@@ -21,6 +21,7 @@
 - 不同步：命中与落空证据（hit/miss）、停留、最近看过（seen）、每日命中率、学习暂停开关、「不感兴趣」产生的落空、收藏带来的命中加权、手动加强的权重、观看账本、缩略图缓存、窗口与透明度类设置、音量、`muted`、`phoneDual`、`pipAutoEnter`。理由：量大、与设备相关，或远端改动会在本机产生意外后果（远端 `muted=false` 会让当前设备突然出声）。
 - 不做：账号、找回、分享给他人、服务端可读的任何字段、实时推送、轮询、常驻连接、第三方依赖、自动换码。
 - 平台门槛：macOS 14 与 iOS 17（与现有最低版本相同）；安卓 Android 13（API 33）及以上，且须通过 S0 探针的对应能力级别（第 18 节），才显示同步入口。更低的安卓版本照常使用 App，只是没有同步入口，也不为此引入第三方库。
+- S0 探针实测（Android 14，API 34）：级别「禁用」。设备上的 `java.security` Provider（AndroidOpenSSL、BC、HarmonyJSSE）没有 Ed25519 或 EdDSA 的 KeyFactory、Signature、KeyPairGenerator；`KeyFactory.getInstance("Ed25519")` 抛出 `NoSuchAlgorithmException`。种子导入失败，签名、取得公钥、与 Go 互相验签、核对消息验签没有可执行对象，五项都记 FAIL。按第 18 节，该系统不显示同步入口。分级表本身不改。
 - 可见延迟承诺：远端改动在本机「下次启动或回到前台、打开收藏或口味面板、点立即同步」时出现；两台设备都停在前台且没有上述动作时，不保证看到对方改动。这是「无轮询」的直接代价，写进隐私与帮助文案。
 - 服务端地址不进公开仓：Apple 端经本地、不入库的 xcconfig 注入，安卓经本地 gradle 属性注入，同步码里也带地址。构建分两种情况：
   - 构建未启用同步功能（编译开关关）：完全没有同步入口。
@@ -66,7 +67,7 @@
   - `signSeed` = HKDF(info = ASCII `vela-sync/v2/sign`)，RFC 8032 Ed25519 私钥种子。
 - 安卓手写 HKDF：PRK = HMAC-SHA256(key = salt, data = K)；OKM = HMAC-SHA256(key = PRK, data = info ‖ `0x01`)。L = 32 只需一个块。
 - Apple：`HKDF<SHA256>.deriveKey(inputKeyMaterial: SymmetricKey(data: K), salt: Data(count: 32), info: Data(info.utf8), outputByteCount: 32)`。
-- 公钥 `pub` = RFC 8032 编码的 32 字节 Ed25519 公钥。Apple：`Curve25519.Signing.PrivateKey(rawRepresentation: signSeed).publicKey.rawRepresentation`。安卓：私钥用 PKCS#8 DER 前缀 `302e020100300506032b657004220420` 加种子，经 `KeyFactory.getInstance("Ed25519")` 导入；公钥的取得方式由 S0 探针确定。
+- 公钥 `pub` = RFC 8032 编码的 32 字节 Ed25519 公钥。Apple：`Curve25519.Signing.PrivateKey(rawRepresentation: signSeed).publicKey.rawRepresentation`。安卓：私钥用 PKCS#8 DER 前缀 `302e020100300506032b657004220420` 加种子，经 `KeyFactory.getInstance("Ed25519")` 导入；公钥的取得方式由 S0 探针确定。S0 实测未能确定：所测 API 34 镜像在导入种子时就没有 Ed25519 KeyFactory（见第 1 节），探针没有拿到平台私钥对象，因此没有测出从私钥导出公钥的调用。
 - 公钥核对消息（安卓取不到公钥时用来代替直接比较，写死）：ASCII `vela-sync/v2/pubcheck` + `0x0A` + blobID。用 `signSeed` 签名，再用服务端返回的 `pub` 验签；通过即视为一致。
 - 短指纹 = `blobID` 前 8 个 hex 转大写，按 4-4 用 `-` 连接（例 `3F9A-0C21`）。两台设备对码用；它不是秘密，日志也只记这一段。
 
@@ -236,7 +237,7 @@
   3. 墓碑删完仍超过 `P`：
      - 由本地操作引起：拒绝这次操作（文档与本机视图都不变），提示「同步数据已满，请删掉一些收藏、屏蔽或不想看」。
      - 由合并引起：保留合并结果在本机（它满足数量上限），停止推送，设置页提示同样的文案，直到用户删减到上限以内。
-- 估算：数量上限下，`n` 限定为 ASCII、标签限定 128 字节且不含需转义的字符，在用部分最大约 400 KB，典型用户约 22 KB（压缩后约 10 KB）。这些数字只作参考，上限以实测为准；S0 用金样本给出一份接近上限的文档与它的实测字节数。
+- S0 实测（金样本 `size[]`；`n` 为 30 字节 ASCII 用户名，标签 128 字节且不转义）：数量上限下含全部墓碑的最大明文为 413,878 字节；墓碑已尽的在用部分最大为 170,378 字节。两者都小于 `P`，所以「裁完仍超」在现行数量上限下不可达：`size[]` 仍收录该情形，实测结果是接受（`reachable: false`），不是「拒绝」。另一份 30 个收藏、10 个屏蔽、21 条口味、2 个设置的文档，明文 4,542 字节，raw DEFLATE（level 6）后 659 字节。上限仍是 `P` 与数量上限，不以这些数字代替。
 - 接收方：解密、解压后的明文超过 `P` 即非法。
 
 ## 7. 合并（确定性函数，三端逐位一致）
@@ -518,6 +519,7 @@
 3. 其他每台可信设备：遇到 410 后关闭，再用新码「加入」（合并，两边都保留）。
 - 限制写进文案：丢失或泄露期间对方已读到的数据无法收回；丢失的设备本地已有的数据也无法收回。
 - 安卓处于「只能加入」级别（第 18 节 S0）时，第 2 步须在 Apple 设备上完成。
+- S0 在所测 Android 14（API 34）上的级别是「禁用」而不是「只能加入」：该系统不显示同步入口。上一条只在以后测得「只能加入」时生效，不因本次实测改写。
 
 ## 13. 密钥存储
 
@@ -623,6 +625,8 @@ S0 探针分级（写死）：
 | 禁用 | 种子导入、签名、与 Go 互相验签、核对消息验签任一 FAIL | 安卓不显示同步入口，直到问题解决 |
 
 API 33 只是平台门槛，不能代替探针的实测证据。
+
+S0 实测（Android 14，API 34，日志由 `scripts/sync/probe-android/run.sh` 重放）：IMPORT FAIL（`NoSuchAlgorithmException: Ed25519 KeyFactory not available`；同一镜像上还试过 `ED25519`、`EdDSA`、OID `1.3.101.112` 以及全部 Provider，都没有对应服务；AndroidOpenSSL 只有 RSA、EC、XDH）。SIGN、PUBKEY、MUTUAL、PUBCHECK 记 FAIL。级别「禁用」。
 
 ## 19. 待用户裁决
 
