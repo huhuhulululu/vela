@@ -809,7 +809,7 @@ final class StageModel: ObservableObject {
         if DwellTracker.shouldSettle(before: before, after: feed.current?.username, sourceChanged: sourceChanged) {
             currentRoomChanged(on: primary, reason: reason)
         }
-        if let secondary { settleSecondary(secondary, outcome: outcome, reason: reason) }
+        if let secondary { settleSecondary(secondary, outcome: outcome, reason: reason, sourceChanged: sourceChanged) }
         // 目标在另一路播放时 `LaneSelection` 只切焦点（§4.1）。
         if secondary != nil, outcome.focus != focusLane { setFocus(outcome.focus) }
         logLaneRooms()

@@ -269,11 +269,18 @@ extension StageModel {
 
     /// 双窗副路：写回游标，房间变了就结算并起播。
     func settleSecondary(
-        _ lane: PlaybackLane, outcome: LaneSelection.Outcome, reason: LaneSettlement.EndReason = .swipe
+        _ lane: PlaybackLane, outcome: LaneSelection.Outcome, reason: LaneSettlement.EndReason = .swipe,
+        sourceChanged: Bool = false
     ) {
         let before = lane.username
         lane.username = outcome.secondary?.username
-        guard before?.lowercased() != lane.username?.lowercased() else { return }
+        let roomChanged = before?.lowercased() != lane.username?.lowercased()
+        // 同名换来源：房间没变不重新起播，但旧来源下的停留要结算、来源要更新（与主路的 `shouldSettle` 同一判定）。
+        guard DwellTracker.shouldSettle(before: before, after: lane.username, sourceChanged: sourceChanged) else { return }
+        guard roomChanged else {
+            currentRoomChanged(on: lane, reason: reason)
+            return
+        }
         lane.degradedHold.release(.roomSwitch)
         currentRoomChanged(on: lane, reason: reason)
         if lane.username == nil { lane.state = .empty }
