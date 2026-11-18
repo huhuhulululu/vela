@@ -259,3 +259,37 @@ PR0 实验（计划修订 A1 / A2：不用真机，全程模拟器）。实验�
 | 热状态注入 | `.serious` 降到 1696k；`.fair` 满 60 秒回升 | 日志序列同上 |
 
 负样本（`docs/spike/negative-tests.txt`）：无样本退出码 6、采样中进程退出 5、起播超时 4、参数错 2、App 不存在 1，全部按预期非 0。
+
+## iOS 单窗（模拟器）
+
+T16 按计划修订 A1 改在模拟器上做（2026-11-17，分支 `feat/ios-pr2`，合入 T14、T15 与 `feat/ios` 第一阶段审计修复之后）。全程静音、只 `simctl boot`、不截屏不点击，所有结论来自日志与宿主进程指标。
+
+### 方法与环境
+
+- 构建：`VelaPhone` 的 Perf 配置（bundle `com.vela.stage.ios.perf`，`PERF_PROBE`），`-sdk iphonesimulator CODE_SIGNING_ALLOWED=NO`；启动参数 `--perf-autoplay`（只在内存里视为已确认年龄并强制静音，`VelaPhoneApp` 在首次 `bootstrap()` 前调用 `PerfEntry.applyLaunchArguments`）。
+- 设备：iPhone 17 Pro 模拟器、iPad Pro 11 英寸（M5）模拟器，iOS 26.2，宿主同前。经 `ssh localhost` 回环运行，开跑前等本机无 perf-probe / selftest / 其他 xcodebuild / Vela / 模拟器实验。
+- 探针：`scripts/perf-probe-ios.sh --profile vela --scenario background --duration 60 --bg-hold 30`（`--profile vela` 为本次新增：日志子系统 `com.vela.stage`，起播判据 `first-frame lane=<id>`；旧 Spike 用 `--profile spike`）。前台 60 秒采样（每 5 秒），随后 `simctl launch com.apple.Preferences` 挤到后台，5 秒后采 30 秒，再切回测恢复首帧。
+- 直播是真实网络，两台设备起播的房间与档位不同（iPhone 这轮 1080p，iPad 这轮 720p）；正式 App 不打所选档位日志，`net_ratio` 无法计算。
+
+### 结果
+
+| 项 | iPhone 17 Pro | iPad Pro 11（M5） | 结论 |
+|---|---|---|---|
+| 起播 | 首帧 0.50 秒（新播放项起计）；启动到首帧 2.02 秒 | 0.71 秒；2.42 秒 | 出现 `first-frame lane=primary`；启动到首帧在草案 ≤ 2.5 秒内 |
+| 画面比例（日志判定） | `display-check` 2 条，`gravity=resizeAspect`，`presentation=1920x1080 bounds=1554x874 videoRect=1554x874 uncropped=true` | 2 条，`presentation=1280x720 bounds=2151x1210 videoRect=2151x1210 uncropped=true` | 日志判定全部通过，**但实际画面被裁切**，见下「发现的问题」1 |
+| 资源：前台单窗 60 秒 | cpu 平均 18.2%（p95 22.0%），footprint 74.2 MB（峰值 75），线程 29，下行 35.7 MB/min，上行 12.9 KB/min | cpu 10.3%（p95 13.7%），footprint 54.0 MB，线程 24，下行 20.7 MB/min | footprint 在单窗草案 ≤ 82 MB 内；cpu 无档位日志，无法按每 Mbps 归一 |
+| 后台 5 秒后（30 秒窗口） | cpu 0.2%，非回环与回环流量 0，线程 29→8，footprint 37 MB | cpu 0.35%（峰 0.5%），流量 0，线程 24→8，footprint 38 MB | 通过：cpu ≤ 0.5%、流量 = 0；窗口内零中继请求 |
+| 后台日志顺序 | `epoch suspend allowing=none` → `lane suspend lane=primary` → `audio step mute all` → `audio step category=playback mix=true` → `audio step active=false notify=true` → `audio deactivated` → `relay listener stopped` | 同左 | 通过：lane suspend、audio deactivated、relay listener stopped 依次出现，`setActive(false, notifyOthersOnDeactivation)` |
+| 恢复 | `epoch resume`、`lane resume lane=primary activity=playing`，新首帧距切回 1.33 秒 | 同左，1.99 秒 | 通过 |
+| 音频会话类别 | 前台全程没有任何 `audio step` 行；第一次设类别是在进后台时 | 同左 | **未通过**，见「发现的问题」2 |
+| 画中画 | 不适用 | 无 `pip` 日志，回桌面走整体挂起 | iOS 画中画（T15b）尚未接入，本轮只验证了「无画中画时进后台全停」 |
+
+### 发现的问题
+
+1. **画面实际被裁切（违反裁决 5），且 `display-check` 判不出来。** 竖屏窗格是 402x874（iPhone）与 834x1210（iPad），日志里播放层 `bounds` 却是 1554x874 与 2151x1210：宽度正好等于「按 16:9 铺满高度」。原因推断：`PhoneRoomPage` 的 `ZStack` 里垫底 `SwapBackdrop` 用 `scaledToFill()` 且没有约束自身尺寸，把整个 `ZStack` 撑到了缩略图铺满后的大小，播放层跟着变大，最后靠 `.clipped()` 裁掉两侧，效果等同铺满裁切。`display-check` 只拿 `videoRect` 和播放层自己的 `bounds` 比，所以照样报 `uncropped=true`。需要：垫底改为不参与布局（例如放进 `.background` 或 `Color.clear.overlay { … }.clipped()`），并让 `display-check` 同时对照窗格（或窗口）尺寸；修好前 E7 / S13 的「uncropped=true」不能当作证据。
+2. **前台起播时没有设音频会话类别。** `AudioFocusController` 只在取消静音、再静音、进后台、拔耳机与打断时执行转换，冷启动静音起播（含 `--perf-autoplay` 的 `pushVolume`）不经过它，于是前台播放时会话停在系统默认类别，日志里看不到计划要求的静音 `playback + mixWithOthers`。真机上默认类别可能打断他人音乐；模拟器无法验证效果。需要在首次起播前执行一次静音转换（设 `playback + mixWithOthers` 并激活）。
+3. 口味面板页眉仍写「偏好只保存在这台 Mac 上」，iOS 上不对（本轮只改了年龄确认页文案）。
+
+### 哪些不代表真机
+
+同「iOS Spike（模拟器）」一节：解码在 Mac 上，cpu 与功耗绝对值不能外推；网络是本机到直播 CDN。
