@@ -306,6 +306,21 @@ T16 按计划修订 A1 改在模拟器上做（2026-11-17，分支 `feat/ios-pr2
 
 **起播对照**：为判断启动到首帧变慢是否来自本次改动，同一时段在 iPhone 17 Pro 上交替跑首轮构建（`cd80e2e`）与修复后构建，`--scenario single --duration 20` 各 2 轮：旧构建启动到首帧 3.51 / 2.65 秒（新播放项首帧 0.84 / 0.95 秒），新构建 3.21 / 3.23 秒（0.72 / 0.87 秒）。旧构建此刻同样超过 2.5 秒，差异在轮间波动以内，变慢来自网络时段（直播 CDN），不是本次改动；但样本少，初始转换在主线程的 70 到 200 毫秒是确定的新增开销，若真机上起播紧张，可考虑把会话设置挪出主线程。
 
+### 画中画（T15b，2026-11-18，`c4c7aef`）
+
+按修订 A3 改口径：画中画在 iPad 模拟器上验，iPhone 模拟器只验「不支持时不崩、回桌面照旧全停」。Perf 构建、`--perf-autoplay`（静音）、单窗，`scripts/perf-probe-ios.sh --profile vela`，`ssh localhost` 回环，每台 1 轮（新建设备，跑完删除）。画中画期间另用 `nettop -L 1 -p <宿主 pid>` 每 10 秒取一次逐连接快照。
+
+| 项 | iPad Pro 13-inch（M5）`--scenario pip --duration 30 --bg-hold 40` | iPhone 17 Pro `--scenario background --duration 30 --bg-hold 30` | 结论 |
+|---|---|---|---|
+| 前台 | 首帧 0.55 秒（启动到首帧 4.06 秒），房间流 960x540，`display-check bounds=1032x1376 layer=1032x1376 videoRect=1032x581 uncropped=true`；cpu 平均 4.5%，footprint 45.8 MB，下行 11.3 MB/min | 首帧 0.89 秒，cpu 11.7%，footprint 76.3 MB，下行 35.3 MB/min（1080p 房间） | 直播房间每轮不同，两台数字不可横比 |
+| 回桌面 | `simctl launch com.apple.Preferences` 后：`pip started` → `epoch suspend allowing=primary` → `pip continue lane=primary state=active`；无 `pip failed`、无 `pip fallback-stop` | 日志 `pip unsupported`（控制器未创建，按钮不出现）；`epoch suspend allowing=none` → `lane suspend` → `audio step … active=false notify=true` → `audio deactivated` → `relay listener stopped`，`bg_order_ok=true`，无崩溃 | 通过 |
+| 后台期间音频 | 进入画中画时（静音）`audio step mute all` → `category=playback mix=true` → `active=true notify=false`，没有 `audio deactivated`、没有 `relay listener stopped` | 见上 | 通过：静音画中画保持 `playback + mixWithOthers` 会话 |
+| 后台资源（5 秒后的窗口） | cpu 平均 7.7%（最高 9.6%），footprint 46.9 MB，线程 25，下行 10.7 MB/min（与前台同一水平，即仍只这一路） | cpu 0.2%，下行 0，footprint 40.2 MB | iPad 画中画里继续播；iPhone 全停 |
+| 只一路联网 | 逐连接快照 3 次：持续增长的只有直播 CDN 的两条连接（分片连接 10.3 → 12.3 → 14.2 MB；清单连接 31.7 → 37.8 → 43.7 KB，每 10 秒约 6 KB，即中继按节拍拉子列表），目录与侧车的两条连接字节数不变；本地中继监听 `127.0.0.1` 一直在 | — | 通过：画中画期间只有画中画那一路在联网，中继持续供应清单；全程 `fetch-failed`、`serve-503`、续期失败均为 0 |
+| 切回 App | `epoch resume` → `lane resume lane=primary activity=playing` → `pip stopped restore=true`（回前台时主动退出画中画），新首帧距切回 1.59 秒 | 新首帧距切回 1.58 秒 | 通过 |
+
+未在本轮实跑的路径（由 `PictureInPictureWiringTests` 用桩覆盖）：3 秒内未进入画中画的回退全停、启动失败、后台里用户关掉画中画、自动进入开关关闭。模拟器上的画中画小窗本身不代表真机的解码与功耗。
+
 ### 哪些不代表真机
 
 同「iOS Spike（模拟器）」一节：解码在 Mac 上，cpu 与功耗绝对值不能外推；网络是本机到直播 CDN。
