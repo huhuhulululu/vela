@@ -7,6 +7,14 @@
 	objects = {
 
 /* Begin PBXFileReference section */
+		0638102034C5E7A666AF3C0A /* PhoneViewLogicTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneViewLogicTests.swift; sourceTree = "<group>"; };
+		B13942897F484DDD9D9F6F79 /* FilterPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilterPanel.swift; sourceTree = "<group>"; };
+		1E6711CA2612754A46CD8F1E /* ChallengeSheet+Phone.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChallengeSheet+Phone.swift"; sourceTree = "<group>"; };
+		7476274F8DF0711CBC6DABA7 /* AgeGate+Phone.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgeGate+Phone.swift"; sourceTree = "<group>"; };
+		780DC2B8683EFC308AE217F5 /* PhoneStageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneStageView.swift; sourceTree = "<group>"; };
+		9DD79AE99C1892CA7E465166 /* PhoneChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneChrome.swift; sourceTree = "<group>"; };
+		B8CFEDF13824218E95117C34 /* PhoneRoomPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneRoomPage.swift; sourceTree = "<group>"; };
+		CE7DF2DC53C455092DD8CEAA /* LanePager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanePager.swift; sourceTree = "<group>"; };
 		B7A0C0DE0000000000000001 /* VelaPhoneApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VelaPhoneApp.swift; sourceTree = "<group>"; };
 		B7A0C0DE0000000000000003 /* VelaPhone.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VelaPhone.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A5E7C0DE00000000000000A1 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -291,6 +299,12 @@
 		B7A0C0DE0000000000000002 /* iOS */ = {
 			isa = PBXGroup;
 			children = (
+				1E6711CA2612754A46CD8F1E /* ChallengeSheet+Phone.swift */,
+				7476274F8DF0711CBC6DABA7 /* AgeGate+Phone.swift */,
+				780DC2B8683EFC308AE217F5 /* PhoneStageView.swift */,
+				9DD79AE99C1892CA7E465166 /* PhoneChrome.swift */,
+				B8CFEDF13824218E95117C34 /* PhoneRoomPage.swift */,
+				CE7DF2DC53C455092DD8CEAA /* LanePager.swift */,
 				BFAB95F3C05BDC2A011A19A4 /* PlayerLayerView+Phone.swift */,
 				BD9C5ECA71F7AC479FB56CF1 /* SidecarHost+Phone.swift */,
 				5706678F94874A09042F3437 /* SiteWebView+Phone.swift */,
@@ -306,6 +320,7 @@
 		CB34A6584F241E6CEF4433EF /* Stage */ = {
 			isa = PBXGroup;
 			children = (
+				B13942897F484DDD9D9F6F79 /* FilterPanel.swift */,
 				6E46E2782D9B25FD5CED2CCD /* CurationPanel.swift */,
 				AB10C0DE0400000000000F04 /* FavoritesRows.swift */,
 				7C1E5A90D3B24F68A0C4E9F3 /* FavoritesPanel.swift */,
@@ -384,6 +399,7 @@
 		C13A00000000000000000010 /* VelaPhoneTests */ = {
 			isa = PBXGroup;
 			children = (
+				0638102034C5E7A666AF3C0A /* PhoneViewLogicTests.swift */,
 				C13A00000000000000000011 /* LifecycleWiringTests.swift */,
 			);
 			path = VelaPhoneTests;
@@ -483,6 +499,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				61CB972CE6D828FF67E25309 /* FilterPanel.swift in Sources */,
 				C13A00000000000000000002 /* LifecycleWiring.swift in Sources */,
 				8E337A72BB6D6883438A22BA /* SidecarHost+Mac.swift in Sources */,
 				BC1E02DA8E9D42EAA2E9F3A2 /* ChallengeSheet+Mac.swift in Sources */,
@@ -602,6 +619,13 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				CDC8E405B032BF8C8DFC25AD /* FilterPanel.swift in Sources (VelaPhone) */,
+				22E28147B5E0D53228B0F2FE /* ChallengeSheet+Phone.swift in Sources (VelaPhone) */,
+				49F196D4ACA307DCE8CFFA14 /* AgeGate+Phone.swift in Sources (VelaPhone) */,
+				EA972648D8805673BCBBDC37 /* PhoneStageView.swift in Sources (VelaPhone) */,
+				BFA2AC2763B4F321532AE7A7 /* PhoneChrome.swift in Sources (VelaPhone) */,
+				A59DB0D02767193E018E8957 /* PhoneRoomPage.swift in Sources (VelaPhone) */,
+				E6E5AC025D6773B36CF99800 /* LanePager.swift in Sources (VelaPhone) */,
 				C13A00000000000000000003 /* LifecycleWiring.swift in Sources (VelaPhone) */,
 				A639B4CE712CAE3AF5097EDD /* PiPPolicy.swift in Sources (VelaPhone) */,
 				0ADEEA3622D0027A66998077 /* SwapBackdrop.swift in Sources (VelaPhone) */,
@@ -709,6 +733,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				036C0C7D6C970966BE45B68E /* PhoneViewLogicTests.swift in Sources (VelaPhoneTests) */,
 				C13A00000000000000000012 /* LifecycleWiringTests.swift in Sources (VelaPhoneTests) */,
 				C12A00000000000000000200 /* RelayMultiSourceTests.swift in Sources (VelaPhoneTests) */,
 				C12A00000000000000000201 /* LifecycleEpochTests.swift in Sources (VelaPhoneTests) */,
@@ -726,6 +751,15 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXBuildFile section */
+		036C0C7D6C970966BE45B68E /* PhoneViewLogicTests.swift in Sources (VelaPhoneTests) */ = {isa = PBXBuildFile; fileRef = 0638102034C5E7A666AF3C0A /* PhoneViewLogicTests.swift */; };
+		CDC8E405B032BF8C8DFC25AD /* FilterPanel.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = B13942897F484DDD9D9F6F79 /* FilterPanel.swift */; };
+		61CB972CE6D828FF67E25309 /* FilterPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B13942897F484DDD9D9F6F79 /* FilterPanel.swift */; };
+		22E28147B5E0D53228B0F2FE /* ChallengeSheet+Phone.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 1E6711CA2612754A46CD8F1E /* ChallengeSheet+Phone.swift */; };
+		49F196D4ACA307DCE8CFFA14 /* AgeGate+Phone.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 7476274F8DF0711CBC6DABA7 /* AgeGate+Phone.swift */; };
+		EA972648D8805673BCBBDC37 /* PhoneStageView.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 780DC2B8683EFC308AE217F5 /* PhoneStageView.swift */; };
+		BFA2AC2763B4F321532AE7A7 /* PhoneChrome.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 9DD79AE99C1892CA7E465166 /* PhoneChrome.swift */; };
+		A59DB0D02767193E018E8957 /* PhoneRoomPage.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = B8CFEDF13824218E95117C34 /* PhoneRoomPage.swift */; };
+		E6E5AC025D6773B36CF99800 /* LanePager.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = CE7DF2DC53C455092DD8CEAA /* LanePager.swift */; };
 		A639B4CE712CAE3AF5097EDD /* PiPPolicy.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 77CC74339DCDCD80A583929F /* PiPPolicy.swift */; };
 		B7A0C0DE0000000000000064 /* CatalogAPI.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = B6C2710BAE15BF34AD8D8064 /* CatalogAPI.swift */; };
 		B7A0C0DE0000000000000065 /* DisplayFit.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 6C6318BDB00A5C5629A5771D /* DisplayFit.swift */; };
