@@ -37,6 +37,7 @@ public class Probe {
         KeyFactory kf = null;
         String[] names = {"Ed25519", "ED25519", "EdDSA", "1.3.101.112"};
         String[] providers = providerNames();
+        Exception primary = null;
         Exception last = null;
         for (String name : names) {
             try {
@@ -47,6 +48,7 @@ public class Probe {
                 break;
             } catch (Exception e) {
                 last = e;
+                if (primary == null) primary = e;
             }
             for (String p : providers) {
                 try {
@@ -62,7 +64,8 @@ public class Probe {
             if (kf != null) break;
         }
         if (kf == null) {
-            System.out.println("IMPORT FAIL " + last);
+            System.out.println("IMPORT FAIL " + (primary != null ? primary : last));
+            if (last != null && last != primary) System.out.println("IMPORT_LAST " + last);
             failRest();
             return;
         }
