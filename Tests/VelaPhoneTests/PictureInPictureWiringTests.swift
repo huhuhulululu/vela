@@ -14,7 +14,10 @@ final class PictureInPictureWiringTests: XCTestCase {
     }
 
     private final class FakeDriver: AudioSessionDriving {
+        struct Failure: Error {}
         var calls: [String] = []
+        /// 只让接下来这么多次 `setActive(false)` 失败。
+        var failDeactivations = 0
 
         func setCategory(_ category: AudioSessionCategory, mode: AudioSessionMode?, options: AudioSessionOptions) throws {
             calls.append("category \(category) mix=\(options.contains(.mixWithOthers))")
@@ -22,6 +25,10 @@ final class PictureInPictureWiringTests: XCTestCase {
 
         func setActive(_ active: Bool, notifyOthers: Bool) throws {
             calls.append("active \(active) notify=\(notifyOthers)")
+            if !active, failDeactivations > 0 {
+                failDeactivations -= 1
+                throw Failure()
+            }
         }
     }
 
@@ -324,5 +331,63 @@ final class PictureInPictureWiringTests: XCTestCase {
         stage.toggleMute()
         XCTAssertTrue(stage.muted)
         XCTAssertFalse(driver.calls.contains("active false notify=true"), "画中画中再静音保持会话：\(driver.calls)")
+    }
+    // MARK: 画中画里最后一路停播、停用失败与迟到启动
+
+    /// 画中画里最后一路最终失败：已经没有直播要续播，出声会话要释放，不等关小窗。
+    func testFinalFailureDuringPictureInPictureReleasesSession() {
+        let (stage, driver) = makeStage(pip: FakePiP())
+        stage.toggleMute()
+        XCTAssertFalse(stage.muted)
+        _ = background(stage)
+        event(.didStart, stage)
+        assertContinuing(stage)
+        driver.calls = []
+
+        stage.notePlaybackFailed(true, on: stage.primary)
+
+        XCTAssertEqual(driver.calls.last, "active false notify=true", "最后一路已停，释放会话：\(driver.calls)")
+    }
+
+    /// 全停时停用失败，重试落在迟到的 willStart 期间：画中画没有可续播的路，重试照样补做停用；之后不再留着待补做。
+    func testFailedDeactivationInterleavedWithLateStartIsRedone() async {
+        let pip = FakePiP()
+        let (stage, driver) = makeStage(pip: pip)
+        let audio = stage.audioFocus as? AudioFocusController
+        audio?.deactivationRetryDelay = 0.4
+        stage.prepareAudioSession()
+        driver.failDeactivations = 1
+        _ = background(stage)
+        await wait(0.15)
+        assertStoppedAll(stage)
+        XCTAssertEqual(audio?.deactivationPending, true, "全停时停用失败")
+
+        event(.willStart, stage)
+        await wait(0.6)
+        XCTAssertEqual(audio?.deactivationPending, false, "迟到的启动期间重试也要补做停用：\(driver.calls)")
+        event(.didStart, stage)
+        event(.willStop, stage)
+        event(.didStop, stage)
+        XCTAssertEqual(pip.stopCalls, 1)
+        XCTAssertEqual(driver.calls.filter { $0 == "active false notify=true" }.count, 2, "\(driver.calls)")
+        XCTAssertEqual(driver.calls.filter { $0.hasPrefix("active true") }.count, 1, "只有最初那次准备激活过，迟到启动不重新激活：\(driver.calls)")
+    }
+
+    /// 重试已经放弃（两次都失败）后，迟到的画中画结束时补做停用。
+    func testLateStartEndingRedoesPendingDeactivation() async {
+        let pip = FakePiP()
+        let (stage, driver) = makeStage(pip: pip)
+        let audio = stage.audioFocus as? AudioFocusController
+        audio?.deactivationRetryDelay = 0.05
+        stage.prepareAudioSession()
+        driver.failDeactivations = 2
+        _ = background(stage)
+        await wait(0.4)
+        assertStoppedAll(stage)
+        XCTAssertEqual(audio?.deactivationPending, true, "停用与重试都失败")
+
+        event(.willStart, stage)
+        event(.failed("late"), stage)
+        XCTAssertEqual(audio?.deactivationPending, false, "迟到的启动失败时补做停用：\(driver.calls)")
     }
 }

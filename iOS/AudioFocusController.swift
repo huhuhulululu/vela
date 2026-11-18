@@ -93,9 +93,10 @@ final class AudioFocusController: AudioFocusing, AudioLaneControlling {
     }
 
     /// 最后一路停播（筛选清空、播放失败、进入访问确认）：停用会话并通知他人恢复（§3.3）。
-    /// 会话本来就没激活、或画中画还在播时不做。运行时静音意图不变。
+    /// 调用方已确认没有哪一路还在出画面，画中画小窗即使还开着也没有直播可续，照样释放。
+    /// 会话本来就没激活时不做。运行时静音意图不变。
     func releaseAfterLastLaneStopped() -> AudioOutcome? {
-        guard sessionPrepared || deactivationPending, !pictureInPictureActive() else { return nil }
+        guard sessionPrepared || deactivationPending else { return nil }
         Self.log.info("audio last lane stopped")
         return perform(.deactivate(.lastLaneStopped))
     }
@@ -122,11 +123,17 @@ final class AudioFocusController: AudioFocusing, AudioLaneControlling {
         }
     }
 
+    /// 画中画真的还要会话：小窗开着（或在启动），而且确实还有一路在出画面。全停之后迟到的小窗不算。
+    private var pictureInPictureNeedsSession: Bool {
+        guard pictureInPictureActive(), let stage else { return false }
+        return stage.lanes.contains { $0.player.hasItem && $0.state != .failed }
+    }
+
     /// 补做停用（通知他人恢复）。没有待补做、或画中画还在播（会话要保持）时什么都不做。返回是否已没有待补做。
     @discardableResult
-    private func redoPendingDeactivation() -> Bool {
+    func redoPendingDeactivation() -> Bool {
         guard deactivationPending else { return true }
-        guard !pictureInPictureActive() else { return false }
+        guard !pictureInPictureNeedsSession else { return false }
         do {
             try driver.setActive(false, notifyOthers: true)
             Self.log.info("audio deactivate redone")

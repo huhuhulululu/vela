@@ -219,13 +219,20 @@ final class PlatformHooks {
         case .failed(let error):
             pictureInPictureState = .none
             Self.pipLog.notice("pip failed error=\(error, privacy: .public)")
-            if pipContinuing, scenePhase == .background { fallbackStop(stage: stage, reason: "failed") }
+            if pipContinuing, scenePhase == .background {
+                fallbackStop(stage: stage, reason: "failed")
+            } else {
+                finishLatePictureInPicture(stage: stage)
+            }
         case .willStop:
             pictureInPictureState = .stopping
         case .didStop:
             pictureInPictureState = .none
             Self.pipLog.notice("pip stopped restore=\(self.pipRestoreRequested)")
-            guard pipContinuing, scenePhase == .background else { return }
+            guard pipContinuing, scenePhase == .background else {
+                finishLatePictureInPicture(stage: stage)
+                return
+            }
             if pipRestoreRequested {
                 // 正在回到 App：等回前台按 §3.2 恢复；万一没回来，到时照样全停。
                 armPictureInPictureFallback(stage: stage, reason: "restore-timeout")
@@ -234,6 +241,14 @@ final class PlatformHooks {
             }
         case .restoreRequested:
             pipRestoreRequested = true
+        }
+    }
+
+    /// 没有续播的画中画（全停之后迟到的启动）结束或失败：补做之前没成功的停用，让他人的音乐恢复。
+    private func finishLatePictureInPicture(stage: StageModel) {
+        guard scenePhase == .background, let audioFocus = stage.audioFocus as? AudioFocusController else { return }
+        if !audioFocus.redoPendingDeactivation() {
+            Self.pipLog.error("pip late-end deactivate still failing")
         }
     }
 
