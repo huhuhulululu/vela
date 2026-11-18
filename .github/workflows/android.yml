@@ -96,3 +96,11 @@ jobs:
             yes | sdkmanager --licenses >/dev/null || true
             sdkmanager --install "platforms;android-37.0" "build-tools;36.0.0"
             android/tools/emulator-run.sh all
+      - name: Upload emulator logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: emulator-logs
+          path: /tmp/vela-emu.*/
+          retention-days: 7
+          if-no-files-found: ignore
