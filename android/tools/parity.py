@@ -22,6 +22,7 @@ GROUPS = (
     "l0b",
     "hls",
     "lifecycle",
+    "stream",
     "feed",
     "taste",
     "ledger",
