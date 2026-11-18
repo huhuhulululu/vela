@@ -47,7 +47,9 @@ extension StageModel {
 
     /// 开关双窗并记住（裁决 1）。同值不动。
     func setDual(_ on: Bool, remember: Bool = true) {
-        guard platform.supportsDual, on != dualWindow else { return }
+        // 画中画小窗开着（或在启动）时不切双窗：小窗里放的就是焦点路，关副路会拆掉它，
+        // 开副路会让新的一路在画中画期间起播。等小窗收掉后再切。
+        guard platform.supportsDual, on != dualWindow, !platform.focusLocked else { return }
         if on { openSecondary() } else { closeSecondary() }
         if remember { settings.phoneDual = on }
         Self.lanesLog.info("dual \(on ? "on" : "off", privacy: .public)")
@@ -62,7 +64,7 @@ extension StageModel {
     private func openSecondary() {
         let lane = PlaybackLane(id: .secondary)
         lane.dwell.setFocused(false, now: Date())
-        lane.visible = !landscape
+        lane.visible = !(landscape || pipSolo)
         secondary = lane
         attach(lane)
         dualWindow = true

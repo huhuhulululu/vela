@@ -305,6 +305,9 @@ final class PlatformHooks {
     private func fallbackStop(stage: StageModel, reason: String) {
         Self.pipLog.notice("pip fallback-stop reason=\(reason, privacy: .public)")
         if pictureInPictureState != .none { pip?.stop() }
+        // 还没真正进入时 stop() 是空操作，不会有委托回调：不等它，立刻放开焦点锁与另一路的扣留。
+        pictureInPictureState = .none
+        stage.setPipSolo(false)
         stopAllAfterPictureInPicture(stage: stage)
     }
 
