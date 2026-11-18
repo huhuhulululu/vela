@@ -37,6 +37,8 @@ jobs:
             android/gradle/wrapper/gradle-wrapper.properties
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
       - name: Install SDK packages
         run: |
           yes | sdkmanager --licenses >/dev/null || true
