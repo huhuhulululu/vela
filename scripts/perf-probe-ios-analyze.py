@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """perf-probe-ios.sh 的分析器：读 DIR 里的 samples.tsv / net.csv / phases.txt / app-*.log / meta.txt，输出一行 JSON。
 用法：python3 -I perf-probe-ios-analyze.py DIR [--scenario S --expect N]（无 meta.txt 的旧目录用后两项补）。
-退出码：0 成功；4 起播失败；6 无样本或指标缺失。PROBE_FORCE_FAIL=nosamples 仅供负样本自测。"""
+DIR 里有 stream-stats.txt（serve-test-stream.py --stats-file 的输出）时另按服务端字节判联网（模拟器回环流量不进 nettop）。
+退出码：0 成功；4 起播失败（含首帧路数不足）；6 无样本或指标缺失；7 多路核对失败（路房间重复、缺 lane-rooms、
+后台仍留中继源、回桌面 5 秒后服务端仍有字节、画中画期间不止一路联网）。PROBE_FORCE_FAIL=nosamples 仅供负样本自测。"""
 import json, math, os, re, sys, datetime
 d = sys.argv[1]
 opts = dict(zip(sys.argv[2::2], sys.argv[3::2]))
@@ -93,7 +95,7 @@ for t, c, m in logs:
     if m.startswith("lane-start"):
         s = re.search(r"slot=(\d+).* bw=(\d+)", m)
         if s: sel_bw[int(s.group(1))] = int(s.group(2))
-LANE_SLOT = {"primary": 0, "secondary": 1}
+LANE_SLOT = {"primary": 0, "secondary": 1, "tertiary": 2}
 for t, c, m in msg_find("first-frame"):
     s = re.search(r"slot=(\d+) ms=(\d+)", m)  # Spike：first-frame slot=<n> ms=<毫秒>
     v = re.search(r"lane=(\w+) ([\d.]+)s", m)  # 正式 App：first-frame lane=<id> <秒>s size=WxH
@@ -161,9 +163,18 @@ res["uncropped_all"] = bool(dc) and res["layer_matches_all"] and all(
 res["display_samples"] = sorted(set(re.sub(r"lane=\S+ ", "", m) for m in dc))[:6]
 src = [int(re.search(r"sources=(\d+)", m).group(1)) for _, c, m in logs if m.startswith("relay sources=")]
 res["relay_sources_max"] = max(src) if src else 0
-lr = [m for _, c, m in logs if m.startswith("lane-rooms")]  # 双窗两路房间是否重复（日志只记结论，不记房间名）
+lr = [m for _, c, m in logs if m.startswith("lane-rooms")]  # 多路各路房间是否两两不同（日志只记结论，不记房间名）
 res["lane_rooms_checks"] = len(lr)
 res["lane_rooms_dup"] = len([1 for m in lr if "distinct=false" in m])
+def _lanes(m):  # 旧格式没有 lanes= 的按两路
+    r = re.search(r"\blanes=(\d+)", m)
+    return int(r.group(1)) if r else 2
+res["lane_rooms_lanes_max"] = max([_lanes(m) for m in lr], default=0)
+multi_err = None
+if expect >= 2:
+    if res["lane_rooms_dup"]: multi_err = "lane-rooms-dup"
+    elif res["lane_rooms_lanes_max"] < expect: multi_err = "lane-rooms-missing"
+res["first_frame_lanes"] = sorted(k for k, v in LANE_SLOT.items() if v in ff_abs)
 res["item_failed"] = [m for _, c, m in logs if m.startswith("item-failed")][:5]
 res["resolve_failed"] = sum(1 for _, c, m in logs if m.startswith("resolve-failed"))
 if res["resolve_failed"] and not err and not ff_abs: err = "play-failed"
@@ -198,11 +209,52 @@ if scenario in ("background", "pip"):
     fetches = [(t, int(re.search(r"total=(\d+)", m).group(1))) for t, c, m in msg_find("relay fetches", bgs) if t <= bge]
     res["bg_relay_fetch_total_delta"] = (fetches[-1][1] - fetches[0][1]) if len(fetches) >= 2 else 0
     res["bg_relay_fetch_lines"] = len(fetches)
+    # 中继源计数（relay sources=N）：后台窗口里最后一条的值；没有画中画应为 0，画中画只留焦点路一个源
+    srcs = [(t, int(re.search(r"sources=(\d+)", m).group(1))) for t, c, m in logs
+            if m.startswith("relay sources=") and t <= (tres or bge)]
+    bg_src = [n for t, n in srcs if t >= bg_launch]
+    res["bg_relay_sources_last"] = bg_src[-1] if bg_src else (srcs[-1][1] if srcs else None)
+    res["relay_sources_lines"] = len(srcs)
+    allowed = 1 if res["pip_started"] else 0
+    if res["bg_relay_sources_last"] is not None and res["bg_relay_sources_last"] > allowed and not multi_err:
+        multi_err = "bg-relay-sources"
     rf = [t for t, c, m in msg_find("first-frame", tres)]
     res["resume_first_frame_s"] = round(rf[0] - tres, 2) if rf else None
     res["resume_lines"] = ([m for _, c, m in msg_find("resume after", tres - 1)] + [m for _, c, m in msg_find("epoch resume", tres - 1)]
                            + [m for _, c, m in msg_find("lane resume", tres - 1)])[:4]
     res["scene_lines"] = [m for _, c, m in msg_find("scenePhase", bg_launch)][:4]
+
+# 服务端字节（serve-test-stream.py --stats-file）：每行「墙钟秒 字节数 文件名」
+stats_f = os.path.join(d, "stream-stats.txt")
+if os.path.exists(stats_f):
+    reqs = []
+    for ln in open(stats_f, errors="replace"):
+        p = ln.split()
+        if len(p) == 3 and p[1].isdigit():
+            try: reqs.append((float(p[0]), int(p[1]), p[2]))
+            except ValueError: pass
+    def server(t_a, t_b):
+        sel = [r for r in reqs if t_a <= r[0] <= t_b]
+        w = max(t_b - t_a, 1)
+        playlists = sum(1 for r in sel if r[2].endswith(".m3u8") and r[2] != "master.m3u8" and "audio" not in r[2])
+        return sum(r[1] for r in sel), playlists / (w / 60.0), w
+    fb, fpl, fw = server(fg_start, fg_end)
+    res["server_fg_mb_per_min"] = round(fb / 1048576.0 / (fw / 60.0), 2)
+    res["server_fg_video_playlists_per_min"] = round(fpl, 1)
+    if not reqs or fb == 0:
+        multi_err = multi_err or "server-stats-empty"  # 空成功：前台都没字节，后台的 0 不能当证据
+    if scenario in ("background", "pip"):
+        bb, bpl, bw = server(bg_launch + 5, bge)
+        res["server_bg_after5s_bytes"] = bb
+        res["server_bg_kb_per_min"] = round(bb / 1024.0 / (bw / 60.0), 1)
+        res["server_bg_video_playlists_per_min"] = round(bpl, 1)
+        per_lane = fpl / max(expect, 1)
+        res["server_bg_lanes_estimate"] = round(bpl / per_lane, 2) if per_lane else None
+        if not res["pip_started"] and bb > 0:
+            multi_err = multi_err or "bg-server-bytes"
+        if res["pip_started"] and res["server_bg_lanes_estimate"] is not None and res["server_bg_lanes_estimate"] > 1.5:
+            multi_err = multi_err or "bg-pip-lanes"
+if multi_err and not err: err = multi_err
 
 res["audio_lines"] = [m for _, c, m in logs if c == "audio"][:12]
 res["samples"] = len(fg_rows)
@@ -212,4 +264,6 @@ if err is None:
         if v is None or (isinstance(v, float) and math.isnan(v)): err = "missing-" + k; break
 if err: res["error"] = err
 print(json.dumps(res, ensure_ascii=False, separators=(",", ":")))
-sys.exit({None: 0, "no-samples": 6, "no-bg-samples": 6, "first-frame-missing": 4, "play-failed": 4}.get(err, 6))
+sys.exit({None: 0, "no-samples": 6, "no-bg-samples": 6, "first-frame-missing": 4, "play-failed": 4,
+          "lane-rooms-dup": 7, "lane-rooms-missing": 7, "bg-relay-sources": 7, "bg-server-bytes": 7,
+          "bg-pip-lanes": 7, "server-stats-empty": 7}.get(err, 6))

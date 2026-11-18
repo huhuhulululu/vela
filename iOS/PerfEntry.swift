@@ -5,8 +5,10 @@ import Foundation
 #if PERF_PROBE
 enum PerfEntry {
     static let autoplayArgument = "--perf-autoplay"
-    /// 只在内存里开双窗（不写设置），配合 `--perf-stream` 的两个测试房间。
+    /// 只在内存里开双窗（不写设置），配合 `--perf-stream` 的测试房间。
     static let dualArgument = "--perf-dual"
+    /// `--perf-lanes <1|2|3>`：只在内存里开这么多路（不写设置）；与 `--perf-dual` 同给时以它为准。
+    static let lanesArgument = "--perf-lanes"
     /// 注入热状态：`--perf-thermal serious@40,fair@70` 表示启动后 40 秒注入 `.serious`、70 秒注入 `.fair`。
     /// 模拟器没有真实的热状态，靠它验证降档与回升的逻辑（回升仍要等真实的 60 秒）。
     static let thermalArgument = "--perf-thermal"
@@ -16,6 +18,9 @@ enum PerfEntry {
     static let pipOnAllLanes = CommandLine.arguments.contains("--perf-pip-all-lanes")
     /// `--perf-pip-start <秒>`：启动后这么多秒在前台手动调一次画中画（等于点了控制栏的画中画按钮），日志里看 `pip started` 或失败码。
     static let pipStartArgument = "--perf-pip-start"
+    /// `--perf-empty-primary <秒>`：启动后这么多秒把焦点交给第三路并屏蔽主路的房间（三个测试房间时主路合法地变空），
+    /// 再过 3 秒把副路向前划一下。用来实跑 PR #8 审计的「空主路被冒充」场景，日志看 `lane-rooms distinct=`。
+    static let emptyPrimaryArgument = "--perf-empty-primary"
     /// 长标识串：进二进制的日志文本，供安全门在 Release 产物里查找（短字符串可能被内联而漏检）。
     static let marker = "vela-perf-entry-armed-8c41d7e2b9a0"
 
@@ -29,9 +34,14 @@ enum PerfEntry {
         stage.ageConfirmed = true
         stage.muted = true
         for lane in stage.lanes { stage.pushVolume(to: lane) }
-        if arguments.contains(dualArgument) { stage.setDual(true, remember: false) }
+        if let i = arguments.firstIndex(of: lanesArgument), i + 1 < arguments.count, let count = Int(arguments[i + 1]) {
+            stage.setLaneCount(count, remember: false)
+        } else if arguments.contains(dualArgument) {
+            stage.setDual(true, remember: false)
+        }
         injectThermal(into: stage, arguments: arguments)
         startPictureInPictureLater(stage: stage, arguments: arguments)
+        emptyPrimaryLater(stage: stage, arguments: arguments)
         AudioFocusController.log.info("\(marker, privacy: .public)")
         return true
     }
@@ -42,6 +52,22 @@ enum PerfEntry {
         Task { @MainActor [weak stage] in
             try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
             stage?.platform.pipCoordinator?.toggle()
+        }
+    }
+
+    @MainActor
+    private static func emptyPrimaryLater(stage: StageModel, arguments: [String]) {
+        guard let i = arguments.firstIndex(of: emptyPrimaryArgument), i + 1 < arguments.count,
+              let seconds = Double(arguments[i + 1]) else { return }
+        Task { @MainActor [weak stage] in
+            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            guard let stage else { return }
+            stage.setFocus(.tertiary)
+            stage.blockCurrent(stage.target(.primary))
+            AudioFocusController.log.info("perf empty-primary primary=\(stage.primary.username == nil ? "empty" : "kept", privacy: .public)")
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            if let secondary = stage.secondary { stage.step(1, on: secondary) }
+            stage.logLaneRooms()
         }
     }
 

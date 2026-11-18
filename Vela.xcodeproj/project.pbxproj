@@ -169,6 +169,9 @@
 		38959941344CC216E6BFF97D /* TestPrefs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TestPrefs.swift"; sourceTree = "<group>"; };
 		81C6CACF5876C02AB9E27066 /* FailureSampleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FailureSampleTests.swift"; sourceTree = "<group>"; };
 		F3FB5EB6BA3C36C3ED004529 /* DualQualityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DualQualityTests.swift"; sourceTree = "<group>"; };
+		35671A2372A0EBA76251BA8F /* TriplePictureInPictureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TriplePictureInPictureTests.swift"; sourceTree = "<group>"; };
+		577C9F6B1F272558EBF1984D /* TripleLaneMediaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TripleLaneMediaTests.swift"; sourceTree = "<group>"; };
+		20CC2421A3DCB63EC3212485 /* TripleWindowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TripleWindowTests.swift"; sourceTree = "<group>"; };
 		EC4C839D4FCB3130199D9B80 /* DualDwellTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DualDwellTests.swift"; sourceTree = "<group>"; };
 		FFE24CF91F90C2CC4F4B8F92 /* DualPictureInPictureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DualPictureInPictureTests.swift"; sourceTree = "<group>"; };
 		E737F6EABF2B36DB150E289B /* DualAudioFocusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DualAudioFocusTests.swift"; sourceTree = "<group>"; };
@@ -439,6 +442,9 @@
 				38959941344CC216E6BFF97D /* TestPrefs.swift */,
 				81C6CACF5876C02AB9E27066 /* FailureSampleTests.swift */,
 				F3FB5EB6BA3C36C3ED004529 /* DualQualityTests.swift */,
+				35671A2372A0EBA76251BA8F /* TriplePictureInPictureTests.swift */,
+				577C9F6B1F272558EBF1984D /* TripleLaneMediaTests.swift */,
+				20CC2421A3DCB63EC3212485 /* TripleWindowTests.swift */,
 				EC4C839D4FCB3130199D9B80 /* DualDwellTests.swift */,
 				FFE24CF91F90C2CC4F4B8F92 /* DualPictureInPictureTests.swift */,
 				E737F6EABF2B36DB150E289B /* DualAudioFocusTests.swift */,
@@ -802,6 +808,9 @@
 				B706C4AA5239CD1767DB0BFB /* TestPrefs.swift in Sources (VelaPhoneTests) */,
 				C3F537A22F84FC279CA1173F /* FailureSampleTests.swift in Sources (VelaPhoneTests) */,
 				4C0EB6FB94E743AACA989B50 /* DualQualityTests.swift in Sources (VelaPhoneTests) */,
+				6251BA8F95615533C731586F /* TriplePictureInPictureTests.swift in Sources (VelaPhoneTests) */,
+				EBF1984D3ACEDBCDF0D92D03 /* TripleLaneMediaTests.swift in Sources (VelaPhoneTests) */,
+				C321248504B5C9DA888188FE /* TripleWindowTests.swift in Sources (VelaPhoneTests) */,
 				A5A4190849DE7CF8CC4C13FF /* DualDwellTests.swift in Sources (VelaPhoneTests) */,
 				947D5F2B75D49C497F1A064D /* DualPictureInPictureTests.swift in Sources (VelaPhoneTests) */,
 				83BA5543DA01DD34D13CCC4A /* DualAudioFocusTests.swift in Sources (VelaPhoneTests) */,
@@ -1081,6 +1090,9 @@
 		B706C4AA5239CD1767DB0BFB /* TestPrefs.swift in Sources (VelaPhoneTests) */ = {isa = PBXBuildFile; fileRef = 38959941344CC216E6BFF97D /* TestPrefs.swift */; };
 		C3F537A22F84FC279CA1173F /* FailureSampleTests.swift in Sources (VelaPhoneTests) */ = {isa = PBXBuildFile; fileRef = 81C6CACF5876C02AB9E27066 /* FailureSampleTests.swift */; };
 		4C0EB6FB94E743AACA989B50 /* DualQualityTests.swift in Sources (VelaPhoneTests) */ = {isa = PBXBuildFile; fileRef = F3FB5EB6BA3C36C3ED004529 /* DualQualityTests.swift */; };
+		6251BA8F95615533C731586F /* TriplePictureInPictureTests.swift in Sources (VelaPhoneTests) */ = {isa = PBXBuildFile; fileRef = 35671A2372A0EBA76251BA8F /* TriplePictureInPictureTests.swift */; };
+		EBF1984D3ACEDBCDF0D92D03 /* TripleLaneMediaTests.swift in Sources (VelaPhoneTests) */ = {isa = PBXBuildFile; fileRef = 577C9F6B1F272558EBF1984D /* TripleLaneMediaTests.swift */; };
+		C321248504B5C9DA888188FE /* TripleWindowTests.swift in Sources (VelaPhoneTests) */ = {isa = PBXBuildFile; fileRef = 20CC2421A3DCB63EC3212485 /* TripleWindowTests.swift */; };
 		A5A4190849DE7CF8CC4C13FF /* DualDwellTests.swift in Sources (VelaPhoneTests) */ = {isa = PBXBuildFile; fileRef = EC4C839D4FCB3130199D9B80 /* DualDwellTests.swift */; };
 		947D5F2B75D49C497F1A064D /* DualPictureInPictureTests.swift in Sources (VelaPhoneTests) */ = {isa = PBXBuildFile; fileRef = FFE24CF91F90C2CC4F4B8F92 /* DualPictureInPictureTests.swift */; };
 		83BA5543DA01DD34D13CCC4A /* DualAudioFocusTests.swift in Sources (VelaPhoneTests) */ = {isa = PBXBuildFile; fileRef = E737F6EABF2B36DB150E289B /* DualAudioFocusTests.swift */; };

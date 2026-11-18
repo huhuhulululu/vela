@@ -1,7 +1,7 @@
 import XCTest
 @testable import VelaPhone
 
-/// 双窗画质（裁决 3，§4.4，S12）：两路平时都用最高档；`.serious` 及以上按画面实际显示高度降档；
+/// 双窗画质（裁决 3，§4.4，S12；ios-triple 修订 v2 H2）：两路平时都用最高档；`.serious` 降一档、`.critical` 降两档；
 /// 回到 `.fair` 及以下满 60 秒才回升。热状态用 `noteThermal` 注入，时间也由测试给，不等真实的 60 秒。
 @MainActor
 final class DualQualityTests: XCTestCase {
@@ -43,21 +43,21 @@ final class DualQualityTests: XCTestCase {
         XCTAssertNil(stage.thermalRecoveryTask, "没降档不排回升检查")
     }
 
-    func testSeriousCapsEachLaneByItsOwnDisplayedHeight() {
+    /// ios-triple 修订 v2 H2：两路时尺寸上限不限，serious 从最高档降一档，与画面高度无关。
+    func testSeriousStepsBothLanesDownOneTierFromTop() {
         let stage = makeStage()
         stage.noteThermal(.serious, now: t0)
-        XCTAssertEqual(stage.playbackCap(on: stage.primary), 1_696_000, "221pt x 3 = 663px 对应 1.696M 档")
-        XCTAssertEqual(stage.playbackCap(on: stage.secondary!), 1_696_000)
+        XCTAssertEqual(stage.playbackCap(on: stage.primary), 3_096_000, "5.128M 降一档")
+        XCTAssertEqual(stage.playbackCap(on: stage.secondary!), 3_096_000)
         stage.secondary!.displaySize = CGSize(width: 393, height: 400)
-        XCTAssertEqual(stage.playbackCap(on: stage.secondary!), 5_128_000, "按这一路自己的画面高度，不是窗格或另一路")
-        XCTAssertEqual(stage.playbackCap(on: stage.primary), 1_696_000)
+        XCTAssertEqual(stage.playbackCap(on: stage.secondary!), 3_096_000, "两路不按画面高度限档")
     }
 
-    func testNoPictureYetFallsToFloorWhileLimited() {
+    func testCriticalStepsDownTwoTiersEvenWithoutPicture() {
         let stage = makeStage()
         stage.secondary!.displaySize = .zero
         stage.noteThermal(.critical, now: t0)
-        XCTAssertEqual(stage.playbackCap(on: stage.secondary!), LaneQuality.minimumBitrate)
+        XCTAssertEqual(stage.playbackCap(on: stage.secondary!), 1_696_000)
     }
 
     func testRecoversOnlyAfterSixtySecondsOfFairOrBelow() {
@@ -66,7 +66,7 @@ final class DualQualityTests: XCTestCase {
         stage.noteThermal(.fair, now: t0.addingTimeInterval(10))
         XCTAssertNotNil(stage.thermalRecoveryTask, "只排一次性的回升检查")
         stage.noteThermal(.fair, now: t0.addingTimeInterval(69))
-        XCTAssertEqual(stage.playbackCap(on: stage.primary), 1_696_000, "回落后第 59 秒仍降档")
+        XCTAssertEqual(stage.playbackCap(on: stage.primary), 3_096_000, "回落后第 59 秒仍降档")
         stage.noteThermal(.nominal, now: t0.addingTimeInterval(70))
         XCTAssertEqual(stage.playbackCap(on: stage.primary), .infinity, "满 60 秒回升")
         XCTAssertEqual(stage.playbackCap(on: stage.secondary!), .infinity)
@@ -81,7 +81,7 @@ final class DualQualityTests: XCTestCase {
         XCTAssertNil(stage.thermalRecoveryTask, "又发热了就取消回升检查")
         stage.noteThermal(.fair, now: t0.addingTimeInterval(60))
         stage.noteThermal(.fair, now: t0.addingTimeInterval(119))
-        XCTAssertEqual(stage.playbackCap(on: stage.primary), 1_696_000)
+        XCTAssertEqual(stage.playbackCap(on: stage.primary), 3_096_000)
         stage.noteThermal(.fair, now: t0.addingTimeInterval(120))
         XCTAssertEqual(stage.playbackCap(on: stage.primary), .infinity)
     }
@@ -90,8 +90,8 @@ final class DualQualityTests: XCTestCase {
         let stage = makeStage()
         XCTAssertNil(stage.retargetCap(for: stage.primary), "上限没变不换档")
         stage.noteThermal(.serious, now: t0)
-        XCTAssertEqual(stage.retargetCap(for: stage.primary), 1_696_000)
-        stage.primary.currentCap = 1_696_000
+        XCTAssertEqual(stage.retargetCap(for: stage.primary), 3_096_000)
+        stage.primary.currentCap = 3_096_000
         XCTAssertNil(stage.retargetCap(for: stage.primary))
         stage.noteThermal(.nominal, now: t0.addingTimeInterval(1))
         stage.noteThermal(.nominal, now: t0.addingTimeInterval(62))
@@ -102,8 +102,8 @@ final class DualQualityTests: XCTestCase {
         let stage = makeStage()
         stage.noteThermal(.serious, now: t0)
         // 起播时取的上限就是这一路当下的热状态上限。
-        XCTAssertEqual(stage.playbackCap(on: stage.primary), stage.thermalCap(for: stage.primary))
-        XCTAssertLessThan(stage.thermalCap(for: stage.primary), .infinity)
+        XCTAssertEqual(stage.playbackCap(on: stage.primary), stage.laneCap(for: stage.primary))
+        XCTAssertLessThan(stage.laneCap(for: stage.primary), .infinity)
     }
 
     func testSystemThermalStateMapping() {

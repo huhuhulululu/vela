@@ -54,11 +54,12 @@ public struct RecentSkips: Equatable, Sendable {
     }
 }
 
-/// 变更后两路各停在哪一间、焦点在哪一路，以及房间变了的原因。
+/// 变更后各路停在哪一间、焦点在哪一路，以及房间变了的原因。
 ///
-/// 单窗（`secondary == nil`）时，除划动外主路直接采用副本上 FeedStore 已经选出的
+/// 单窗（只有主路）时，除划动外主路直接采用副本上 FeedStore 已经选出的
 /// `proposedPrimary`，因此与 FeedStore 自己的 `setFilters` / `setQuery` / `replace` / `step` 一致。
-/// 双窗再按 §4.1 调整副路，并在主路被动落到副路时沿主路自己的方向另找。
+/// 多路（2 或 3 路）按 §4.1 与 ios-triple 修订 v2 的 M4、M5 联合分配：一次分配内维护占用集合，
+/// 已分配的房间立即加入；替补顺序固定为 primary → secondary → tertiary；永不同房。
 public enum LaneSelection {
     public enum Intent: Equatable, Sendable {
         case filter
@@ -69,6 +70,8 @@ public enum LaneSelection {
         case reveal(String)
         case move(LaneID, Int)
         case blankResume
+        /// 开新路：已有房间的路不动，空路沿前一路往后补（避开最近划走，没有再放宽）。
+        case fill
     }
 
     /// 一路房间发生变化时的原因。变成空路时用 `.empty`，不再另记触发它的意图。
@@ -82,37 +85,64 @@ public enum LaneSelection {
         case empty
     }
 
-    /// 变更前的可见顺序、两路游标和焦点。`secondary == nil` 表示单窗。
+    /// 变更前的可见顺序、各路游标和焦点。`secondary`、`tertiary` 都为 nil 表示单窗。
     public struct Snapshot: Equatable, Sendable {
         public var rooms: [String]
         public var primary: LaneCursor
         public var secondary: LaneCursor?
+        public var tertiary: LaneCursor?
         public var focus: LaneID
-        /// 此刻仍在期内的「最近划走」房间（小写）。只有双窗划动用它。
+        /// 此刻仍在期内的「最近划走」房间（小写）。只有多路的划动与补位用它。
         public var recent: Set<String>
 
         public init(
-            rooms: [String], primary: LaneCursor, secondary: LaneCursor?, focus: LaneID, recent: Set<String> = []
+            rooms: [String], primary: LaneCursor, secondary: LaneCursor?, tertiary: LaneCursor? = nil,
+            focus: LaneID, recent: Set<String> = []
         ) {
             self.rooms = rooms
             self.primary = primary
             self.secondary = secondary
+            self.tertiary = tertiary
             self.focus = focus
             self.recent = recent
         }
+
+        /// 这一路的游标；不在场的路为 nil。
+        public func cursor(_ id: LaneID) -> LaneCursor? {
+            switch id {
+            case .primary: return primary
+            case .secondary: return secondary
+            case .tertiary: return tertiary
+            }
+        }
+
+        /// 在场的路，按 P → S → T。
+        public var lanes: [LaneID] { LaneID.allCases.filter { cursor($0) != nil } }
     }
 
     public struct Outcome: Equatable, Sendable {
         public var primary: LaneCursor
         public var secondary: LaneCursor?
+        public var tertiary: LaneCursor?
         public var focus: LaneID
         public var reasons: [LaneID: Reason]
 
-        public init(primary: LaneCursor, secondary: LaneCursor?, focus: LaneID, reasons: [LaneID: Reason]) {
+        public init(
+            primary: LaneCursor, secondary: LaneCursor?, tertiary: LaneCursor? = nil, focus: LaneID, reasons: [LaneID: Reason]
+        ) {
             self.primary = primary
             self.secondary = secondary
+            self.tertiary = tertiary
             self.focus = focus
             self.reasons = reasons
+        }
+
+        public func cursor(_ id: LaneID) -> LaneCursor? {
+            switch id {
+            case .primary: return primary
+            case .secondary: return secondary
+            case .tertiary: return tertiary
+            }
         }
     }
 
@@ -129,15 +159,15 @@ public enum LaneSelection {
         )
     }
 
-    /// 可见列表由空变非空，且这次是被动变化（合并续页、筛选放宽）时，按 `.blankResume` 两路重新选房。
-    /// 整表重载、全站搜索装入或退出、reveal、划动有自己的落点规则，保留原意图。
+    /// 可见列表由空变非空，且这次是被动变化（合并续页、筛选放宽）时，按 `.blankResume` 各路重新选房。
+    /// 整表重载、全站搜索装入或退出、reveal、划动、补位有自己的落点规则，保留原意图。
     /// 单窗时 `.blankResume` 与这两种意图一样采用 FeedStore 的选择，结果不变。
     public static func feedIntent(_ intent: Intent, beforeRooms: [String], afterRooms: [String]) -> Intent {
         guard beforeRooms.isEmpty, !afterRooms.isEmpty else { return intent }
         switch intent {
         case .merge, .filter:
             return .blankResume
-        case .reload, .searchInstall, .searchExit, .reveal, .move, .blankResume:
+        case .reload, .searchInstall, .searchExit, .reveal, .move, .blankResume, .fill:
             return intent
         }
     }
@@ -153,32 +183,42 @@ public enum LaneSelection {
         proposedPrimary: String?,
         intent: Intent
     ) -> Outcome {
-        if before.secondary == nil {
+        let order = before.lanes
+        if order.count <= 1 {
             return singleWindow(before: before, afterRooms: afterRooms, proposedPrimary: proposedPrimary, intent: intent)
         }
+        var board = Board(before: before, order: order)
         if afterRooms.isEmpty {
-            return cleared(before)
+            for id in order { board[id] = nil }
+            return board.outcome(before, placed: .empty)
         }
         if afterRooms.count == 1 {
-            return onlyRoom(before, room: afterRooms[0], intent: intent)
+            for id in order { board[id] = id == board.focus ? afterRooms[0] : nil }
+            return board.outcome(before, placed: placed(intent))
         }
         switch intent {
         case .filter:
-            return filtered(before, afterRooms: afterRooms, proposedPrimary: proposedPrimary)
-        case .reload, .searchInstall, .searchExit:
-            return reloaded(before, afterRooms: afterRooms, proposedPrimary: proposedPrimary)
+            kept(&board, before: before, after: afterRooms, primary: proposedPrimary.flatMap { canonical($0, in: afterRooms) })
         case .merge:
-            return merged(before, afterRooms: afterRooms, proposedPrimary: proposedPrimary)
-        case .reveal(let target):
-            return revealed(before, afterRooms: afterRooms, proposedPrimary: proposedPrimary, target: target)
-        case .move(let lane, let delta):
-            return moved(before, afterRooms: afterRooms, lane: lane, delta: delta)
+            let choice = proposedPrimary.flatMap { canonical($0, in: afterRooms) }
+                ?? before.primary.username.flatMap { canonical($0, in: afterRooms) }
+            kept(&board, before: before, after: afterRooms, primary: choice)
+        case .reload, .searchInstall, .searchExit:
+            chained(&board, after: afterRooms, primary: proposedPrimary.flatMap { canonical($0, in: afterRooms) })
         case .blankResume:
-            return resumed(before, afterRooms: afterRooms, proposedPrimary: proposedPrimary)
+            chained(&board, after: afterRooms, primary: proposedPrimary.flatMap { canonical($0, in: afterRooms) } ?? afterRooms.first)
+        case .reveal(let target):
+            revealed(&board, after: afterRooms, proposedPrimary: proposedPrimary, target: target)
+        case .move(let lane, let delta):
+            moved(&board, before: before, after: afterRooms, lane: lane, delta: delta)
+        case .fill:
+            filled(&board, before: before, after: afterRooms)
         }
+        keepFocusFilled(&board, after: afterRooms)
+        return board.outcome(before, placed: placed(intent))
     }
 
-    // MARK: 单窗与空列表
+    // MARK: 单窗
 
     private static func singleWindow(
         before: Snapshot,
@@ -190,7 +230,7 @@ public enum LaneSelection {
         if case .move(let lane, let delta) = intent, lane == .primary {
             primary = step(primary, delta: delta, rooms: afterRooms, skipping: [])
         } else if case .move = intent {
-            // 单窗没有副路可划。
+            // 单窗没有别的路可划。
         } else {
             primary.username = proposedPrimary
         }
@@ -199,162 +239,93 @@ public enum LaneSelection {
         return Outcome(primary: primary, secondary: nil, focus: .primary, reasons: reasons)
     }
 
-    private static func cleared(_ before: Snapshot) -> Outcome {
-        var primary = before.primary
-        primary.username = nil
-        var secondary = before.secondary
-        secondary?.username = nil
-        var reasons: [LaneID: Reason] = [:]
-        note(&reasons, lane: .primary, from: before.primary.username, to: nil, placed: .empty)
-        if let old = before.secondary {
-            note(&reasons, lane: .secondary, from: old.username, to: nil, placed: .empty)
-        }
-        return Outcome(primary: primary, secondary: secondary, focus: keptFocus(before), reasons: reasons)
-    }
-
-    /// 列表只剩一个房间：焦点路留下它，另一路空着。
-    private static func onlyRoom(_ before: Snapshot, room: String, intent: Intent) -> Outcome {
-        var primary = before.primary
-        var secondary = before.secondary ?? LaneCursor()
-        let focus = keptFocus(before)
-        if focus == .secondary {
-            secondary.username = room
-            primary.username = nil
-        } else {
-            primary.username = room
-            secondary.username = nil
-        }
-        var reasons: [LaneID: Reason] = [:]
-        note(&reasons, lane: .primary, from: before.primary.username, to: primary.username, placed: placed(intent))
-        note(&reasons, lane: .secondary, from: before.secondary?.username, to: secondary.username, placed: placed(intent))
-        return Outcome(primary: primary, secondary: secondary, focus: focus, reasons: reasons)
-    }
-
     // MARK: 意图
 
-    /// 房间还在就不动。消失的副路沿自己的方向找，再反向；主路采用 FeedStore 的选择，落到副路就让开。
-    private static func filtered(_ before: Snapshot, afterRooms: [String], proposedPrimary: String?) -> Outcome {
-        var primary = before.primary
-        primary.username = proposedPrimary.flatMap { canonical($0, in: afterRooms) }
-        var secondary = before.secondary ?? LaneCursor()
-        if let name = secondary.username {
-            if let kept = canonical(name, in: afterRooms) {
-                secondary.username = kept
+    /// 筛选、合并：房间还在就不动。主路采用给定的选择，落到别的路正在播的房间就沿自己的方向让开；
+    /// 房间消失的路按 P → S → T 沿各自方向找替补（再反向），仍空着的路从主路出发补上一间。
+    private static func kept(_ board: inout Board, before: Snapshot, after: [String], primary choice: String?) {
+        var missing: [LaneID] = []
+        for id in board.order where id != .primary {
+            guard let name = board[id] else { continue }
+            if let kept = canonical(name, in: after) {
+                board[id] = kept
             } else {
-                // 替补不能落在主路的房间上，否则主路会被挤走。
-                secondary.username = replacement(
-                    for: name, before: before.rooms, after: afterRooms, direction: secondary.direction,
-                    excluding: primary.username
-                )
+                board[id] = nil
+                missing.append(id)
             }
         }
-        primary = yield(primary, to: secondary.username, rooms: afterRooms)
-        secondary = refilled(secondary, besides: primary, rooms: afterRooms)
-        return outcome(before, primary: primary, secondary: secondary, placed: .filter)
-    }
-
-    /// 整表重载、全站搜索装入或退出：副路取新列表里主路之后的第一间。
-    private static func reloaded(_ before: Snapshot, afterRooms: [String], proposedPrimary: String?) -> Outcome {
-        var primary = before.primary
-        primary.username = proposedPrimary.flatMap { canonical($0, in: afterRooms) }
-        var secondary = before.secondary ?? LaneCursor()
-        secondary.username = roomAfter(primary.username, in: afterRooms)
-        return outcome(before, primary: primary, secondary: secondary, placed: .sourceChange)
-    }
-
-    /// 合并、重排、前置：还在列表里的房间不动。
-    private static func merged(_ before: Snapshot, afterRooms: [String], proposedPrimary: String?) -> Outcome {
-        var primary = before.primary
-        if let proposed = proposedPrimary, let kept = canonical(proposed, in: afterRooms) {
-            primary.username = kept
-        } else if let old = primary.username, let kept = canonical(old, in: afterRooms) {
-            primary.username = kept
-        } else {
-            primary.username = nil
-        }
-        var secondary = before.secondary ?? LaneCursor()
-        if let name = secondary.username {
-            if let kept = canonical(name, in: afterRooms) {
-                secondary.username = kept
-            } else {
-                secondary.username = replacement(
-                    for: name, before: before.rooms, after: afterRooms, direction: secondary.direction,
-                    excluding: primary.username
-                )
-            }
-        }
-        primary = yield(primary, to: secondary.username, rooms: afterRooms)
-        secondary = refilled(secondary, besides: primary, rooms: afterRooms)
-        return outcome(before, primary: primary, secondary: secondary, placed: .merge)
-    }
-
-    /// 目标正在另一路播放时只切焦点。否则主路改到目标上。
-    private static func revealed(
-        _ before: Snapshot,
-        afterRooms: [String],
-        proposedPrimary: String?,
-        target: String
-    ) -> Outcome {
-        var primary = before.primary
-        var secondary = before.secondary ?? LaneCursor()
-        var focus = keptFocus(before)
-        if same(secondary.username, target) {
-            focus = .secondary
-            primary.username = canonical(primary.username, in: afterRooms) ?? primary.username
-            secondary.username = canonical(secondary.username, in: afterRooms) ?? secondary.username
-        } else if same(primary.username, target) {
-            focus = .primary
-            primary.username = canonical(primary.username, in: afterRooms) ?? primary.username
-            if let kept = secondary.username.flatMap({ canonical($0, in: afterRooms) }) {
-                secondary.username = kept
-            }
-        } else {
-            let placed = canonical(target, in: afterRooms)
-                ?? proposedPrimary.flatMap { canonical($0, in: afterRooms) }
-            primary.username = placed
-            focus = .primary
-            if let name = secondary.username, let kept = canonical(name, in: afterRooms), !same(kept, placed) {
-                secondary.username = kept
-            } else if same(secondary.username, placed) {
-                secondary.username = nil
-            }
-            primary = yield(primary, to: secondary.username, rooms: afterRooms)
-        }
-        return outcome(before, primary: primary, secondary: secondary, focus: focus, placed: .reveal)
-    }
-
-    private static func moved(_ before: Snapshot, afterRooms: [String], lane: LaneID, delta: Int) -> Outcome {
-        var primary = before.primary
-        var secondary = before.secondary ?? LaneCursor()
-        switch lane {
-        case .primary:
-            primary = step(
-                primary, delta: delta, rooms: afterRooms, skipping: skipping(secondary.username), recent: before.recent
-            )
-        case .secondary:
-            secondary = step(
-                secondary, delta: delta, rooms: afterRooms, skipping: skipping(primary.username), recent: before.recent
+        board[.primary] = choice
+        if let taken = choice, board.isTaken(taken, except: .primary) {
+            board[.primary] = neighbor(
+                of: taken, in: after, direction: board.direction(.primary), excluding: board.taken(except: .primary)
             )
         }
-        return outcome(before, primary: primary, secondary: secondary, placed: .move)
+        for id in missing {
+            guard let old = before.cursor(id)?.username else { continue }
+            board[id] = replacement(
+                for: old, before: before.rooms, after: after, direction: board.direction(id), excluding: board.taken(except: id)
+            )
+        }
+        refill(&board, after: after)
     }
 
-    /// 空列表续上可见房间：主路用 FeedStore 选出的那间（通常是第一间），副路取它的后一间。
-    private static func resumed(_ before: Snapshot, afterRooms: [String], proposedPrimary: String?) -> Outcome {
-        var primary = before.primary
-        if let proposed = proposedPrimary, let kept = canonical(proposed, in: afterRooms) {
-            primary.username = kept
-        } else {
-            primary.username = afterRooms.first
+    /// 整表重载、全站搜索装入或退出、续页恢复：主路采用给定的选择，其余各路依次取前一路之后的第一间，不绕回开头。
+    private static func chained(_ board: inout Board, after: [String], primary choice: String?) {
+        board[.primary] = choice
+        var anchor = choice
+        for id in board.order where id != .primary {
+            board[id] = anchor.flatMap { roomAfter($0, in: after) }
+            if let placed = board[id] { anchor = placed }
         }
-        var secondary = before.secondary ?? LaneCursor()
-        secondary.username = roomAfter(primary.username, in: afterRooms)
-        return outcome(before, primary: primary, secondary: secondary, placed: .resume)
+    }
+
+    /// 目标正在某一路播放时只切焦点。否则主路改到目标上、焦点回主路，与目标同房的路置空。
+    private static func revealed(_ board: inout Board, after: [String], proposedPrimary: String?, target: String) {
+        if let hit = board.order.first(where: { same(board[$0], target) }) {
+            board.focus = hit
+            for id in board.order { board[id] = canonical(board[id], in: after) ?? board[id] }
+            return
+        }
+        let placed = canonical(target, in: after) ?? proposedPrimary.flatMap { canonical($0, in: after) }
+        board[.primary] = placed
+        board.focus = .primary
+        for id in board.order where id != .primary {
+            if let kept = canonical(board[id], in: after), !same(kept, placed) {
+                board[id] = kept
+            } else if same(board[id], placed) {
+                board[id] = nil
+            }
+        }
+    }
+
+    /// 划动一路：跳过其他各路此刻的房间与最近划走（本路上一间除外）。
+    private static func moved(_ board: inout Board, before: Snapshot, after: [String], lane: LaneID, delta: Int) {
+        guard board.order.contains(lane), var cursor = before.cursor(lane) else { return }
+        cursor = step(cursor, delta: delta, rooms: after, skipping: board.taken(except: lane), recent: before.recent)
+        board[lane] = cursor.username
+        board.directions[lane] = cursor.direction
+    }
+
+    /// 开新路：已有房间的路保留（仍在列表里），空路依次沿前一路之后补，避开最近划走；没有再放宽，往后没有就往前找。
+    private static func filled(_ board: inout Board, before: Snapshot, after: [String]) {
+        for id in board.order { board[id] = canonical(board[id], in: after) }
+        var anchor = board[.primary]
+        for id in board.order where id != .primary {
+            if let name = board[id] {
+                anchor = name
+                continue
+            }
+            guard let from = anchor else { continue }
+            let taken = board.taken(except: id)
+            let strict = neighbor(of: from, in: after, direction: 1, excluding: taken.union(before.recent))
+            board[id] = strict ?? neighbor(of: from, in: after, direction: 1, excluding: taken)
+            if let placed = board[id] { anchor = placed }
+        }
     }
 
     // MARK: 找房间
 
-    /// `recent` 里的房间先一并跳过（本路自己的上一间除外）；这样没有落点时放宽成只避开另一路，仍不行才原地。
+    /// `recent` 里的房间先一并跳过（本路自己的上一间除外）；这样没有落点时放宽成只避开其他各路，仍不行才原地。
     private static func step(
         _ cursor: LaneCursor, delta: Int, rooms: [String], skipping: Set<String>, recent: Set<String> = []
     ) -> LaneCursor {
@@ -379,29 +350,35 @@ public enum LaneSelection {
         return cursor
     }
 
-    /// 副路原本空着（列表曾只剩一间）而现在有了别的房间：沿副路自己的方向补上一间，不能一直空着。
-    private static func refilled(_ secondary: LaneCursor, besides primary: LaneCursor, rooms: [String]) -> LaneCursor {
-        guard secondary.username == nil, let anchor = primary.username else { return secondary }
-        var filled = secondary
-        filled.username = neighbor(of: anchor, in: rooms, direction: secondary.direction, excluding: [anchor])
-        return filled
+    /// 非主路原本空着（列表曾只剩一间）而现在有了别的房间：沿这一路自己的方向从主路出发补上一间，不能一直空着。
+    private static func refill(_ board: inout Board, after: [String]) {
+        guard let anchor = board[.primary] else { return }
+        for id in board.order where id != .primary && board[id] == nil {
+            board[id] = neighbor(of: anchor, in: after, direction: board.direction(id), excluding: board.taken(except: id))
+        }
     }
 
-    /// 主路与副路同房时，主路从副路这间出发，沿自己的方向另找，找不到再反向。
-    private static func yield(_ primary: LaneCursor, to taken: String?, rooms: [String]) -> LaneCursor {
-        guard let taken, same(primary.username, taken) else { return primary }
-        var primary = primary
-        primary.username = neighbor(of: taken, in: rooms, direction: primary.direction, excluding: [taken])
-        return primary
+    /// 焦点路没分到房间而别处还有：先取一间空闲的，没有就按 T → S → P 从非焦点路拿过来（焦点优先，空格留给非焦点路）。
+    private static func keepFocusFilled(_ board: inout Board, after: [String]) {
+        let focus = board.focus
+        guard board[focus] == nil else { return }
+        let taken = board.taken(except: focus)
+        if let free = after.first(where: { !taken.contains($0.lowercased()) }) {
+            board[focus] = free
+            return
+        }
+        guard let donor = board.order.reversed().first(where: { $0 != focus && board[$0] != nil }) else { return }
+        board[focus] = board[donor]
+        board[donor] = nil
     }
 
-    /// 从已经不在新列表里的房间出发，沿方向找仍可见的下一间，没有再反方向。
+    /// 从已经不在新列表里的房间出发，沿方向找仍可见、未被占用的下一间，没有再反方向。
     private static func replacement(
-        for missing: String, before: [String], after: [String], direction: Int, excluding taken: String? = nil
+        for missing: String, before: [String], after: [String], direction: Int, excluding taken: Set<String>
     ) -> String? {
         guard let at = index(of: missing, in: before) else { return nil }
         func allowed(_ name: String) -> Bool {
-            !same(name, missing) && !same(name, taken) && after.contains { same($0, name) }
+            !same(name, missing) && !taken.contains(name.lowercased()) && after.contains { same($0, name) }
         }
         let later = before[(at + 1)...].first(where: allowed).flatMap { canonical($0, in: after) }
         let earlier = before[..<at].last(where: allowed).flatMap { canonical($0, in: after) }
@@ -419,32 +396,67 @@ public enum LaneSelection {
         return direction >= 0 ? (later ?? earlier) : (earlier ?? later)
     }
 
-    private static func roomAfter(_ name: String?, in rooms: [String]) -> String? {
-        guard let name, let at = index(of: name, in: rooms) else { return nil }
+    private static func roomAfter(_ name: String, in rooms: [String]) -> String? {
+        guard let at = index(of: name, in: rooms) else { return nil }
         let next = at + 1
         guard next < rooms.count else { return nil }
         return rooms[next]
     }
 
-    private static func skipping(_ username: String?) -> Set<String> {
-        guard let username else { return [] }
-        return [username]
+    // MARK: 一次分配的工作台
+
+    /// 一次分配内各路的房间、方向与焦点；`taken` 就是动态占用集合（已分配的房间立即算占用）。
+    private struct Board {
+        let order: [LaneID]
+        var rooms: [LaneID: String] = [:]
+        var directions: [LaneID: Int] = [:]
+        var focus: LaneID
+
+        init(before: Snapshot, order: [LaneID]) {
+            self.order = order
+            for id in order {
+                guard let cursor = before.cursor(id) else { continue }
+                rooms[id] = cursor.username
+                directions[id] = cursor.direction
+            }
+            focus = order.contains(before.focus) ? before.focus : .primary
+        }
+
+        subscript(_ id: LaneID) -> String? {
+            get { rooms[id] }
+            set { rooms[id] = newValue }
+        }
+
+        func direction(_ id: LaneID) -> Int { directions[id] ?? 1 }
+
+        /// 除 `lane` 以外各路此刻占着的房间（小写）。
+        func taken(except lane: LaneID) -> Set<String> {
+            Set(order.filter { $0 != lane }.compactMap { rooms[$0]?.lowercased() })
+        }
+
+        func isTaken(_ name: String, except lane: LaneID) -> Bool {
+            taken(except: lane).contains(name.lowercased())
+        }
+
+        func outcome(_ before: Snapshot, placed: Reason) -> Outcome {
+            var reasons: [LaneID: Reason] = [:]
+            var cursors: [LaneID: LaneCursor] = [:]
+            for id in order {
+                guard var cursor = before.cursor(id) else { continue }
+                let old = cursor.username
+                cursor.username = rooms[id]
+                cursor.direction = direction(id)
+                cursors[id] = cursor
+                note(&reasons, lane: id, from: old, to: cursor.username, placed: placed)
+            }
+            return Outcome(
+                primary: cursors[.primary] ?? before.primary, secondary: cursors[.secondary], tertiary: cursors[.tertiary],
+                focus: focus, reasons: reasons
+            )
+        }
     }
 
     // MARK: 结果
-
-    private static func outcome(
-        _ before: Snapshot,
-        primary: LaneCursor,
-        secondary: LaneCursor,
-        focus: LaneID? = nil,
-        placed: Reason
-    ) -> Outcome {
-        var reasons: [LaneID: Reason] = [:]
-        note(&reasons, lane: .primary, from: before.primary.username, to: primary.username, placed: placed)
-        note(&reasons, lane: .secondary, from: before.secondary?.username, to: secondary.username, placed: placed)
-        return Outcome(primary: primary, secondary: secondary, focus: focus ?? keptFocus(before), reasons: reasons)
-    }
 
     private static func note(
         _ reasons: inout [LaneID: Reason],
@@ -464,12 +476,8 @@ public enum LaneSelection {
         case .merge: return .merge
         case .reveal: return .reveal
         case .move: return .move
-        case .blankResume: return .resume
+        case .blankResume, .fill: return .resume
         }
-    }
-
-    private static func keptFocus(_ before: Snapshot) -> LaneID {
-        before.secondary == nil ? .primary : before.focus
     }
 
     private static func index(of name: String?, in rooms: [String]) -> Int? {

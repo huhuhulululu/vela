@@ -128,7 +128,7 @@ final class FailureSampleTests: XCTestCase {
         let chain = [(domain: PlaybackFailureClassifier.avFoundationErrorDomain, code: PlaybackFailureClassifier.decoderTemporarilyUnavailableCode)]
         secondary.player.resourceDegraded?(info(chain))
         XCTAssertEqual(secondary.state, .degraded)
-        XCTAssertEqual(secondary.playbackNote, "双窗暂不可用")
+        XCTAssertEqual(secondary.playbackNote, "资源不足")
         XCTAssertTrue(secondary.degradedHold.held)
         XCTAssertEqual(stage.primary.state, .idle, "另一路不受影响")
     }

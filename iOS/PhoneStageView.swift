@@ -30,10 +30,12 @@ struct PhoneStageView: View {
             }
         }
         .background(SceneWindowReader { model.sidecar.hold(window: $0) })
-        // 每一路各订阅自己的播放事件；双窗的副路随 `dualWindow` 出现与消失。
+        // 每一路各订阅自己的播放事件；副路、第三路随路数出现与消失。
         .background { ForEach(model.lanes, id: \.id) { LaneEvents(model: model, lane: $0) } }
         // 横屏只显示焦点路，非焦点路由模型释放（§4.2）。
         .onGeometryChange(for: Bool.self) { $0.size.width > $0.size.height } action: { model.setLandscape($0) }
+        // 舞台尺寸（模型只取竖屏实测）：三格每格不足 160 点时最多 2 路（修订 v2 M12）；格子没布局前据此估算选档。
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { model.notePortraitStageSize($0) }
         // 减弱动态效果：控制栏与横幅的淡入淡出也不做动画。
         .animation(reduceMotion ? nil : .easeOut(duration: 0.22), value: chromeOn)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: model.toast)

@@ -313,7 +313,8 @@ extension StageModel {
             allowed: laneAllowed(lane), isRetry: isRetry
         )
         pushVolume(to: lane)
-        lane.quality.reset(tier: cap.isFinite ? .low : .full, now: Date())
+        // 只有「离开后降画质」才算低档；多路的尺寸上限与热上限是有限值但不是低档，否则画质状态机会无谓地「升回」并重建播放项。
+        lane.quality.reset(tier: restingCapped ? .low : .full, now: Date())
         lane.qualitySignature = ""
         applyPower()
         scheduleChromeHide()
@@ -403,13 +404,15 @@ extension StageModel {
     /// Watching uses the top rung. Window-height caps were selecting 540p and 720p, so the
     /// picture stayed soft. Power saving, when enabled, still starts a room on the bottom rung
     /// after the pointer has left.
-    /// 双窗时再叠上设备热状态的上限（`.serious` 及以上才有，按这一路画面实际显示的高度，§4.4）。
+    /// 多路时再叠上这一路的尺寸上限与热上限（§4.4，ios-triple 修订 v2 H2）。
     func playbackCap(on lane: PlaybackLane? = nil) -> Double {
-        let resting = restSavesPower && !resolvedPresence().engaged
-        let base = resting ? PowerPolicy.peakBitrate(pixelHeight: pixelHeight, resting: true) : Double.infinity
+        let base = restingCapped ? PowerPolicy.peakBitrate(pixelHeight: pixelHeight, resting: true) : Double.infinity
         guard let lane else { return base }
-        return min(base, thermalCap(for: lane))
+        return min(base, laneCap(for: lane))
     }
+
+    /// 离开后降画质此刻生效（开着省电且指针不在）：起播上限里有省电档。
+    var restingCapped: Bool { restSavesPower && !resolvedPresence().engaged }
 
     /// The master playlist is low-latency HLS. AVPlayer stalls and sometimes never starts on it.
     /// Pick one rung: its video media playlist plus the separate audio rendition it references

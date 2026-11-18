@@ -127,6 +127,6 @@ public enum AudioTransitionRunner {
     }
 
     private static func label(_ role: PlaybackLaneRole) -> String {
-        role == .primary ? "primary" : "secondary"
+        role.label
     }
 }

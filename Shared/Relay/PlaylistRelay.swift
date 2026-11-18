@@ -99,7 +99,7 @@ final class PlaylistRelay: @unchecked Sendable {
 
     /// 登记一个新源，返回它的 id 与本地主列表地址。端口还没绑好时触发监听并返回 nil。
     /// `allowStart` 关闭期间（挂起）即使端口仍绑着也不登记，返回 nil。
-    /// 表里已满两个源时淘汰最旧的那个（它的循环与在途一并取消）；调用方换源前应先作废自己的旧源。
+    /// 表里已满 `RelaySourceTable.maxSources`（3）个源时淘汰最旧的那个（它的循环与在途一并取消）；调用方换源前应先作废自己的旧源。
     func localURL(
         for rendition: StreamRendition, maxBandwidth: Double, audioSuppressed: Bool,
         renew: (@Sendable () async -> StreamRendition?)? = nil
@@ -120,7 +120,9 @@ final class PlaylistRelay: @unchecked Sendable {
         var entry = Entry(maxBandwidth: maxBandwidth, rendition: rendition, renew: renew)
         if !rendition.isUnselected, rendition.audio != nil { entry.feeds[.audio] = RelayFeed() }
         entries[id] = entry
+        let count = sources.count
         lock.unlock()
+        Self.log.info("relay sources=\(count) reason=register")
         return (id, url)
     }
 
@@ -171,8 +173,12 @@ final class PlaylistRelay: @unchecked Sendable {
     /// 停止播放：作废这个源，不再刷新。别的源不受影响。
     func deactivate(source id: String) {
         lock.lock()
+        let known = sources.contains(id: id)
         cancelSourceLocked(id)
+        let count = sources.count
         lock.unlock()
+        // 只在源表真的变了时记一条（实跑核对画中画与后台只剩几个源）。
+        if known { Self.log.info("relay sources=\(count) reason=deactivate") }
     }
 
     /// 有独立音轨、这个源在刷新、且没有因为静音停掉音频时，才跑音频清单循环。
@@ -551,6 +557,7 @@ final class PlaylistRelay: @unchecked Sendable {
         loops.removeAll()
         sources.removeAll()
         lock.unlock()
+        Self.log.info("relay sources=0 reason=stop")
         stopInterleaveForTesting?()
         old?.cancel()
         for connection in open { connection.cancel() }

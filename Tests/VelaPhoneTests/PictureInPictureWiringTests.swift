@@ -88,6 +88,17 @@ final class PictureInPictureWiringTests: XCTestCase {
         try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
     }
 
+    /// 等到条件成立（每 10 毫秒看一次，超时返回 false），不按固定时长猜调度快慢。
+    @discardableResult
+    private func waitUntil(timeout: TimeInterval = 10, _ condition: () -> Bool) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition() {
+            if Date() > deadline { return false }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        return true
+    }
+
     /// 画中画路继续：共享任务挂起，只放行主路；闸门、中继都开着。
     private func assertContinuing(_ stage: StageModel, file: StaticString = #filePath, line: UInt = #line) {
         XCTAssertTrue(stage.lifecycleSuspended, file: file, line: line)
@@ -354,16 +365,18 @@ final class PictureInPictureWiringTests: XCTestCase {
         let pip = FakePiP()
         let (stage, driver) = makeStage(pip: pip)
         let audio = stage.audioFocus as? AudioFocusController
-        audio?.deactivationRetryDelay = 0.4
+        // 重试等待放宽到 2 秒：全停与重试之间的窗口足够宽，下面按条件等，不靠固定时长猜 CI 的调度快慢。
+        audio?.deactivationRetryDelay = 2
         stage.prepareAudioSession()
         driver.failDeactivations = 1
         _ = background(stage)
-        await wait(0.15)
+        let stopped = await waitUntil { stage.wiring.epoch.allowedLane == nil && audio?.deactivationPending == true }
+        XCTAssertTrue(stopped, "回退全停且停用失败：\(driver.calls)")
         assertStoppedAll(stage)
         XCTAssertEqual(audio?.deactivationPending, true, "全停时停用失败")
 
         event(.willStart, stage)
-        await wait(0.6)
+        await waitUntil { audio?.deactivationPending == false }
         XCTAssertEqual(audio?.deactivationPending, false, "迟到的启动期间重试也要补做停用：\(driver.calls)")
         event(.didStart, stage)
         event(.willStop, stage)

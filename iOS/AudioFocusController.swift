@@ -167,7 +167,7 @@ final class AudioFocusController: AudioFocusing, AudioLaneControlling {
         return outcome
     }
 
-    private static func name(_ role: PlaybackLaneRole) -> String { role == .primary ? "primary" : "secondary" }
+    private static func name(_ role: PlaybackLaneRole) -> String { role.label }
 
     func syncVolume(to lane: PlaybackLane) {
         guard let stage else { return }

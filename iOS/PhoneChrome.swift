@@ -62,10 +62,7 @@ struct PhoneChrome: View {
                     PhonePiPPill(pip: pip) { model.platform.setPictureInPictureAutoEnter($0, stage: model) }
                 }
                 if model.platform.supportsDual {
-                    PhonePill(title: model.dualWindow ? "单窗" : "双窗", active: model.dualWindow) {
-                        model.setDual(!model.dualWindow)
-                    }
-                    .accessibilityLabel(model.dualWindow ? "已开双窗，点按改回单窗" : "单窗，点按开启双窗")
+                    PhoneLanePicker(model: model)
                 }
                 PhonePill(title: model.muted ? "静音" : "出声", active: !model.muted) { model.toggleMute() }
                     .accessibilityLabel(model.muted ? "已静音，点按出声" : "正在出声，点按静音")
@@ -88,6 +85,48 @@ struct PhoneChrome: View {
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 12)
+    }
+}
+
+/// 路数选择 1 / 2 / 3（竖屏上下等高叠放，横屏一律单窗）。放不下三格的屏幕第三路置灰并说明原因（修订 v2 M12）。
+struct PhoneLanePicker: View {
+    @ObservedObject var model: StageModel
+
+    var body: some View {
+        Menu {
+            ForEach(1...LaneID.maxCount, id: \.self) { count in
+                Button {
+                    model.setLaneCount(count)
+                } label: {
+                    if count == model.laneCount {
+                        Label(title(count), systemImage: "checkmark")
+                    } else {
+                        Text(title(count))
+                    }
+                }
+                .disabled(count > model.maxLaneCount || model.laneCountLocked)
+            }
+            if model.laneCountLocked {
+                Text("画中画进行中，结束后可调整路数")
+            }
+        } label: {
+            Text("\(model.laneCount) 路")
+                .font(.system(size: 13, weight: model.dualWindow ? .semibold : .medium))
+                .foregroundStyle(model.dualWindow ? Color.black.opacity(0.86) : .white)
+                .lineLimit(1)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(model.dualWindow ? Theme.champagne : Color(white: 0.08).opacity(0.62), in: Capsule())
+                .overlay(Capsule().strokeBorder(model.dualWindow ? Theme.champagne : .white.opacity(0.22), lineWidth: 1))
+                .frame(minHeight: 44)
+                .contentShape(Capsule())
+        }
+        .accessibilityLabel("路数，当前 \(model.laneCount) 路")
+    }
+
+    private func title(_ count: Int) -> String {
+        if count == LaneID.maxCount, !model.threeLanesFit { return "\(count) 路（屏幕高度不够）" }
+        return "\(count) 路"
     }
 }
 
