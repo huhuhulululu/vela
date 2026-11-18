@@ -174,8 +174,17 @@ class RewindAndRotate(unittest.TestCase):
         mseq, _ = self._seq_and_last(mid)
         aseq, _ = self._seq_and_last(after)
         self.assertLess(mseq, bseq)
-        self.assertIn("#EXT-X-DISCONTINUITY", mid)
+        # 必须是独立的一行；#EXT-X-DISCONTINUITY-SEQUENCE 不算
+        self.assertIn("#EXT-X-DISCONTINUITY", mid.splitlines())
         self.assertEqual(aseq, bseq)
+
+    def test_rewind_adds_standalone_discontinuity_despite_sequence_tag(self):
+        body = ("#EXTM3U\n#EXT-X-TARGETDURATION:2\n#EXT-X-MEDIA-SEQUENCE:20\n"
+                "#EXT-X-DISCONTINUITY-SEQUENCE:0\n#EXTINF:2.0,\nseg_0_020.ts\n"
+                "#EXTINF:2.0,\nseg_0_021.ts\n#EXTINF:2.0,\nseg_0_022.ts\n").encode()
+        out = self.stream._rewound(body).decode()
+        self.assertIn("#EXT-X-DISCONTINUITY", out.splitlines())
+        self.assertLess(self._seq_and_last(out)[0], 20)
 
     def test_rewind_disabled_cannot_arm(self):
         self.assertFalse(self.stream.arm_rewind())
