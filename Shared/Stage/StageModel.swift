@@ -681,7 +681,8 @@ final class StageModel: ObservableObject {
     /// 不能靠 `$feed` 订阅：`@Published` 在 willSet 发出，回调里读 `feed` 还是旧值。
     /// `installing`：这次改动把列表整体换成了这个来源的；即使当前房间同名也要结算旧来源下的停留，
     /// 且 `loadedSource` 先于结算更新，停留归属取新列表的真实来源（不是用户刚选的来源）。
-    /// `intent`：交给 `LaneSelection` 的意图（§4.1）。单窗时它的结果必须与 FeedStore 自己的选择一致。
+    /// `intent`：交给 `LaneSelection` 的意图（§4.1）；可见列表由空变非空的续页恢复改按 `.blankResume`（`feedIntent`）。
+    /// 单窗时它的结果必须与 FeedStore 自己的选择一致。
     func updateFeed(
         installing: Source? = nil,
         intent: LaneSelection.Intent = .filter,
@@ -691,7 +692,7 @@ final class StageModel: ObservableObject {
         let before = copy.current?.username
         let snapshot = laneSnapshot(of: copy)
         body(&copy)
-        let outcome = LaneSelection.resolve(
+        let outcome = LaneSelection.resolveFeedChange(
             before: snapshot, afterRooms: copy.rooms.map(\.username),
             proposedPrimary: copy.current?.username, intent: intent
         )
