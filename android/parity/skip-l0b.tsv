@@ -1,0 +1,10 @@
+# L0b 跳过。三列制表符：swift_file、swift_test、reason。
+# deferred:C9 在 --group l0b 视为已登记；--all 要等 C9 消化。
+swift_file	swift_test	reason
+Tests/VelaCoreTests/PreferenceQuarantineTests.swift	testCorruptTasteIsBackedUpThenSavable	deferred:C9 引用 TasteStore（C6a）
+Tests/VelaCoreTests/PreferenceQuarantineTests.swift	testCorruptTasteDoesNotFallBackToLegacy	deferred:C9 引用 TasteStore（C6a）
+Tests/VelaCoreTests/PreferenceQuarantineTests.swift	testOversizedCurationIsBackedUp	deferred:C9 引用 CurationStore（C7）
+Tests/VelaCoreTests/PreferenceQuarantineTests.swift	testCorruptLedgerIsBackedUp	deferred:C9 引用 WatchLedgerStore（C6b）
+Tests/VelaCoreTests/PreferenceQuarantineTests.swift	testRenameFailureMakesStoresReadOnly	deferred:C9 引用 TasteStore、CurationStore、WatchLedgerStore
+Tests/VelaCoreTests/PreferenceQuarantineTests.swift	testReadOnlyClearsAfterGoodLoadOrErase	deferred:C9 引用 CurationStore、WatchLedgerStore
+Tests/VelaCoreTests/PreferenceQuarantineTests.swift	testMissingFileIsNotBackedUpAndSavable	deferred:C9 引用 CurationStore（C7）
