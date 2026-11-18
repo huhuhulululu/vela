@@ -1,0 +1,12 @@
+# cloudflared ingress template for the sync service.
+# Replace SYNC_HOSTNAME before use. Do not commit a real hostname.
+# The process listens on loopback only; cloudflared on the same host forwards to it.
+# On the hostname, set a Cloudflare cache rule to bypass cache. Do not enable logpush.
+
+tunnel: 00000000-0000-0000-0000-000000000000
+credentials-file: /etc/cloudflared/00000000-0000-0000-0000-000000000000.json
+
+ingress:
+  - hostname: SYNC_HOSTNAME
+    service: http://127.0.0.1:8080
+  - service: http_status:404
