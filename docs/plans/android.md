@@ -554,7 +554,7 @@ Ready for execution
 **2.1-1 测试与 PiPPolicy 的跨波依赖**
 - 执行者规则补充：某条 Swift 测试引用了排在后面组的类型时，**不停下**，在 `android/parity/split-<组>.tsv` 登记 `deferred:C9` 并继续；源码本身编译不过才停下报告。
 - 预先登记为 deferred:C9 的条目：EndpointBackoffTests 中引用 StreamDecoder、CatalogAPI.fetch、LastBroadcastFetcher 的条目（L0a）；PreferenceQuarantineTests 中引用 TasteStore、CurationStore 的条目（L0b；`Preferences.maxFileBytes` 改为引用 L0b 自己的常量副本或等 L0a 合入后由 C9 补）；PlaybackRefreshTests 中引用 FeedStore 的条目（C2）；ChallengeGateTests 中引用 StreamDecoder、CatalogAPI 的条目（C3）；PiPPolicyTests 中断言音频会话配置的条目（C3）。C9 的依赖补上 A2。
-- PiPPolicy 的音频输出在安卓上改为平台无关的 `AudioIntent`（例如 `holdsFocus: Boolean`、`mixWithOthers: Boolean`、`releaseNotifyingOthers: Boolean`），定义在 C3 自己的范围 `vela.core.lifecycle.AudioIntent`；A2 的 `AudioFocusPlan` 只消费它。C3 不依赖 A2。
+- PiPPolicy 的音频输出在安卓上改为平台无关的 `AudioIntent`（例如 `holdsFocus: Boolean`、`mixWithOthers: Boolean`、`releaseNotifyingOthers: Boolean`），定义在 C3 自己的范围 `vela.core.lifecycle.PipAudioOutput`；A2 的 `AudioFocusPlan` 只消费它。C3 不依赖 A2。
 
 **2.1-2 不能跨文件拆分的 Kotlin 类型**
 拆开的符号一律落成独立的顶层类型，由后面组的类型引用，并在 parity 映射里注明改名：
@@ -570,3 +570,8 @@ Ready for execution
 - P2 的 `LaneDataSourceAdoptionTest` 对 R1 只断言：序号回退带 DISCONTINUITY 时，错误以可识别类型交给加载错误策略（或列表被采纳），不产生续期；「原地重新 prepare、60 秒内最多 2 次」由 A3 断言。
 - `android.yml` 的路径过滤加上 `scripts/serve-test-stream.py`、`scripts/make-test-stream.sh`（00 已派发；由 T1 在改该工作流时补）。
 - 00 合入后编排者按第 2 节逐项核对 parity 与 check-apk 的实际行为。
+
+**修订 2.2（第 3 轮审查 OKAY 后的补充）**
+- C3 的画中画音频输出类型定名为 `PipAudioOutput`（避免与 AudioTransition 移植来的 `AudioIntent` 同名）。
+- `parity.py` 必须：按组检查时把 `deferred:C9` 视为已登记；`--all` 时只要仍有未被 C9 消化的 deferred 即失败，并有负样本证明。00 合入后编排者核对，缺则在派 W1 前补。
+- C9 增加：`maxFileBytes` 收敛为一处（L0a `Prefs`），并加断言保证与 L0b 的引用一致。
