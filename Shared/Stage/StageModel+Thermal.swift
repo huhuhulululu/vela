@@ -58,6 +58,7 @@ extension StageModel {
     /// 在播的一路按新上限换档：现取主列表、选档、原地换（不重新起播）。取不到或这一路已换房就放弃，
     /// 下次起播会带着新上限。挂起期间不做，回前台重新起播时自然取新上限。
     func retier(_ lane: PlaybackLane) {
+        lane.capSyncRequests += 1
         lane.capTask?.cancel()
         lane.capTask = nil
         guard lane.player.hasItem, laneAllowed(lane), let username = name(of: lane), retargetCap(for: lane) != nil else { return }

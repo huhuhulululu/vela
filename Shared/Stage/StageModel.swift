@@ -410,6 +410,8 @@ final class StageModel: ObservableObject {
         lane.readyName = username
         notePortrait(username, on: lane)
         if readyChanged { refreshQuality(on: lane) }
+        // 起播时补的换档发生在首帧之前，播放器会拒绝（`retier` 要求画面已就绪）：就绪时再补一次，上限没变则什么都不做。
+        if readyChanged, username != nil, username == name(of: lane), needsCapSync(lane) { retier(lane) }
     }
 
     /// 播放器此刻真在播的房间变了（缓冲、暂停、失败都会让它变空）：回放成功清连续跳过计数，停留计时随之启停。
