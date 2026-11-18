@@ -57,6 +57,9 @@ import vela.core.ledger.WatchLedger
 import vela.core.ledger.WatchLedgerStore
 import vela.core.lifecycle.ChallengeGate
 import vela.core.lifecycle.ChallengeResume
+import vela.core.lifecycle.LifecycleEpoch
+import vela.core.lifecycle.PhoneLaneActivity
+import vela.core.lifecycle.PhoneResumeIntent
 import vela.core.recommend.RankSignals
 import vela.core.taste.HotTagCache
 import vela.core.taste.TagRarity
@@ -89,7 +92,8 @@ class StageViewModel(
     )
     internal val text = StageText(context)
     internal val backoff = EndpointBackoffBox(now = { clock.instant() })
-    internal val catalogAPI = CatalogAPI(http, backoff)
+    // 构造参数也叫 http。这里必须点属性，否则目录绕过改写，请求会打到真实站点。
+    internal val catalogAPI = CatalogAPI(this.http, backoff)
 
     private val jobs = SupervisorJob()
     internal val scope = CoroutineScope(jobs + dispatcher)
@@ -202,6 +206,31 @@ class StageViewModel(
     internal val suggestSnoozed = HashSet<String>()
     internal var failureNote: String? = null
 
+    /** 进后台时关掉。回前台的 [vela.core.lifecycle.PhoneLifecycleAction.EpochResume] 再打开。 */
+    internal var playbackGateOpen: Boolean = true
+
+    /** 单窗恒为真。隐藏的路回前台保持已释放。 */
+    internal var primaryVisible: Boolean = true
+
+    /** 进后台快照用。回前台满足起播条件时原样交给重新解析。 */
+    internal var primaryActivity: PhoneLaneActivity = PhoneLaneActivity.IDLE
+
+    internal val lifecycleEpoch: LifecycleEpoch = LifecycleEpoch()
+
+    /** 播放器还没接上时，第一次真正起播前回来创建。目录协程挂起之后才赋值也来得及。 */
+    internal var ensurePlayback: (() -> Unit)? = null
+
+    /** 非空时静音变化交给音频焦点，不再自己写设置。 */
+    internal var onMuteChanged: ((Boolean) -> Unit)? = null
+
+    /** 播放器已经 release，[close] 不能再 stop。 */
+    internal var playerReleased: Boolean = false
+
+    internal var pendingSearchKeyword: String? = null
+    internal var notedResume: PhoneResumeIntent? = null
+    internal var lastSettlementUsername: String? = null
+    internal var flushCount: Int = 0
+
     internal var catalogRestJob: Job? = null
     internal var targetedJob: Job? = null
     internal var siteSearchJob: Job? = null
@@ -242,15 +271,36 @@ class StageViewModel(
     }
 
     fun close() {
-        playJob?.cancel()
-        skipJob?.cancel()
-        awayJob?.cancel()
-        playbackSink?.stop()
+        playbackGateOpen = false
+        cancelPlaybackWork()
+        cancelSharedWork()
+        if (!playerReleased) playbackSink?.stop()
         sidecarHolder?.close()
+        sidecarHolder = null
         scope.cancel()
         tasteSaver.flush()
         curationSaver.flush()
         watchLedgerSaver.flush()
+    }
+
+    /** 接上外部播放器。正式路径走 [bindLane]；测试用记录实现，不必起 ExoPlayer。 */
+    fun attachPlayback(sink: PlaybackSink) {
+        bindPlayback(sink, page = null)
+        playerReleased = false
+    }
+
+    /** 接上侧车页面。进后台时拆掉。 */
+    fun attachSidecar(page: SidecarPage) {
+        installSidecar(page)
+    }
+
+    /**
+     * 在构造返回、主线程协程恢复之前调用。
+     * 这样第一次 [requestPlay] 能创建播放器，静音能交给音频焦点。
+     */
+    fun bindLifecycleHooks(ensurePlayback: () -> Unit, onMuteChanged: (Boolean) -> Unit) {
+        this.ensurePlayback = ensurePlayback
+        this.onMuteChanged = onMuteChanged
     }
 
     override fun dispatch(intent: StageIntent) {
@@ -367,6 +417,7 @@ class StageViewModel(
     override fun notePlaying(username: String?) {
         val current = feed.currentUsername
         val same = username != null && current != null && username.equals(current, ignoreCase = true)
+        if (same) primaryActivity = PhoneLaneActivity.PLAYING
         val playback = when {
             same -> LanePlayback.Playing
             laneFace.playback == LanePlayback.Failed -> LanePlayback.Failed
@@ -513,8 +564,10 @@ class StageViewModel(
         )
     }
 
-    /** 没接播放器时只推进界面。接上之后才解析地址并交给这一路。 */
+    /** 没接播放器时只推进界面。接上之后才解析地址并交给这一路。闸门关着时直接丢掉。 */
     internal fun requestPlay(isRetry: Boolean = false) {
+        if (!playbackGateOpen) return
+        ensurePlayback?.invoke()
         if (!playbackBound) {
             startUnboundPlayback()
             return
@@ -525,7 +578,86 @@ class StageViewModel(
             publish()
             return
         }
+        val playing = laneFace.playingUsername
+        val current = feed.currentUsername
+        primaryActivity = when {
+            playing == null -> PhoneLaneActivity.FIRST_RESOLVE
+            current == null || !current.equals(playing, ignoreCase = true) -> PhoneLaneActivity.ROOM_SWITCH
+            else -> PhoneLaneActivity.REFRESHING
+        }
         startBoundPlayback(isRetry)
+    }
+
+    internal fun cancelPlaybackWork() {
+        playJob?.cancel()
+        playJob = null
+        skipJob?.cancel()
+        skipJob = null
+        awayJob?.cancel()
+        awayJob = null
+    }
+
+    /** 目录、搜索、收藏、关联。播放任务也一起停。代次作废后调用。 */
+    internal fun cancelSharedWork() {
+        cancelPlaybackWork()
+        catalogRestJob?.cancel()
+        catalogRestJob = null
+        targetedJob?.cancel()
+        targetedJob = null
+        siteSearchJob?.cancel()
+        siteSearchJob = null
+        favoriteSuggestJob?.cancel()
+        favoriteSuggestJob = null
+        favoriteSuggestWakeJob?.cancel()
+        favoriteSuggestWakeJob = null
+        relatedJob?.cancel()
+        relatedJob = null
+        cancelTrackedLoads()
+        if (loading) {
+            loading = false
+            publish()
+        }
+    }
+
+    internal fun cancelTrackedLoads() {
+        val pending = synchronized(loadLock) { loadJobs.toList() }
+        pending.forEach { it.cancel() }
+    }
+
+    /** 后台前正在做的共享工作。搜索优先于续页。 */
+    internal fun captureResumeIntent(): PhoneResumeIntent? {
+        if (siteSearchJob?.isActive == true) {
+            val keyword = siteSearch ?: searchText.stageTrim()
+            pendingSearchKeyword = keyword.ifEmpty { null }
+            return PhoneResumeIntent.SEARCH
+        }
+        if (loading || catalogRestJob?.isActive == true || targetedJob?.isActive == true) {
+            return PhoneResumeIntent.RELOAD
+        }
+        return null
+    }
+
+    internal fun invalidateGenerations() {
+        lifecycleEpoch.suspend()
+        loadGeneration += 1
+        laneFace = laneFace.copy(generation = laneFace.generation + 1)
+        publish()
+    }
+
+    internal fun resumeGenerations() {
+        lifecycleEpoch.resume()
+        playbackGateOpen = true
+    }
+
+    internal fun applyMute(nextMuted: Boolean, writeSettings: Boolean) {
+        muted = nextMuted
+        if (writeSettings) settings.muted = nextMuted
+        playbackSink?.setVolume(volume, muted)
+        publish()
+    }
+
+    internal fun showNotice(message: String) {
+        showToast(message)
     }
 
     internal fun cancelToastTimer() {
@@ -594,20 +726,33 @@ class StageViewModel(
     }
 
     private fun toggleMute() {
-        muted = !muted
-        if (!muted && volume <= 0.0) {
+        val next = !muted
+        if (!next && volume <= 0.0) {
             volume = StageRules.RESTORE_VOLUME
             settings.volume = volume
         }
-        settings.muted = muted
+        val bridge = onMuteChanged
+        if (bridge != null) {
+            bridge.invoke(next)
+            return
+        }
+        muted = next
+        settings.muted = next
         publish()
     }
 
     private fun setVolume(value: Double) {
         volume = value.coerceIn(0.0, 1.0)
-        muted = volume == 0.0
         settings.volume = volume
+        val nextMuted = volume == 0.0
+        val bridge = onMuteChanged
+        if (bridge != null && nextMuted != muted) {
+            bridge.invoke(nextMuted)
+            return
+        }
+        muted = nextMuted
         settings.muted = muted
+        if (bridge != null) playbackSink?.setVolume(volume, muted)
         publish()
     }
 
