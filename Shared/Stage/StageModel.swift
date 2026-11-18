@@ -812,6 +812,9 @@ final class StageModel: ObservableObject {
             currentRoomChanged(on: primary, reason: reason)
         }
         if let secondary { settleSecondary(secondary, outcome: outcome, reason: reason, sourceChanged: sourceChanged) }
+        // 空主路（另一路占着唯一的房间）恢复成某个房间时，前后的 `feed.current` 都回落到同一间，变更检测看不到换房：
+        // 主路停留还没有房间就补初始化，否则这段观看永远不计时。
+        if primary.dwell.room == nil, room(of: primary) != nil { currentRoomChanged(on: primary, reason: reason) }
         // 目标在另一路播放时 `LaneSelection` 只切焦点（§4.1）。
         if secondary != nil, outcome.focus != focusLane { setFocus(outcome.focus) }
         logLaneRooms()
