@@ -46,9 +46,10 @@ extension StageModel {
         noteThermal(PhoneThermalState(ProcessInfo.processInfo.thermalState))
     }
 
-    /// 收到一次热状态。降档与否变了就让各路按新上限换档；降档后回到 fair 只排一次性的回升检查，不留空转定时器。
+    /// 收到一次热状态。降几档变了（含 serious 升到 critical）就让各路按新上限换档；降档后回到 fair 只排一次性的回升检查，不留空转定时器。
     func noteThermal(_ state: PhoneThermalState, now: Date = Date()) {
         let wasLimited = laneQuality.isLimited
+        let wasSteps = laneQuality.stepsDown
         laneQuality.observe(state, now: now)
         thermalState = state
         thermalRecoveryTask?.cancel()
@@ -61,9 +62,10 @@ extension StageModel {
                 self.noteThermal(self.thermalState)
             }
         }
-        guard laneQuality.isLimited != wasLimited else { return }
-        let word = laneQuality.isLimited ? "limit" : "recover"
-        Self.thermalLog.info("thermal \(word, privacy: .public) state=\(state.rawValue)")
+        // 降几档变了就换档：serious 升到 critical 时 isLimited 不翻转，但上限还要再降一档（审计 high）。
+        guard laneQuality.stepsDown != wasSteps else { return }
+        let word = laneQuality.isLimited == wasLimited ? "step" : (laneQuality.isLimited ? "limit" : "recover")
+        Self.thermalLog.info("thermal \(word, privacy: .public) state=\(state.rawValue) steps=\(self.laneQuality.stepsDown)")
         for lane in lanes {
             let cap = playbackCap(on: lane)
             Self.thermalLog.info("thermal-cap lane=\(Self.label(lane.id.role), privacy: .public) cap=\(cap.isFinite ? Int(cap) : -1)")

@@ -292,4 +292,36 @@ final class TripleLaneMediaTests: XCTestCase {
         stage.notePaneSize(CGSize(width: 402, height: 150), on: lane)
         XCTAssertEqual(stage.estimatedDisplayHeight(lane), 150, accuracy: 0.01, "量到格子后以格子为准")
     }
+    // MARK: 审计 high：serious 升到 critical 要再换一次档
+
+    /// 完整序列 nominal → serious → critical → fair：每次上限变了都要请求换档（不只在「降档与否」翻转时），
+    /// 回升到尺寸上限。两路（尺寸不限）与三格（iPad 每格画面 402 点 × 2 = 804 像素，尺寸上限 3.096M）都测。
+    func testSeriousToCriticalRetiersAgainAndRecoversToSizeCap() {
+        for (lanes, scale, height, expected) in [
+            (2, 3.0, 226.0, [Double.infinity, 3_096_000, 1_696_000, .infinity]),
+            (3, 2.0, 402.0, [3_096_000, 1_696_000, 896_000, 3_096_000])
+        ] {
+            let stage = makeStage(lanes: lanes)
+            stage.screenScale = scale
+            for lane in stage.lanes { lane.displaySize = CGSize(width: 715, height: height) }
+            let lane = stage.primary
+            func settle() { for each in stage.lanes { each.currentCap = stage.playbackCap(on: each) } }
+            stage.noteThermal(.nominal, now: t0)
+            settle()
+            XCTAssertEqual(lane.currentCap, expected[0], "\(lanes) 路常温")
+            for (step, state) in [(1, PhoneThermalState.serious), (2, .critical)] {
+                let requests = lane.capSyncRequests
+                stage.noteThermal(state, now: t0.addingTimeInterval(Double(step)))
+                XCTAssertGreaterThan(lane.capSyncRequests, requests, "\(lanes) 路进入 \(state) 要请求换档")
+                XCTAssertEqual(stage.retargetCap(for: lane), expected[step], "\(lanes) 路 \(state)")
+                settle()
+            }
+            stage.noteThermal(.fair, now: t0.addingTimeInterval(10))
+            XCTAssertNil(stage.retargetCap(for: lane), "回落不立刻升")
+            let requests = lane.capSyncRequests
+            stage.noteThermal(.fair, now: t0.addingTimeInterval(70))
+            XCTAssertGreaterThan(lane.capSyncRequests, requests)
+            XCTAssertEqual(stage.retargetCap(for: lane), expected[3], "\(lanes) 路回升到尺寸上限")
+        }
+    }
 }
