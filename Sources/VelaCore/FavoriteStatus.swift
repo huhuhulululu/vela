@@ -212,6 +212,11 @@ public final class SupersedingRunner<Value: Sendable> {
 
     public func isCurrent(_ id: Int) -> Bool { latest?.id == id }
 
+    /// 取消在途批次（iOS 挂起时用）。批次在写回前自己核对取消，被取消的结果不写回；之后的新批照常开。
+    public func cancel() {
+        latest?.task.cancel()
+    }
+
     public func run(_ work: @escaping @MainActor (_ id: Int) async -> Value) async -> Value {
         seq += 1
         let id = seq

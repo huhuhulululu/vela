@@ -22,6 +22,8 @@ final class SiteSidecar: NSObject, WKNavigationDelegate {
     private var busy = 0
     /// 用完后空闲达到 `SidecarIdlePolicy.seconds` 就销毁离屏网页视图。30 秒内再使用仍是这一份；超过则按需重建。
     private var idleTask: Task<Void, Never>?
+    /// 统一挂起（iOS 后台，§3.1）：挂起期间不加载页面、不执行脚本，挂起前开始的调用在提交前作废。
+    private var lifecycle = LifecycleEpoch()
 
     init(
         host: SidecarHost = SidecarHost(),
@@ -42,6 +44,24 @@ final class SiteSidecar: NSObject, WKNavigationDelegate {
         suspended = true
         webView?.stopLoading()
         webView?.removeFromSuperview()
+    }
+
+    /// 统一挂起：停止加载、让挂起中的页面加载以取消结束、拆掉离屏网页视图（通关 cookie 留在默认数据存储里）。
+    /// 与确认页用的 `suspend()` 不同，这里之后的调用一律以取消结束，直到 `resumeAll()`。
+    func suspendAll() {
+        lifecycle.suspend()
+        idleTask?.cancel()
+        idleTask = nil
+        loading?.cancel()
+        if let pending = pendingLoad {
+            pendingLoad = nil
+            pending.resume(throwing: CancellationError())
+        }
+        tearDown()
+    }
+
+    func resumeAll() {
+        lifecycle.resume()
     }
 
     func resumeIfNeeded() {
@@ -102,6 +122,7 @@ final class SiteSidecar: NSObject, WKNavigationDelegate {
     }
 
     private func evaluate(_ body: String, arguments: [String: Any]) async throws -> Any? {
+        guard let token = lifecycle.begin() else { throw CancellationError() }
         busy += 1
         idleTask?.cancel()
         defer {
@@ -109,8 +130,11 @@ final class SiteSidecar: NSObject, WKNavigationDelegate {
             scheduleIdleTeardown()
         }
         try await ensureLoaded()
+        guard lifecycle.allows(.beforeRequest, token: token) else { throw CancellationError() }
         guard let webView else { throw SidecarError.unavailable }
-        return try await webView.callAsyncJavaScript(body, arguments: arguments, in: nil, contentWorld: .page)
+        let result = try await webView.callAsyncJavaScript(body, arguments: arguments, in: nil, contentWorld: .page)
+        guard lifecycle.allows(.beforeCommit, token: token) else { throw CancellationError() }
+        return result
     }
 
     private func scheduleIdleTeardown(since: Date = Date()) {

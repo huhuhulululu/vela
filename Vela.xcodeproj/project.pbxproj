@@ -140,6 +140,8 @@
 		C12A00000000000000000109 /* RelayFeedTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayFeedTests.swift; sourceTree = "<group>"; };
 		C12A00000000000000000001 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		C12A00000000000000000002 /* VelaPhoneTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VelaPhoneTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		C13A00000000000000000001 /* LifecycleWiring.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LifecycleWiring.swift; sourceTree = "<group>"; };
+		C13A00000000000000000011 /* LifecycleWiringTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LifecycleWiringTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -330,6 +332,7 @@
 				935884F8DC5DDF529EF71817 /* RoomThumbnailCache.swift */,
 				B81969383A625186A1D10B2F /* AgeGateContent.swift */,
 				273A7A1C0A4127872757F4FD /* ButtonStyles.swift */,
+				C13A00000000000000000001 /* LifecycleWiring.swift */,
 			);
 			path = Stage;
 			sourceTree = "<group>";
@@ -349,6 +352,7 @@
 			children = (
 				C12A00000000000000000031 /* VelaCoreTests */,
 				C12A00000000000000000032 /* VelaRelayTests */,
+				C13A00000000000000000010 /* VelaPhoneTests */,
 			);
 			path = Tests;
 			sourceTree = "<group>";
@@ -375,6 +379,14 @@
 				C12A00000000000000000100 /* RelayMultiSourceTests.swift */,
 			);
 			path = VelaRelayTests;
+			sourceTree = "<group>";
+		};
+		C13A00000000000000000010 /* VelaPhoneTests */ = {
+			isa = PBXGroup;
+			children = (
+				C13A00000000000000000011 /* LifecycleWiringTests.swift */,
+			);
+			path = VelaPhoneTests;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -471,6 +483,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C13A00000000000000000002 /* LifecycleWiring.swift in Sources */,
 				8E337A72BB6D6883438A22BA /* SidecarHost+Mac.swift in Sources */,
 				BC1E02DA8E9D42EAA2E9F3A2 /* ChallengeSheet+Mac.swift in Sources */,
 				753F3B6D7E0EA0E27B032D13 /* SiteWebView+Mac.swift in Sources */,
@@ -589,6 +602,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C13A00000000000000000003 /* LifecycleWiring.swift in Sources (VelaPhone) */,
 				A639B4CE712CAE3AF5097EDD /* PiPPolicy.swift in Sources (VelaPhone) */,
 				0ADEEA3622D0027A66998077 /* SwapBackdrop.swift in Sources (VelaPhone) */,
 				E24FE516FC3F91EFA83ECFAB /* RoomThumbnailCache.swift in Sources (VelaPhone) */,
@@ -695,6 +709,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C13A00000000000000000012 /* LifecycleWiringTests.swift in Sources (VelaPhoneTests) */,
 				C12A00000000000000000200 /* RelayMultiSourceTests.swift in Sources (VelaPhoneTests) */,
 				C12A00000000000000000201 /* LifecycleEpochTests.swift in Sources (VelaPhoneTests) */,
 				C12A00000000000000000202 /* PiPPolicyTests.swift in Sources (VelaPhoneTests) */,
@@ -932,6 +947,9 @@
 		C12A00000000000000000207 /* PortraitFitTests.swift in Sources (VelaPhoneTests) */ = {isa = PBXBuildFile; fileRef = C12A00000000000000000107 /* PortraitFitTests.swift */; };
 		C12A00000000000000000208 /* LaneQualityTests.swift in Sources (VelaPhoneTests) */ = {isa = PBXBuildFile; fileRef = C12A00000000000000000108 /* LaneQualityTests.swift */; };
 		C12A00000000000000000209 /* RelayFeedTests.swift in Sources (VelaPhoneTests) */ = {isa = PBXBuildFile; fileRef = C12A00000000000000000109 /* RelayFeedTests.swift */; };
+		C13A00000000000000000002 /* LifecycleWiring.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13A00000000000000000001 /* LifecycleWiring.swift */; };
+		C13A00000000000000000003 /* LifecycleWiring.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = C13A00000000000000000001 /* LifecycleWiring.swift */; };
+		C13A00000000000000000012 /* LifecycleWiringTests.swift in Sources (VelaPhoneTests) */ = {isa = PBXBuildFile; fileRef = C13A00000000000000000011 /* LifecycleWiringTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */

@@ -105,6 +105,8 @@ final class StageModel: ObservableObject {
     /// 在途全站搜索及其操作代次（见 `SearchEpoch`）。
     var siteSearchTask: Task<Void, Never>?
     var searchEpoch = SearchEpoch()
+    /// 统一挂起（iOS 前后台，§3.1）的代次与现场，见 `LifecycleWiring.swift`。macOS 从不挂起。
+    var wiring = LifecycleWiring()
     let tasteSaver: DeferredSaver<Taste>
     let tasteStore: TasteStore
     let curationSaver: DeferredSaver<Curation>
