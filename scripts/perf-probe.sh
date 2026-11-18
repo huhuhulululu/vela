@@ -87,7 +87,7 @@ if [ "$BUILD" = 1 ]; then
 fi
 [ -d "$APP" ] || { echo "找不到 App: ${APP}（加 --build 或 --app）" >&2; rm -rf "$WORK"; exit 1; }
 BIN=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Contents/Info.plist")
-if [ "$FIXED" = 1 ] && ! strings "$APP/Contents/MacOS/$BIN" | grep -q -- '--perf-stream'; then
+if [ "$FIXED" = 1 ] && ! strings "$APP/Contents/MacOS/$BIN" | grep -q 'vela-perf-stream-hook'; then
     echo "App 不含 --perf-stream 钩子（须 PERF_PROBE 或 DEBUG 构建）；加 --build 或换 --app" >&2
     rm -rf "$WORK"; exit 1
 fi
@@ -214,7 +214,7 @@ STREAM_ARGS=""
 STREAM_KBPS=0
 if [ "$FIXED" = 1 ]; then
     "$ROOT/scripts/make-test-stream.sh" "$STREAM_DIR" >&2 || { echo "生成测试流失败" >&2; exit 1; }
-    STREAM_KBPS=$(awk -F'[=,]' '/EXT-X-STREAM-INF/ {for (i=1;i<NF;i++) if ($i=="BANDWIDTH") {printf "%d", $(i+1)/1000; exit}}' "$STREAM_DIR/master.m3u8")
+    STREAM_KBPS=$(grep -oE 'AVERAGE-BANDWIDTH=[0-9]+' "$STREAM_DIR/master.m3u8" | head -1 | awk -F= '{printf "%d", $2/1000}')   # 平均码率，kbps
     PORTF="$WORK/stream.port"
     python3 -I "$ROOT/scripts/serve-test-stream.py" "$STREAM_DIR" --port-file "$PORTF" >&2 &
     SERVER_PID=$!

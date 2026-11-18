@@ -7,6 +7,9 @@ import Foundation
 /// 只接受回环地址，避免被误用来拉外网内容。
 enum PerfStream {
     static let username = "perf-stream"
+    /// 日志与二进制里的识别串。Swift 把 15 字节以内的字符串直接编进指令，`strings` 看不见，
+    /// 所以参数名本身不能当探针与安全门的检测依据；这串够长，会进字符串表。
+    static let marker = "vela-perf-stream-hook-enabled"
 
     static let master: URL? = {
         let args = CommandLine.arguments
@@ -23,6 +26,7 @@ extension StageModel {
     func startPerfStreamIfRequested() -> Bool {
         guard PerfStream.master != nil, ageConfirmed else { return false }
         _ = startupGate.claimCatalog(ageConfirmed: true)
+        log.info("\(PerfStream.marker, privacy: .public)")
         Task { @MainActor [weak self] in
             // 等窗口与播放门控就绪，与线上路径里目录返回的时机相当。
             try? await Task.sleep(nanoseconds: 800_000_000)
