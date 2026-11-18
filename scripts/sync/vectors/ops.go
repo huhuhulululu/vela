@@ -287,6 +287,10 @@ func migrate(in MigInput) (*Doc, Counts, HLC) {
 	var c Counts
 	st := HLC{Dev: in.Dev}
 	remote := in.Remote
+	if remote != nil {
+		// 第 5.1 节：先看见远端，盖章才排在远端之后（第 12.4 节第 6 步「本机的收藏因此保留」）。
+		st = st.receive(remote)
+	}
 	out := emptyDoc()
 	favs := dedupeUsers(in.Favorites)
 	for i := len(favs) - 1; i >= 0; i-- {

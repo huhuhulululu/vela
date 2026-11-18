@@ -69,7 +69,7 @@ func (h HLC) receive(doc *Doc) HLC {
 }
 
 // presend 执行第 5.2 节发送前重新盖章。
-// 部分已发出：已发出的快钟寄存器不改写；尚未发出的按同一规则重盖，并记 diagnostic。
+// 部分已发出（第 23 节第 3 条）：候选集里只要有一个已发出，整组不重新盖章，照常推送并记 diagnostic。
 // 时钟基准取「不在原 R 里的寄存器」与 (N, 0) 的较大者，避免被已发出的毒化时间戳抬走。
 func presend(st HLC, doc *Doc, N, maxSentL uint64) (HLC, *Doc, bool) {
 	type ref struct {
@@ -104,7 +104,7 @@ func presend(st HLC, doc *Doc, N, maxSentL uint64) (HLC, *Doc, bool) {
 			fixed++
 		}
 	}
-	if len(move) == 0 {
+	if fixed > 0 || len(move) == 0 {
 		return st, clone(doc), fixed > 0
 	}
 	baseL, baseC := N, uint16(0)

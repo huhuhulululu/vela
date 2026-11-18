@@ -253,8 +253,12 @@ func TestPresend(t *testing.T) {
 	if reg(d2, "rooms", "cb:old", "f") != wire(N+4_000_000, 0, 1)+"+" {
 		t.Fatal("sent register rewritten")
 	}
-	if reg(d2, "rooms", "cb:new", "f") != wire(N, 1, 1)+"+" {
+	// 第 23 节第 3 条：候选集里只要有一个已发出，整组不重新盖章。
+	if reg(d2, "rooms", "cb:new", "f") != wire(N+8_000_000, 0, 1)+"+" {
 		t.Fatalf("new %s", reg(d2, "rooms", "cb:new", "f"))
+	}
+	if st2 != st {
+		t.Fatalf("clock moved %+v", st2)
 	}
 }
 
@@ -371,5 +375,60 @@ func TestVectorsShapeAndStable(t *testing.T) {
 	}
 	if !readonly {
 		t.Fatal("schema_gt")
+	}
+}
+
+// 合并样本的输入必须本身合法（第 7.3 节数量上限），否则接收方会整份拒收。
+func TestMergeInputsAreLegal(t *testing.T) {
+	for _, v := range buildMerge() {
+		m := v.(map[string]any)
+		for _, k := range []string{"a", "b"} {
+			if st, reason := checkPlain(m[k].(json.RawMessage)); st != "ok" {
+				t.Fatalf("%s.%s %s", m["name"], k, reason)
+			}
+		}
+	}
+}
+
+// 迁移输入来自本机 Curation，收藏与屏蔽各不超过 300。
+func TestMigrationInputsFitCuration(t *testing.T) {
+	for _, v := range buildMigration() {
+		m := v.(map[string]any)
+		if favs, _ := m["favorites"].([]string); len(favs) > 300 {
+			t.Fatalf("%s favorites %d", m["name"], len(favs))
+		}
+	}
+}
+
+// 第 23 节第 5 条：模拟里写给另一个副本即已发出；快钟副本离开设备前重新盖章，合并步带 now。
+func TestSimulationMergeStepsCarryNow(t *testing.T) {
+	sim := oneSim(20261118, false)
+	for _, s := range sim["steps"].([]any) {
+		st := s.(map[string]any)
+		if st["kind"] == "merge" {
+			if _, ok := st["now"]; !ok {
+				t.Fatal("merge step without now")
+			}
+		}
+	}
+}
+
+// 快钟副本（0，设备号 1）的操作 pt 至少是 base+7,200,000；最终文档里出现更小的设备 1 寄存器，说明发送前重新盖章确实生效过。
+func TestSimulationExercisesRestamp(t *testing.T) {
+	restamped := 0
+	for i := 0; i < 48; i++ {
+		sim := oneSim(20261118+i, false)
+		var d Doc
+		if err := json.Unmarshal(sim["final"].(json.RawMessage), &d); err != nil {
+			t.Fatal(err)
+		}
+		eachReg(&d, func(l uint64, _ uint16, dev uint32, _ string) {
+			if dev == 1 && l < 1_700_000_000_000+7_200_000 {
+				restamped++
+			}
+		})
+	}
+	if restamped == 0 {
+		t.Fatal("no restamp exercised")
 	}
 }

@@ -602,7 +602,7 @@ func buildHLC() []any {
 	putReg(part, "rooms", "cb:new", "f", wire(N+8_000_000, 0, 1)+"+")
 	stP := HLC{L: N + 8_000_000, C: 0, Dev: 1}
 	stP2, docP, diagP := presend(stP, part, N, N+5_000_000)
-	must(diagP && reg(docP, "rooms", "cb:old", "f") == wire(N+4_000_000, 0, 1)+"+", "partial")
+	must(diagP && reg(docP, "rooms", "cb:old", "f") == wire(N+4_000_000, 0, 1)+"+" && reg(docP, "rooms", "cb:new", "f") == wire(N+8_000_000, 0, 1)+"+" && stP2 == stP, "partial")
 
 	bounds := []any{
 		map[string]any{"wire": wire(1, 0, 1), "valid": true},
@@ -654,7 +654,7 @@ func buildMerge() []any {
 	must(!ok, "drop larger")
 	// 屏蔽上限平局
 	blk := emptyDoc()
-	for i := 0; i < 300; i++ {
+	for i := 0; i < 299; i++ {
 		putReg(blk, "rooms", roomKey(i), "b", wire(uint64(5000+i), 0, 1)+"+")
 	}
 	blk2 := emptyDoc()
@@ -689,6 +689,10 @@ func buildMerge() []any {
 	ms := mergeDocs(s1, s2)
 	must(payloadOf(ms.Settings["publicOnly"]) == "1", "setting tie")
 	pair := func(name string, x, y *Doc) map[string]any {
+		for _, in := range []*Doc{x, y} {
+			st, reason := checkPlain(canon(in))
+			must(st == "ok", name+" input "+reason)
+		}
 		exp := mergeDocs(x, y)
 		st, reason := checkPlain(canon(exp))
 		must(st == "ok", name+" "+reason)
@@ -926,14 +930,25 @@ func buildMigration() []any {
 	}
 	jdoc, jc, _ := migrate(join)
 	must(jc.Z == 1 && jc.N == 1 && jc.M == 1 && jc.V == 2, fmt.Sprintf("join counts %+v", jc))
-	// 301 收藏，裁掉 1 个
-	names := make([]string, 301)
+	// 加入时合并超过 300：本机 300 个收藏（Curation 上限）加远端 3 个更旧的收藏，裁掉远端的 3 个（第 23 节第 6 条：X 计总数）。
+	names := make([]string, 300)
 	for i := range names {
 		names[i] = fmt.Sprintf("u%04d", i)
 	}
-	over := MigInput{Favorites: names, PT: 1_700_000_000_000, Dev: 3}
+	farRemote := emptyDoc()
+	for i := 0; i < 3; i++ {
+		putReg(farRemote, "rooms", fmt.Sprintf("cb:r%03d", i), "f", wire(uint64(20+i), 0, 2)+"+")
+	}
+	over := MigInput{Favorites: names, PT: 1_700_000_000_000, Dev: 3, Remote: farRemote}
 	odoc, oc, _ := migrate(over)
-	must(oc.N == 301 && oc.X == 1 && countKind(odoc, "fav") == 300, fmt.Sprintf("over %+v", oc))
+	must(oc.N == 300 && oc.X == 3 && countKind(odoc, "fav") == 300, fmt.Sprintf("over %+v", oc))
+	// 远端墓碑比本机墙钟新：先看见远端再盖章，本机收藏保留。
+	ahead := emptyDoc()
+	putReg(ahead, "rooms", "cb:amy", "f", wire(1_800_000_000_000, 0, 2)+"-")
+	putReg(ahead, "rooms", "cb:amy", "b", wire(1_800_000_000_000, 0, 2)+"-")
+	tomb := MigInput{Favorites: []string{"amy"}, PT: 1_700_000_000_000, Dev: 3, Remote: ahead}
+	tdoc, tc, _ := migrate(tomb)
+	must(tc.N == 1 && projectRoom(tdoc.Rooms["cb:amy"]) == "fav", fmt.Sprintf("tomb ahead %+v", tc))
 	pack := func(name string, in MigInput, doc *Doc, c Counts) map[string]any {
 		m := map[string]any{
 			"name": name, "favorites": in.Favorites, "blocked": in.Blocked, "vetoed": in.Vetoed,
@@ -946,7 +961,7 @@ func buildMigration() []any {
 		}
 		return m
 	}
-	return []any{pack("create", create, doc, counts), pack("join", join, jdoc, jc), pack("create-over-favorite", over, odoc, oc)}
+	return []any{pack("create", create, doc, counts), pack("join", join, jdoc, jc), pack("join-over-favorite", over, odoc, oc), pack("join-tombstone-ahead", tomb, tdoc, tc)}
 }
 
 func buildSims() []any {
@@ -968,6 +983,8 @@ func oneSim(seed int, big bool) map[string]any {
 	}
 	docs := make([]*Doc, n)
 	hs := make([]HLC, n)
+	// 各副本已发出寄存器的最大 l（第 5.2 节 maxSentL）；模拟里写给另一个副本即已发出（第 23 节第 5 条）。
+	sent := make([]uint64, n)
 	for i := 0; i < n; i++ {
 		docs[i] = emptyDoc()
 		hs[i] = HLC{Dev: uint32(i + 1)}
@@ -1026,8 +1043,9 @@ func oneSim(seed int, big bool) map[string]any {
 			if rng.Intn(2) == 0 {
 				write = "both"
 			}
-			docs, hs = doMerge(docs, hs, i, j, write)
-			record(map[string]any{"kind": "merge", "i": i, "j": j, "write": write})
+			now := base + uint64(s)*1000
+			docs, hs = doMerge(docs, hs, sent, now, i, j, write)
+			record(map[string]any{"kind": "merge", "i": i, "j": j, "write": write, "now": now})
 			continue
 		}
 		rep := rng.Intn(n)
@@ -1062,8 +1080,9 @@ func oneSim(seed int, big bool) map[string]any {
 		changed := false
 		for i := 1; i < n; i++ {
 			b0, bi := canon(docs[0]), canon(docs[i])
-			docs, hs = doMerge(docs, hs, 0, i, "both")
-			record(map[string]any{"kind": "merge", "i": 0, "j": i, "write": "both", "phase": "converge"})
+			now := base + uint64(stepsN+guard)*1000
+			docs, hs = doMerge(docs, hs, sent, now, 0, i, "both")
+			record(map[string]any{"kind": "merge", "i": 0, "j": i, "write": "both", "phase": "converge", "now": now})
 			if !bytes.Equal(canon(docs[0]), b0) || !bytes.Equal(canon(docs[i]), bi) {
 				changed = true
 			}
@@ -1089,7 +1108,26 @@ func oneSim(seed int, big bool) map[string]any {
 	}
 }
 
-func doMerge(docs []*Doc, hs []HLC, i, j int, write string) ([]*Doc, []HLC) {
+// doMerge 合并 i 与 j。离开设备的一方（write=i 时是 j，both 时是双方）先以真实时间 now 执行
+// 发送前重新盖章，再把它的寄存器记为已发出；随后合并并写回。
+func doMerge(docs []*Doc, hs []HLC, sent []uint64, now uint64, i, j int, write string) ([]*Doc, []HLC) {
+	var leaving []int
+	switch write {
+	case "both":
+		leaving = []int{i, j}
+	case "i":
+		leaving = []int{j}
+	default:
+		leaving = []int{i}
+	}
+	for _, s := range leaving {
+		hs[s], docs[s], _ = presend(hs[s], docs[s], now, sent[s])
+		eachReg(docs[s], func(l uint64, _ uint16, _ uint32, _ string) {
+			if l > sent[s] {
+				sent[s] = l
+			}
+		})
+	}
 	di, dj := docs[i], docs[j]
 	merged := mergeDocs(di, dj)
 	if write == "both" || write == "i" {
