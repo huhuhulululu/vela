@@ -71,10 +71,13 @@ extension StageModel {
         }
     }
 
-    /// 界面量到竖屏舞台高度（点，取长边）。三格每格不足 160 点就最多 2 路（修订 v2 M12）：已开 3 路的临时降到 2 路，
-    /// 不改用户选择；又放得下时按用户选择恢复。同值不动。
-    func notePortraitStageHeight(_ height: Double) {
-        let fits = LaneLayout.fitsThreeLanes(stageHeight: height)
+    /// 界面量到舞台尺寸（点，横屏时按竖屏方向理解：宽取短边、高取长边）。三格每格不足 160 点就最多 2 路（修订 v2 M12）：
+    /// 已开 3 路的临时降到 2 路，不改用户选择；又放得下时按用户选择恢复。同值不动。
+    func notePortraitStageSize(_ size: CGSize) {
+        let portrait = CGSize(width: min(size.width, size.height), height: max(size.width, size.height))
+        guard portrait != portraitStageSize else { return }
+        portraitStageSize = portrait
+        let fits = LaneLayout.fitsThreeLanes(stageHeight: Double(portrait.height))
         guard fits != threeLanesFit else { return }
         threeLanesFit = fits
         if fits {

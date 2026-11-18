@@ -394,17 +394,17 @@ final class TripleWindowTests: XCTestCase {
 
     func testShortScreenCapsAtTwoLanesWithoutOverwritingChoice() {
         let stage = triple()
-        stage.notePortraitStageHeight(874)
+        stage.notePortraitStageSize(CGSize(width: 402, height: 874))
         XCTAssertTrue(stage.threeLanesFit)
         XCTAssertEqual(stage.laneCount, 3)
-        stage.notePortraitStageHeight(400)
+        stage.notePortraitStageSize(CGSize(width: 402, height: 400))
         XCTAssertFalse(stage.threeLanesFit, "每格不足 160 点")
         XCTAssertEqual(stage.maxLaneCount, 2)
         XCTAssertEqual(stage.laneCount, 2, "临时降到 2 路")
         XCTAssertEqual(stage.settings.laneCount, 3, "不覆盖用户选择")
         stage.setLaneCount(3)
         XCTAssertEqual(stage.laneCount, 2, "放不下时选不了第三路")
-        stage.notePortraitStageHeight(874)
+        stage.notePortraitStageSize(CGSize(width: 402, height: 874))
         XCTAssertEqual(stage.laneCount, 3, "又放得下时按用户选择恢复")
         assertDistinct(stage)
     }

@@ -17,10 +17,15 @@ extension StageModel {
     /// 此刻竖屏同时显示几格：横屏与画中画只显示焦点路。
     var shownLaneCount: Int { landscape || pipSolo ? 1 : lanes.count }
 
-    /// 画面显示高度（点）：已出画面用 `videoRect`；还没有就按格子尺寸里 16:9 画面的高度估算；都没有为 0。
+    /// 画面显示高度（点）：已出画面用 `videoRect`；还没有就按格子尺寸里 16:9 画面的高度估算；
+    /// 格子还没布局（列表刚到就起播）时按舞台尺寸推算格子；都没有为 0。
     func estimatedDisplayHeight(_ lane: PlaybackLane) -> Double {
         if lane.displaySize.height > 0 { return Double(lane.displaySize.height) }
-        let pane = lane.paneSize
+        var pane = lane.paneSize
+        if pane.width <= 0 || pane.height <= 0, portraitStageSize.width > 0 {
+            let height = LaneLayout.paneHeight(stage: Double(portraitStageSize.height), lanes: lanes.count)
+            pane = CGSize(width: portraitStageSize.width, height: CGFloat(height))
+        }
         guard pane.width > 0, pane.height > 0 else { return 0 }
         return Double(min(pane.height, pane.width * 9 / 16))
     }

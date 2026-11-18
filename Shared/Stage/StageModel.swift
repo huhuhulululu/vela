@@ -97,6 +97,8 @@ final class StageModel: ObservableObject {
     var dualWindow: Bool { laneCount > 1 }
     /// 竖屏放得下三格（每格不低于 160 点，修订 v2 M12）。由界面量到舞台高度后更新。
     @Published var threeLanesFit = true
+    /// 舞台尺寸按竖屏方向（宽取短边、高取长边），格子还没布局时据此估算选档（不发布）。
+    var portraitStageSize: CGSize = .zero
     /// 手机横屏：双窗只显示焦点路，非焦点路释放（§4.2）。
     @Published var landscape = false
     /// 画中画正在显示（或启动）：双窗只留焦点路，另一路释放，退出后恢复（修订 A2 的 T18b）。
