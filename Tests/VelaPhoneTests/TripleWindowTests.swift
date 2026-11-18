@@ -455,4 +455,18 @@ final class TripleWindowTests: XCTestCase {
         XCTAssertNotNil(stage.secondary!.playTask, "补上的副路起播")
         assertDistinct(stage)
     }
+    // MARK: 审计 medium：临时降路后显式选同值要记住
+
+    /// 选了 3 路、屏幕变矮临时降到 2 路后，用户在菜单里明确选 2 路：逻辑路数不变，但用户选择要记成 2，
+    /// 屏幕恢复高度后也不再自动开第三路。
+    func testExplicitSameValueChoiceAfterTemporaryReductionIsRemembered() {
+        let stage = triple()
+        stage.notePortraitStageSize(CGSize(width: 300, height: 400))
+        XCTAssertEqual(stage.laneCount, 2)
+        XCTAssertEqual(stage.settings.laneCount, 3)
+        stage.setLaneCount(2)
+        XCTAssertEqual(stage.settings.laneCount, 2, "显式选择即使等于当前临时路数也记住")
+        stage.notePortraitStageSize(CGSize(width: 402, height: 874))
+        XCTAssertEqual(stage.laneCount, 2, "恢复高度后按用户新的选择，不再开第三路")
+    }
 }

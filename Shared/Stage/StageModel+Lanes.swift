@@ -54,7 +54,11 @@ extension StageModel {
     func setLaneCount(_ requested: Int, remember: Bool = true) {
         guard platform.supportsDual, !platform.focusLocked else { return }
         let next = min(max(requested, 1), maxLaneCount)
-        guard next != laneCount else { return }
+        guard next != laneCount else {
+            // 逻辑路数不变（例如屏幕变矮临时降到 2 路后用户明确选 2 路），用户选择仍要记住；同值不写。
+            if remember, requested == next, settings.laneCount != next { settings.laneCount = next }
+            return
+        }
         if next > laneCount { openLanes(upTo: next) } else { closeLanes(keeping: next) }
         syncLaneCaps()
         if remember { settings.laneCount = next }
