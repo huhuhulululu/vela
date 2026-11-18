@@ -165,4 +165,36 @@ final class AudioTransitionTests: XCTestCase {
         }))
         XCTAssertFalse(nonFocus.attemptsAudible)
     }
+
+    /// 首次起播前的初始转换（静音）：播放类别 + 混音并激活，不取消任何路的静音，不写设置。
+    func testPrepareMutedActivatesMixedPlaybackSession() {
+        let planned = plan(.prepare(muted: true), audible: nil)
+        XCTAssertEqual(planned.steps, [
+            .muteAllLanes,
+            .setCategory(.playback, mode: .moviePlayback),
+            .setSessionOptions(.mixWithOthers),
+            .setActive(true, notifyOthersOnDeactivation: false)
+        ])
+        XCTAssertNil(planned.audibleLane)
+        XCTAssertFalse(planned.preservesAudibleLane)
+        XCTAssertFalse(planned.writesSettings, "初始转换只落实已有设置，不改写")
+        XCTAssertFalse(planned.attemptsAudible)
+        XCTAssertNil(planned.notice)
+    }
+
+    /// 首次起播前的初始转换（出声）：与取消静音同样的步骤（不混音），但不写设置；失败照样保持静音并提示。
+    func testPrepareAudibleUsesUnmixedPlaybackWithoutWritingSettings() {
+        let planned = plan(.prepare(muted: false), audible: nil)
+        XCTAssertEqual(planned.steps, [
+            .setCategory(.playback, mode: .moviePlayback),
+            .setActive(true, notifyOthersOnDeactivation: false),
+            .unmuteLane(.primary)
+        ])
+        XCTAssertEqual(planned.audibleLane, .primary)
+        XCTAssertFalse(planned.writesSettings)
+        XCTAssertTrue(planned.attemptsAudible)
+        let failed = AudioTransition.finished(planned, categorySucceeded: true, activationSucceeded: false)
+        XCTAssertNil(failed.audibleLane)
+        XCTAssertEqual(failed.notice, AudioSessionPolicy.failureNotice)
+    }
 }

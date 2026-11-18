@@ -11,8 +11,10 @@ final class AudioFocusControllerTests: XCTestCase {
         var calls: [String] = []
         var failActive = false
         var failCategory = false
+        var onCategory: () -> Void = {}
 
         func setCategory(_ category: AudioSessionCategory, mode: AudioSessionMode?, options: AudioSessionOptions) throws {
+            onCategory()
             calls.append("category \(category) mix=\(options.contains(.mixWithOthers))")
             if failCategory { throw Failure() }
         }
@@ -155,5 +157,47 @@ final class AudioFocusControllerTests: XCTestCase {
         driver.calls = []
         stage.setVolume(0.6)
         XCTAssertTrue(driver.calls.isEmpty, "已出声时拖音量条不动会话")
+    }
+
+    // MARK: 首次起播前的初始转换
+
+    func testPrepareSessionRunsMutedConfigurationOnce() {
+        let (stage, controller, driver) = make()
+        XCTAssertTrue(stage.muted)
+        stage.prepareAudioSession()
+        XCTAssertEqual(driver.calls, ["category playback mix=true", "active true notify=false"])
+        XCTAssertTrue(controller.sessionPrepared)
+        stage.prepareAudioSession()
+        XCTAssertEqual(driver.calls.count, 2, "只在首次起播前做一次")
+        XCTAssertTrue(stage.muted)
+        XCTAssertTrue(isMuted(stage))
+    }
+
+    func testPrepareSessionAudibleUsesUnmixedPlayback() {
+        let (stage, _, driver) = make()
+        stage.muted = false
+        stage.prepareAudioSession()
+        XCTAssertEqual(driver.calls, ["category playback mix=false", "active true notify=false"])
+        XCTAssertFalse(stage.muted)
+        XCTAssertFalse(isMuted(stage))
+    }
+
+    func testFirstStartPlaybackPreparesSessionBeforePlayerGetsItem() async throws {
+        PlaylistRelay.shared.allowStart = true
+        let listening = await PlaylistRelay.shared.waitUntilListening(timeout: 5)
+        XCTAssertTrue(listening, "本地中继没能监听，测不了起播顺序")
+        guard listening else { return }
+        let (stage, _, driver) = make()
+        var hadItemAtCategory: Bool?
+        driver.onCategory = { hadItemAtCategory = stage.primary.player.hasItem }
+        let room = try XCTUnwrap(Room.direct(username: "audio_prepare_probe"))
+        let rendition = StreamRendition(video: try XCTUnwrap(URL(string: "http://127.0.0.1:9/probe.m3u8")))
+        stage.startPlayback(
+            room: room, target: .init(master: nil, playable: rendition), cap: .infinity, isRetry: false, lane: stage.primary
+        )
+        defer { stage.primary.player.stop() }
+        XCTAssertEqual(hadItemAtCategory, false, "设会话类别时播放器还没有播放项：初始转换在起播之前")
+        XCTAssertEqual(Array(driver.calls.prefix(2)), ["category playback mix=true", "active true notify=false"])
+        XCTAssertTrue(stage.primary.player.hasItem, "随后确实起播了（播放器拿到了播放项）")
     }
 }

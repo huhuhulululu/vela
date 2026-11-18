@@ -148,4 +148,27 @@ final class AudioTransitionRunnerTests: XCTestCase {
         XCTAssertNil(outcome.mutedAfter)
         XCTAssertFalse(rec.calls.contains { $0.hasPrefix("category") || $0.hasPrefix("active") })
     }
+
+    func testPrepareMutedSetsMixedCategoryThenActivates() {
+        let rec = Recorder()
+        let outcome = run(.prepare(muted: true), rec)
+        XCTAssertEqual(rec.calls, [
+            "mute secondary",
+            "mute primary", "mute secondary",
+            "category playback mix=true",
+            "active true notify=false"
+        ])
+        XCTAssertEqual(outcome.mutedAfter, true)
+        XCTAssertFalse(outcome.writesSettings)
+        XCTAssertFalse(outcome.failed)
+    }
+
+    func testPrepareMutedActivationFailureStaysMutedWithoutNotice() {
+        let rec = Recorder()
+        rec.failActive = true
+        let outcome = run(.prepare(muted: true), rec)
+        XCTAssertEqual(outcome.mutedAfter, true)
+        XCTAssertFalse(outcome.failed)
+        XCTAssertNil(outcome.notice, "静音本来就不出声，激活失败不打扰用户")
+    }
 }

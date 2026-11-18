@@ -12,6 +12,8 @@ protocol AudioFocusing: AnyObject {
     func perform(_ intent: AudioIntent) -> AudioOutcome
     /// 不动会话，只把模型当前的音量与静音同步给一路（新路接入、起播、拖音量条）。
     func syncVolume(to lane: PlaybackLane)
+    /// 首次起播前按当前静音状态做一次初始转换；已经做过返回 nil。
+    func prepareSession(muted: Bool) -> AudioOutcome?
 }
 
 @MainActor
@@ -611,6 +613,12 @@ final class StageModel: ObservableObject {
         settings.volume = volume
         settings.muted = muted
         for lane in lanes { lane.player.setVolume(volume, muted: muted) }
+    }
+
+    /// 首次起播前落实音频会话（§3.3、7b）：经音频控制器按当前静音状态执行一次初始转换。没有控制器（macOS）时不做事。
+    func prepareAudioSession() {
+        guard let audioFocus, let outcome = audioFocus.prepareSession(muted: muted) else { return }
+        applyAudioOutcome(outcome)
     }
 
     /// 落实一次音频转换的结果：运行时静音状态、是否写进设置、失败提示。

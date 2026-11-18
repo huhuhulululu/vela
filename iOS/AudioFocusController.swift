@@ -36,6 +36,8 @@ final class AudioFocusController: AudioFocusing, AudioLaneControlling {
     var focus: () -> PlaybackLaneRole = { .primary }
 
     var focusRole: PlaybackLaneRole { focus() }
+    /// 首次起播前的初始转换做过没有。冷启动静音起播也要先落实会话类别，否则停在系统默认类别。
+    private(set) var sessionPrepared = false
 
     init(
         stage: StageModel,
@@ -72,6 +74,13 @@ final class AudioFocusController: AudioFocusing, AudioLaneControlling {
         return AudioTransitionRunner.run(plan, lanes: roles, driver: driver, sink: self) { line in
             Self.log.info("\(line, privacy: .public)")
         }
+    }
+
+    func prepareSession(muted: Bool) -> AudioOutcome? {
+        guard !sessionPrepared else { return nil }
+        sessionPrepared = true
+        Self.log.info("audio prepare muted=\(muted)")
+        return perform(.prepare(muted: muted))
     }
 
     func syncVolume(to lane: PlaybackLane) {

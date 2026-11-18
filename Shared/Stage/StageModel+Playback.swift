@@ -295,7 +295,9 @@ extension StageModel {
         }
     }
 
-    private func startPlayback(room: Room, target: PlayTarget, cap: Double, isRetry: Bool, lane: PlaybackLane) {
+    func startPlayback(room: Room, target: PlayTarget, cap: Double, isRetry: Bool, lane: PlaybackLane) {
+        // 首次起播前先落实音频会话（iOS；macOS 没有控制器，不做事）。
+        prepareAudioSession()
         lane.awayRetry.clear()
         lane.currentMaster = target.master
         lane.currentPlayable = target.playable
