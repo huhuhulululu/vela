@@ -409,6 +409,40 @@ final class LifecycleWiringTests: XCTestCase {
         sidecar.suspendAll()
     }
 
+    /// 页面加载期间取消调用方（如预取被取消）：加载结束后不得再执行脚本、发站点请求；同时在等的另一个调用照常执行。
+    func testCancellingCallerDuringPageLoadSkipsScript() async {
+        var finishLoad: CheckedContinuation<Void, Never>?
+        var scripts = 0
+        let sidecar = SiteSidecar(
+            beforeLoad: {},
+            pageLoader: { _ in await withCheckedContinuation { finishLoad = $0 } },
+            scriptRunner: { _, _, _ in
+                scripts += 1
+                return ["status": 200, "body": "{}"] as [String: Any]
+            }
+        )
+        defer { sidecar.suspendAll() }
+        let url = URL(string: "https://example.invalid/")!
+        let cancelled = Task { @MainActor in try await sidecar.get(url) }
+        let loading = await waitUntil { finishLoad != nil }
+        XCTAssertTrue(loading)
+        let other = Task { @MainActor in try await sidecar.get(url) }
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        cancelled.cancel()
+        finishLoad?.resume()
+        let first = await cancelled.result
+        let second = await other.result
+
+        if case .failure(let error) = first {
+            XCTAssertTrue(error is CancellationError, "\(error)")
+        } else {
+            XCTFail("被取消的调用不应执行脚本")
+        }
+        if case .failure(let error) = second { XCTFail("另一个有效调用不应被误伤：\(error)") }
+        XCTAssertEqual(scripts, 1, "只有未取消的调用执行了脚本")
+    }
+
     /// 失败态回前台：保留失败，播放器也不能按自己记下的 `lastPlay` 重新解析起播（§3.2 只由 Stage 层决定）。
     func testFailedLaneWithRealLastPlayIsNotRestartedByPlayerOnReturn() async throws {
         let stage = makeStage()

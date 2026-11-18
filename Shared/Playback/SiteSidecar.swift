@@ -25,12 +25,20 @@ final class SiteSidecar: NSObject, WKNavigationDelegate {
     /// 统一挂起（iOS 后台，§3.1）：挂起期间不加载页面、不执行脚本，挂起前开始的调用在提交前作废。
     private var lifecycle = LifecycleEpoch()
 
+    /// 测试替身：替换「加载站点页面」与「在页面里执行脚本」两步，免得测试真的联网。nil 用真实实现。
+    private let pageLoader: (@MainActor (WKWebView) async throws -> Void)?
+    private let scriptRunner: (@MainActor (WKWebView, String, [String: Any]) async throws -> Any?)?
+
     init(
         host: SidecarHost = SidecarHost(),
-        beforeLoad: @escaping @MainActor () async -> Void = { await LegacyLoginCleanup.waitUntilDone() }
+        beforeLoad: @escaping @MainActor () async -> Void = { await LegacyLoginCleanup.waitUntilDone() },
+        pageLoader: (@MainActor (WKWebView) async throws -> Void)? = nil,
+        scriptRunner: (@MainActor (WKWebView, String, [String: Any]) async throws -> Any?)? = nil
     ) {
         self.host = host
         self.beforeLoad = beforeLoad
+        self.pageLoader = pageLoader
+        self.scriptRunner = scriptRunner
         super.init()
     }
 
@@ -133,9 +141,16 @@ final class SiteSidecar: NSObject, WKNavigationDelegate {
             scheduleIdleTeardown()
         }
         try await ensureLoaded(token: token)
+        // 加载任务是共享的、不随调用方取消：等它结束后再查一次调用方自己有没有被取消，取消了就不执行脚本、不发站点请求。
+        try Task.checkCancellation()
         guard lifecycle.allows(.beforeRequest, token: token) else { throw CancellationError() }
         guard let webView else { throw SidecarError.unavailable }
-        let result = try await webView.callAsyncJavaScript(body, arguments: arguments, in: nil, contentWorld: .page)
+        let result: Any?
+        if let scriptRunner {
+            result = try await scriptRunner(webView, body, arguments)
+        } else {
+            result = try await webView.callAsyncJavaScript(body, arguments: arguments, in: nil, contentWorld: .page)
+        }
         guard lifecycle.allows(.beforeCommit, token: token) else { throw CancellationError() }
         return result
     }
@@ -181,13 +196,19 @@ final class SiteSidecar: NSObject, WKNavigationDelegate {
         if loaded { return }
         if let loading {
             try await loading.value
+            try Task.checkCancellation()
             return
         }
         let view = ensureWebView()
         let task = Task { @MainActor in
             try Task.checkCancellation()
             try self.checkAlive(token)
-            try await self.load(view)
+            if let loader = self.pageLoader {
+                try await loader(view)
+                self.loaded = true
+            } else {
+                try await self.load(view)
+            }
         }
         loading = task
         do {
@@ -196,6 +217,8 @@ final class SiteSidecar: NSObject, WKNavigationDelegate {
             loading = nil
             throw error
         }
+        // 只取消这一个调用方：共享的加载已完成，留给其他调用方用。
+        try Task.checkCancellation()
     }
 
     /// 挂起（代次已变）或调用方已取消：以取消结束。
