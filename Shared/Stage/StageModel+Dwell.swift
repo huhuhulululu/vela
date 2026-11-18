@@ -233,12 +233,14 @@ extension StageModel {
         }
     }
 
-    /// 只在猜你喜欢模式、且仍停留在原房间时，把相近的未看房间挪到紧随其后；已划过的位置不动。
+    /// 只在猜你喜欢模式、且焦点路仍停留在原房间时，把相近的未看房间挪到紧随这一间之后；已划过的位置不动。
+    /// 双窗里按焦点路的房间与位置来，不是主路的。
     func promoteRelated(to username: String) {
-        guard source == .guess, let room = feed.current, room.username == username else { return }
-        let ahead = Array(feed.rooms.dropFirst(feed.index + 1))
+        guard source == .guess, let room = focusRoom, room.username == username,
+              let at = feed.rooms.firstIndex(where: { $0.username == username }) else { return }
+        let ahead = Array(feed.rooms.dropFirst(at + 1))
         let names = Recommender.related(to: room, among: ahead, taste: taste)
         guard !names.isEmpty else { return }
-        updateFeed(intent: .merge) { $0.promoteAfterCurrent(names) }
+        updateFeed(intent: .merge) { $0.promoteAfter(anchor: username, names) }
     }
 }
