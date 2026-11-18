@@ -291,13 +291,21 @@ extension StageModel {
         LaneSelection.Snapshot(
             rooms: store.rooms.map(\.username),
             primary: LaneCursor(
-                username: store.current?.username, direction: primary.skips.direction, previous: primary.previousRoom
+                username: primaryName(in: store), direction: primary.skips.direction, previous: primary.previousRoom
             ),
             secondary: secondary.map(cursor(of:)),
             tertiary: tertiary.map(cursor(of:)),
             focus: focusLane,
             recent: lanes.count == 1 ? [] : recentSkips.active(at: Date())
         )
+    }
+
+    /// 主路此刻真正停的房间。单窗与原来一样取 `feed.current`（macOS 行为不变）；多路时主路可以合法地为空，
+    /// `current` 会回退到列表首间，不能拿来冒充，所以取可见列表里的 `currentUsername`，不可见或为空就是 nil。
+    private func primaryName(in store: FeedStore) -> String? {
+        guard lanes.count > 1 else { return store.current?.username }
+        guard let name = store.currentUsername?.lowercased() else { return nil }
+        return store.rooms.first { $0.username.lowercased() == name }?.username
     }
 
     private func cursor(of lane: PlaybackLane) -> LaneCursor {
@@ -307,7 +315,7 @@ extension StageModel {
     /// 把 `LaneSelection` 的结果写回。单窗时它与 FeedStore 的选择必须一致：不一致只记日志、保留 FeedStore 的选择，
     /// macOS 行为不变。双窗时主路改用联合结果（两路不重复）。
     func applySelection(_ outcome: LaneSelection.Outcome, to store: inout FeedStore) {
-        let chosen = store.current?.username
+        let chosen = primaryName(in: store)
         guard outcome.primary.username?.lowercased() != chosen?.lowercased() else { return }
         guard lanes.count > 1 else {
             log.error("lane-selection mismatch single-window")

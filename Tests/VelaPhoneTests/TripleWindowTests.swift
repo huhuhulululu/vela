@@ -408,4 +408,37 @@ final class TripleWindowTests: XCTestCase {
         XCTAssertEqual(stage.laneCount, 3, "又放得下时按用户选择恢复")
         assertDistinct(stage)
     }
+    // MARK: 审计 high：空主路不能被列表首间冒充
+
+    /// 焦点在第三路、屏蔽主路后剩下两间正好分属副路与第三路：主路合法地为空。
+    /// 再向前划占着首间的副路，不能落到第三路正在播的房间上（审计发现：快照把 `feed.current` 的回退值当主路）。
+    func testEmptyPrimaryIsNotImpersonatedWhenSwipingForwardInThreeLanes() {
+        let stage = triple(["alice", "bob", "carol"])
+        stage.setFocus(.tertiary)
+        stage.blockCurrent(stage.target(.primary))
+        XCTAssertEqual(names(stage), [nil, "bob", "carol"], "主路合法地为空")
+        let snapshot = stage.laneSnapshot(of: stage.feed)
+        XCTAssertNil(snapshot.primary.username, "快照里主路保持为空，不取列表首间")
+        stage.step(1, on: stage.secondary!)
+        assertDistinct(stage, "向前划副路")
+        XCTAssertEqual(names(stage)[1], "bob", "没有空房可去：副路原地")
+        stage.step(-1, on: stage.tertiary!)
+        assertDistinct(stage, "向后划第三路")
+        stage.applyDirectSearchHit(room("carol"))
+        assertDistinct(stage, "reveal 第三路的房间")
+        XCTAssertEqual(stage.focusLane, .tertiary)
+    }
+
+    /// 两路时主路为空（列表只剩副路那一间），向前划副路仍两路不重复，主路仍为空。
+    func testEmptyPrimaryStaysEmptyWhenSwipingForwardInTwoLanes() {
+        let stage = makeStage(["alice", "bob"])
+        stage.setLaneCount(2)
+        stage.setFocus(.secondary)
+        stage.blockCurrent(stage.target(.primary))
+        XCTAssertEqual(names(stage), [nil, "bob", nil])
+        XCTAssertNil(stage.laneSnapshot(of: stage.feed).primary.username)
+        stage.step(1, on: stage.secondary!)
+        XCTAssertEqual(names(stage), [nil, "bob", nil])
+        assertDistinct(stage)
+    }
 }
