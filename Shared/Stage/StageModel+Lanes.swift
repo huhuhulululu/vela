@@ -32,13 +32,24 @@ extension StageModel {
         }
     }
 
+    /// 两路房间是否互不相同（空路算不同）。日志只记结论，不记房间名。
+    var lanesDistinct: Bool {
+        guard let secondary, let first = primary.username?.lowercased(), let second = secondary.username?.lowercased() else { return true }
+        return first != second
+    }
+
+    func logLaneRooms() {
+        guard secondary != nil else { return }
+        Self.lanesLog.info("lane-rooms distinct=\(self.lanesDistinct, privacy: .public)")
+    }
+
     // MARK: 开关
 
     /// 开关双窗并记住（裁决 1）。同值不动。
-    func setDual(_ on: Bool) {
+    func setDual(_ on: Bool, remember: Bool = true) {
         guard platform.supportsDual, on != dualWindow else { return }
         if on { openSecondary() } else { closeSecondary() }
-        settings.phoneDual = on
+        if remember { settings.phoneDual = on }
         Self.lanesLog.info("dual \(on ? "on" : "off", privacy: .public)")
     }
 
@@ -63,6 +74,7 @@ extension StageModel {
         settleSecondary(lane, outcome: outcome)
         syncPlaybackFace()
         applyPower()
+        logLaneRooms()
     }
 
     private func closeSecondary() {
@@ -92,40 +104,52 @@ extension StageModel {
 
     /// 切焦点：出声时先静音旧的出声路、确认会话、再让新焦点路出声（§3.3），然后才改焦点与停留口径。
     func setFocus(_ id: LaneID) {
-        guard dualWindow, secondary != nil, id != focusLane else { return }
+        // 画中画里的那一路就是焦点路，小窗开着时不能换掉它。
+        guard dualWindow, secondary != nil, id != focusLane, !platform.focusLocked else { return }
         let outcome = audioFocus?.switchFocus(to: id.role)
         focusLane = id
         let now = Date()
         for lane in lanes { lane.dwell.setFocused(lane.id == id, now: now) }
         if let outcome { applyAudioOutcome(outcome) }
         for lane in lanes { pushVolume(to: lane) }
-        applyLandscapeVisibility()
+        applyLaneVisibility()
         for lane in lanes { scheduleRelated(on: lane) }
         dismissFavoriteSuggestIfMismatch()
         scheduleFavoriteSuggestWake()
         Self.lanesLog.info("focus \(Self.label(id.role), privacy: .public)")
     }
 
-    // MARK: 横屏
+    // MARK: 只留焦点路（横屏、画中画）
 
     /// 横屏只显示焦点路：非焦点路立刻释放；回竖屏用 `requestPlay(on:)` 恢复（§4.2）。
     func setLandscape(_ on: Bool) {
         guard on != landscape else { return }
         landscape = on
-        applyLandscapeVisibility()
+        applyLaneVisibility()
     }
 
-    /// 按「横屏 ∧ 非焦点」重算每一路的可见性。隐藏的路释放播放项与中继源，显示回来的路按生命周期的恢复判定重新起播。
-    private func applyLandscapeVisibility() {
+    /// 画中画进入时只留焦点路，退出（或启动失败）后恢复双窗。单窗不动。
+    func setPipSolo(_ on: Bool) {
+        guard on != pipSolo else { return }
+        pipSolo = on
+        applyLaneVisibility()
+    }
+
+    /// 按「横屏或画中画 ∧ 非焦点」重算每一路的可见性。隐藏的路释放播放项与中继源；
+    /// 显示回来的路按生命周期的恢复判定重新起播（挂起期间只改可见性，回前台由生命周期恢复）。
+    private func applyLaneVisibility() {
         guard dualWindow else { return }
+        let solo = landscape || pipSolo
         for lane in lanes {
-            let shown = !landscape || lane.id == focusLane
+            let shown = !solo || lane.id == focusLane
             guard lane.visible != shown else { continue }
             lane.visible = shown
             if shown {
                 lane.player.forgetSuspendedResume()
                 applyPower()
-                if PhoneLifecycle.shouldPlay(phoneSnapshot(of: lane)) { resumePlay(lane, activity: .idle) }
+                if !lifecycleSuspended, PhoneLifecycle.shouldPlay(phoneSnapshot(of: lane)) {
+                    resumePlay(lane, activity: .idle)
+                }
             } else {
                 release(lane)
                 applyPower()

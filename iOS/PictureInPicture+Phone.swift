@@ -75,6 +75,7 @@ final class PictureInPictureCoordinator: NSObject, ObservableObject, PictureInPi
         next.delegate = self
         next.canStartPictureInPictureAutomaticallyFromInline = autoEnter
         controller = next
+        Self.log.notice("pip attach")
         boundLayer = layer
         possibleObservation = next.observe(\.isPictureInPicturePossible, options: [.initial, .new]) { [weak self] pip, _ in
             let value = pip.isPictureInPicturePossible
@@ -106,7 +107,9 @@ final class PictureInPictureCoordinator: NSObject, ObservableObject, PictureInPi
     }
 
     private func setPossible(_ value: Bool) {
-        if possible != value { possible = value }
+        guard possible != value else { return }
+        possible = value
+        Self.log.notice("pip possible=\(value)")
     }
 
     fileprivate func deliver(_ event: PiPEvent) {

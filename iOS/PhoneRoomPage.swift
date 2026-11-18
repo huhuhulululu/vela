@@ -40,9 +40,13 @@ struct PhoneRoomPage: View {
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { pane.frame = $0 }
     }
 
-    /// 只有焦点路挂画中画（单窗恒为主路）。
+    /// 只有焦点路挂画中画（单窗恒为主路）。画中画里的那一路就是焦点路，另一路不能进。
+    static func carriesPictureInPicture(lane: LaneID, focus: LaneID) -> Bool {
+        PerfEntry.pipOnAllLanes || lane == focus
+    }
+
     private var pipController: PictureInPictureCoordinator? {
-        lane.id == model.focusLane ? model.platform.pipCoordinator : nil
+        Self.carriesPictureInPicture(lane: lane.id, focus: model.focusLane) ? model.platform.pipCoordinator : nil
     }
 
     private var videoReady: Bool { active && playback.readyUsername == room.username }

@@ -409,3 +409,31 @@ final class DualWindowTests: XCTestCase {
         XCTAssertEqual(stage.name(of: stage.primary), "bob")
     }
 }
+
+/// 两路房间互不相同的结论（日志与验收都读它）。
+@MainActor
+final class DualWindowDistinctTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        TestPrefs.reset()
+    }
+
+    override func tearDown() {
+        TestPrefs.reset()
+        super.tearDown()
+    }
+
+    func testLanesDistinctFollowsRooms() {
+        let name = "vela-phone-distinct-\(UUID().uuidString)"
+        defer { UserDefaults().removePersistentDomain(forName: name) }
+        let stage = TestPrefs.stage(settings: SettingsStore(defaults: UserDefaults(suiteName: name)!))
+        XCTAssertTrue(stage.lanesDistinct, "单窗没有重复一说")
+        stage.updateFeed(intent: .reload) {
+            $0.replace(with: CatalogPage(rooms: ["a1", "b2", "c3"].map { Room.direct(username: $0)! }, total: 3, nextOffset: 3))
+        }
+        stage.setDual(true)
+        XCTAssertTrue(stage.lanesDistinct)
+        stage.secondary!.username = stage.primary.username
+        XCTAssertFalse(stage.lanesDistinct, "判定本身认得出重复")
+    }
+}

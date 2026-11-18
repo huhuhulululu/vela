@@ -91,6 +91,8 @@ final class StageModel: ObservableObject {
     @Published var dualWindow = false
     /// 手机横屏：双窗只显示焦点路，非焦点路释放（§4.2）。
     @Published var landscape = false
+    /// 画中画正在显示（或启动）：双窗只留焦点路，另一路释放，退出后恢复（修订 A2 的 T18b）。
+    var pipSolo = false
     /// 设备热状态下的画质上限（§4.4，裁决 3）：平时不封顶，`.serious` 及以上按画面实际显示高度降档，回到 `.fair` 并满 60 秒回升。
     var laneQuality = LaneQuality()
     var thermalState = PhoneThermalState.nominal
@@ -810,6 +812,7 @@ final class StageModel: ObservableObject {
         if let secondary { settleSecondary(secondary, outcome: outcome, reason: reason) }
         // 目标在另一路播放时 `LaneSelection` 只切焦点（§4.1）。
         if secondary != nil, outcome.focus != focusLane { setFocus(outcome.focus) }
+        logLaneRooms()
     }
 
     func updatePresence(_ body: (inout Presence) -> Void) {

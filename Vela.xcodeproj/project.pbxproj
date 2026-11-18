@@ -168,6 +168,7 @@
 		81C6CACF5876C02AB9E27066 /* FailureSampleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FailureSampleTests.swift"; sourceTree = "<group>"; };
 		F3FB5EB6BA3C36C3ED004529 /* DualQualityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DualQualityTests.swift"; sourceTree = "<group>"; };
 		EC4C839D4FCB3130199D9B80 /* DualDwellTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DualDwellTests.swift"; sourceTree = "<group>"; };
+		FFE24CF91F90C2CC4F4B8F92 /* DualPictureInPictureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DualPictureInPictureTests.swift"; sourceTree = "<group>"; };
 		E737F6EABF2B36DB150E289B /* DualAudioFocusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DualAudioFocusTests.swift"; sourceTree = "<group>"; };
 		E79E44737E888FB03982A804 /* DualWindowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DualWindowTests.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -435,6 +436,7 @@
 				81C6CACF5876C02AB9E27066 /* FailureSampleTests.swift */,
 				F3FB5EB6BA3C36C3ED004529 /* DualQualityTests.swift */,
 				EC4C839D4FCB3130199D9B80 /* DualDwellTests.swift */,
+				FFE24CF91F90C2CC4F4B8F92 /* DualPictureInPictureTests.swift */,
 				E737F6EABF2B36DB150E289B /* DualAudioFocusTests.swift */,
 				E79E44737E888FB03982A804 /* DualWindowTests.swift */,
 				D15A00000000000000000010 /* AudioFocusControllerTests.swift */,
@@ -792,6 +794,7 @@
 				C3F537A22F84FC279CA1173F /* FailureSampleTests.swift in Sources (VelaPhoneTests) */,
 				4C0EB6FB94E743AACA989B50 /* DualQualityTests.swift in Sources (VelaPhoneTests) */,
 				A5A4190849DE7CF8CC4C13FF /* DualDwellTests.swift in Sources (VelaPhoneTests) */,
+				947D5F2B75D49C497F1A064D /* DualPictureInPictureTests.swift in Sources (VelaPhoneTests) */,
 				83BA5543DA01DD34D13CCC4A /* DualAudioFocusTests.swift in Sources (VelaPhoneTests) */,
 				C6AE91D825EEFFF41E4BA3EB /* DualWindowTests.swift in Sources (VelaPhoneTests) */,
 				D15A00000000000000000011 /* AudioFocusControllerTests.swift in Sources (VelaPhoneTests) */,
@@ -1068,6 +1071,7 @@
 		C3F537A22F84FC279CA1173F /* FailureSampleTests.swift in Sources (VelaPhoneTests) */ = {isa = PBXBuildFile; fileRef = 81C6CACF5876C02AB9E27066 /* FailureSampleTests.swift */; };
 		4C0EB6FB94E743AACA989B50 /* DualQualityTests.swift in Sources (VelaPhoneTests) */ = {isa = PBXBuildFile; fileRef = F3FB5EB6BA3C36C3ED004529 /* DualQualityTests.swift */; };
 		A5A4190849DE7CF8CC4C13FF /* DualDwellTests.swift in Sources (VelaPhoneTests) */ = {isa = PBXBuildFile; fileRef = EC4C839D4FCB3130199D9B80 /* DualDwellTests.swift */; };
+		947D5F2B75D49C497F1A064D /* DualPictureInPictureTests.swift in Sources (VelaPhoneTests) */ = {isa = PBXBuildFile; fileRef = FFE24CF91F90C2CC4F4B8F92 /* DualPictureInPictureTests.swift */; };
 		83BA5543DA01DD34D13CCC4A /* DualAudioFocusTests.swift in Sources (VelaPhoneTests) */ = {isa = PBXBuildFile; fileRef = E737F6EABF2B36DB150E289B /* DualAudioFocusTests.swift */; };
 		C6AE91D825EEFFF41E4BA3EB /* DualWindowTests.swift in Sources (VelaPhoneTests) */ = {isa = PBXBuildFile; fileRef = E79E44737E888FB03982A804 /* DualWindowTests.swift */; };
 /* End PBXBuildFile section */

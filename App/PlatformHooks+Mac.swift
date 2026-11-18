@@ -9,6 +9,8 @@ final class PlatformHooks {
     let allowsCrop = true
     /// macOS 不做双窗。
     let supportsDual = false
+    /// macOS 没有双窗，焦点不会被锁。
+    var focusLocked: Bool { false }
 
     private let bossKey = GlobalHotKey()
     private var activity: SystemActivity?
