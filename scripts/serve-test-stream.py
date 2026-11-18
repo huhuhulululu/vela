@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """把 make-test-stream.sh 生成的点播 HLS 当作直播窗口提供出来（仅标准库，运行：python3 -I scripts/serve-test-stream.py ...）。
 
-用法：serve-test-stream.py <流目录> --port-file <文件>
+用法：serve-test-stream.py <流目录> --port-file <文件> [--stats-file <文件>]
 只绑 127.0.0.1 的系统分配端口，端口号写入 --port-file（先写临时名再改名，读到即完整）；收到 SIGTERM/SIGINT 即退出。
+--stats-file：每个成功响应追加一行「墙钟秒 字节数 文件名」。模拟器里回环流量不进 nettop，
+iOS 实跑用它按时间窗统计「有没有联网、联了多少」（回桌面后应为 0，画中画只剩一路）。
 主列表原样提供；媒体列表按墙钟生成滑动窗口（3 个分片、MEDIA-SEQUENCE 随时间递增），分片文件循环使用，
 回绕处加 EXT-X-DISCONTINUITY 并维护 DISCONTINUITY-SEQUENCE，音视频两路窗口同步。
 """
@@ -11,6 +13,7 @@ import os
 import re
 import signal
 import sys
+import threading
 import time
 
 WINDOW = 3
@@ -62,7 +65,19 @@ class Stream:
         return ("\n".join(lines) + "\n").encode()
 
 
-def make_handler(stream):
+class StatsLog:
+    """响应统计：追加写，一行一个请求，多线程安全。"""
+
+    def __init__(self, path):
+        self.path = path
+        self.lock = threading.Lock()
+
+    def record(self, name, nbytes):
+        with self.lock, open(self.path, "a") as f:
+            f.write("%.3f %d %s\n" % (time.time(), nbytes, name))
+
+
+def make_handler(stream, stats=None):
     class H(http.server.BaseHTTPRequestHandler):
         def log_message(self, *a):
             pass
@@ -89,19 +104,22 @@ def make_handler(stream):
             try:
                 self.wfile.write(body)
             except OSError:
-                pass
+                return
+            if stats:
+                stats.record(name, len(body))
     return H
 
 
 def main(argv):
-    if len(argv) != 4 or argv[2] != "--port-file":
+    if len(argv) not in (4, 6) or argv[2] != "--port-file" or (len(argv) == 6 and argv[4] != "--stats-file"):
         print(__doc__, file=sys.stderr)
         return 2
     root, port_file = argv[1], argv[3]
+    stats = StatsLog(argv[5]) if len(argv) == 6 else None
     if not os.path.isfile(os.path.join(root, "master.m3u8")):
         print("流目录里没有 master.m3u8: %s" % root, file=sys.stderr)
         return 1
-    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), make_handler(Stream(root)))
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), make_handler(Stream(root), stats))
     server.daemon_threads = True
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     tmp = port_file + ".tmp"

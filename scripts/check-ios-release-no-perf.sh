@@ -19,8 +19,8 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$CONFIG" ] || { echo "缺少配置名" >&2; exit 2; }
 
-# 入口标识串：必须与 iOS/PerfEntry.swift 里的值一致（改一处要改两处，测试会核对）。
-MARKERS="perf-autoplay vela-perf-entry-armed-8c41d7e2b9a0"
+# 入口标识串：必须与 iOS/PerfEntry.swift、iOS/PerfStream+Phone.swift 里的值一致（改一处要改两处，测试会核对）。
+MARKERS="perf-autoplay vela-perf-entry-armed-8c41d7e2b9a0 vela-perf-stream-hook-enabled"
 
 TMP=$(mktemp -d /tmp/vela-ios-noperf.XXXXXX)
 trap 'rm -rf "$TMP"' EXIT

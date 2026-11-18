@@ -6,7 +6,13 @@ import XCTest
 final class DualWindowTests: XCTestCase {
     private var suites: [String] = []
 
+    override func setUp() {
+        super.setUp()
+        TestPrefs.reset()
+    }
+
     override func tearDown() {
+        TestPrefs.reset()
         for name in suites { UserDefaults().removePersistentDomain(forName: name) }
         suites = []
         PlaylistRelay.shared.allowStart = true
@@ -23,7 +29,7 @@ final class DualWindowTests: XCTestCase {
 
     /// 列表装入后主路停在第一间。
     private func makeStage(_ names: [String] = ["alice", "bob", "carol", "dave"], defaults: UserDefaults? = nil) -> StageModel {
-        let stage = StageModel(settings: SettingsStore(defaults: defaults ?? self.defaults()))
+        let stage = TestPrefs.stage(settings: SettingsStore(defaults: defaults ?? self.defaults()))
         install(stage, names)
         XCTAssertFalse(stage.ageConfirmed)
         return stage
@@ -65,7 +71,7 @@ final class DualWindowTests: XCTestCase {
     func testRememberedDualOpensSecondaryAtLaunch() {
         let store = defaults()
         SettingsStore(defaults: store).phoneDual = true
-        let stage = StageModel(settings: SettingsStore(defaults: store))
+        let stage = TestPrefs.stage(settings: SettingsStore(defaults: store))
         XCTAssertTrue(stage.dualWindow)
         XCTAssertNotNil(stage.secondary)
         install(stage, ["alice", "bob", "carol"])

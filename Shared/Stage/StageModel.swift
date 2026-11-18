@@ -91,6 +91,11 @@ final class StageModel: ObservableObject {
     @Published var dualWindow = false
     /// 手机横屏：双窗只显示焦点路，非焦点路释放（§4.2）。
     @Published var landscape = false
+    /// 设备热状态下的画质上限（§4.4，裁决 3）：平时不封顶，`.serious` 及以上按画面实际显示高度降档，回到 `.fair` 并满 60 秒回升。
+    var laneQuality = LaneQuality()
+    var thermalState = PhoneThermalState.nominal
+    var thermalRecoveryTask: Task<Void, Never>?
+    var thermalObserver: NSObjectProtocol?
     /// 每路 `objectWillChange` 转发到模型：原来模型上的 `@Published` 字段搬进路之后，界面失效时机不变。
     var laneForwarders: [LaneID: AnyCancellable] = [:]
     let sidecar = SiteSidecar()
@@ -199,6 +204,7 @@ final class StageModel: ObservableObject {
         for lane in lanes { attach(lane) }
         installObservers()
         restoreDualIfRemembered()
+        startThermalObserving()
         kickoffCatalogIfConfirmed()
     }
 
@@ -321,6 +327,10 @@ final class StageModel: ObservableObject {
         hintVisible = !settings.hintSeen
         announceStartupNotices()
         // 初始化时已经领过目录请求就不再发；未确认年龄的路径不会领到这里。
+        #if os(iOS) && PERF_PROBE
+        // 性能探针的固定测试流：不加载真实目录。
+        if startPerfStreamIfRequested() { return }
+        #endif
         guard startupGate.claimCatalog(ageConfirmed: true) else { return }
         Task { await reload() }
     }

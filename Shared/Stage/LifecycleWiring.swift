@@ -158,6 +158,8 @@ extension StageModel {
         lane.relatedTask = nil
         lane.qualityTask?.cancel()
         lane.qualityTask = nil
+        lane.capTask?.cancel()
+        lane.capTask = nil
         lane.playGeneration += 1
     }
 

@@ -722,7 +722,7 @@ final class PlayerController: ObservableObject {
     }
 
     /// 错误本身与各层 underlying error 的 (domain, code)，供归类成中文文案。
-    private static func errorChain(_ error: Error?) -> [(domain: String, code: Int)] {
+    static func errorChain(_ error: Error?) -> [(domain: String, code: Int)] {
         var chain: [(domain: String, code: Int)] = []
         var current = error as NSError?
         while let e = current, chain.count < 6 {

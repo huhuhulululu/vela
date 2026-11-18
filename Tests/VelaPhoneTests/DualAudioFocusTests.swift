@@ -28,7 +28,13 @@ final class DualAudioFocusTests: XCTestCase {
 
     private var suites: [String] = []
 
+    override func setUp() {
+        super.setUp()
+        TestPrefs.reset()
+    }
+
     override func tearDown() {
+        TestPrefs.reset()
         for name in suites { UserDefaults().removePersistentDomain(forName: name) }
         suites = []
         super.tearDown()
@@ -38,7 +44,7 @@ final class DualAudioFocusTests: XCTestCase {
         let name = "vela-phone-dualaudio-\(UUID().uuidString)"
         suites.append(name)
         let settings = SettingsStore(defaults: UserDefaults(suiteName: name)!)
-        let stage = StageModel(settings: settings)
+        let stage = TestPrefs.stage(settings: settings)
         stage.updateFeed(installing: nil, intent: .reload) {
             $0.replace(with: CatalogPage(rooms: ["alice", "bob", "carol"].map { Room.direct(username: $0)! }, total: 3, nextOffset: 3))
         }
