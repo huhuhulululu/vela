@@ -17,8 +17,22 @@ APP_PID=""
 SCENARIO_TIMEOUT=180
 WAIT_MIN=${SELFTEST_WAIT_MIN:-90}
 
-clean_caches() {
-    rm -rf "$HOME/Library/Caches/$DOMAIN" "$HOME/Library/HTTPStorages/$DOMAIN" "$HOME/Library/WebKit/$DOMAIN"
+APP_STARTED=0   # 只有真的启动过 App，收尾才清理站点数据目录
+
+# 运行前就存在的目录（存在则收尾不删：站点数据可能是用户自己的，侧车与确认页用默认数据存储）
+PRE_DIRS=""
+for d in "$HOME/Library/Caches/$DOMAIN" "$HOME/Library/WebKit/$DOMAIN" "$HOME"/Library/HTTPStorages/${DOMAIN}*; do
+    [ -e "$d" ] && PRE_DIRS="${PRE_DIRS}|${d}"
+done
+
+clean_caches() {   # 只删本次运行新建的目录
+    [ "$APP_STARTED" = 1 ] || return 0
+    local d
+    for d in "$HOME/Library/Caches/$DOMAIN" "$HOME/Library/WebKit/$DOMAIN" "$HOME"/Library/HTTPStorages/${DOMAIN}*; do
+        [ -e "$d" ] || continue
+        case "$PRE_DIRS" in *"|${d}"*) continue ;; esac
+        rm -rf "$d"
+    done
 }
 
 restore_prefs() {
@@ -87,6 +101,7 @@ check_release() {
 run_scenario() {   # run_scenario <场景> -> 0 PASS / 1 FAIL
     local scn="$1" app="$DD/Build/Products/Debug/Vela.app" started
     started=$(date '+%Y-%m-%d %H:%M:%S')
+    APP_STARTED=1
     open -g -j -n "$app" --args --selftest "$scn" || { echo "[$scn] 启动失败"; return 1; }
     local i=0
     while [ -z "$APP_PID" ] && [ "$i" -lt 20 ]; do

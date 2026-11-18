@@ -21,6 +21,9 @@ jobs:
         run: |
           if [ -x scripts/test-perf-gate.sh ]; then bash scripts/test-perf-gate.sh; else echo "skip: no perf gate yet"; fi
 
+      - name: selftest 清理回归测试
+        run: bash scripts/test-selftest-cleanup.sh
+
   mac:
     name: macOS build (${{ matrix.configuration }})
     runs-on: macos-latest
