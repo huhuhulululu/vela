@@ -321,6 +321,22 @@ T16 按计划修订 A1 改在模拟器上做（2026-11-17，分支 `feat/ios-pr2
 
 未在本轮实跑的路径（由 `PictureInPictureWiringTests` 用桩覆盖）：3 秒内未进入画中画的回退全停、启动失败、后台里用户关掉画中画、自动进入开关关闭。模拟器上的画中画小窗本身不代表真机的解码与功耗。
 
+### 第二阶段审计修复后复测（2026-11-18，分支 `fix/pr2-audit`，`5c82665`）
+
+修复三方审计的 11 条发现之后（预取登记与取消、侧车加载前复查、后台与最后一路停播不改静音意图、迟到的画中画 willStart、旧恢复入口、iOS Presence、inactive 停留、收藏夹窄屏、Linux 文案、停用失败重试）的回归实跑。Perf 构建、`--perf-autoplay`（静音）、单窗，`scripts/perf-probe-ios.sh --profile vela --duration 30 --bg-hold 30 --teardown`，`ssh localhost` 回环，每台 1 轮，新建设备跑完删除；开跑前确认本机无其他 perf-probe / selftest / xcodebuild。
+
+| 项 | iPhone 17 Pro `--scenario background` | iPad Pro 11（M5）`--scenario pip` | 结论 |
+|---|---|---|---|
+| 前台 | 首帧 1.36 秒，cpu 18.2%，footprint 72.3 MB | 首帧 0.52 秒，cpu 7.2%，footprint 55.0 MB | 直播房间每轮不同，数字不横比 |
+| 后台 5 秒后（30 秒窗口） | cpu 0.23%，非回环与回环流量 0，footprint 40.2 MB；`bg_order_ok=true`（`epoch suspend allowing=none` → `lane suspend` → `audio step … active=false notify=true` → `audio deactivated` → `relay listener stopped`） | 画中画继续：下行 21.9 MB/min（只这一路），逐连接快照里后台窗口内**没有任何新连接**，字节增长的只有直播 CDN 那一条；目录、侧车连接不动 | 通过：后台无预取请求、无站点解析 |
+| 后台侧车与解析 | 日志里 `start-source` 只出现在启动与切回之后，后台窗口内 0 条；无侧车加载 | 同左 | 通过 |
+| 回前台 | `epoch resume` 之后先 `audio prepare muted=true` → `category=playback mix=true` → `active=true`（会话在后台已停用，`sessionPrepared` 复位后按当前静音状态重新准备），新首帧距切回 3.74 秒 | `pip stopped restore=true`，新首帧距切回 1.56 秒 | 通过；iPhone 这轮恢复比前几轮（1.4 到 1.7 秒）慢，单样本、活直播，未复测 |
+
+未在本轮实跑的项：
+- iPad「关掉自动进入画中画后回桌面全停」：试过启动参数 `-pipAutoEnter NO`，设置存在 `com.vela.stage` 套件里，参数域不生效，iPad 照样进了画中画；全停路径由 iPhone 这轮与 `PictureInPictureWiringTests` 覆盖。
+- 出声相关（后台再回前台、最后一路停播、停用失败重试）：Perf 构建强制静音，不点击就无法出声，按要求只做单元测试（`AudioFocusControllerTests`）。
+- 控制栏 2.4 秒收起：用状态断言 `LifecycleWiringTests.testChromeHidesAfterActivityTimeout` 验证。
+
 ### 哪些不代表真机
 
 同「iOS Spike（模拟器）」一节：解码在 Mac 上，cpu 与功耗绝对值不能外推；网络是本机到直播 CDN。
