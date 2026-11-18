@@ -8,8 +8,8 @@ extension StageModel {
     }
 
     /// 收藏或取消收藏当前房间。收藏时再给它的标签与性别一次「关注」级加权。
-    func toggleFavorite() {
-        guard let room = feed.current else { return }
+    func toggleFavorite(_ target: RoomTarget?) {
+        guard let lane = matchedLane(target), let room = room(of: lane) else { return }
         log.info("favorite-toggle \(self.curation.isFavorite(room.username) ? "off" : "on", privacy: .public)")
         if curation.isFavorite(room.username) {
             commit(
@@ -26,9 +26,9 @@ extension StageModel {
     }
 
     /// 屏蔽当前房间：从所有来源里去掉，并立刻切到下一个。
-    func blockCurrent() {
-        guard let room = feed.current else { return }
-        manuallyPaused = false
+    func blockCurrent(_ target: RoomTarget?) {
+        guard let lane = matchedLane(target), let room = room(of: lane) else { return }
+        lane.manuallyPaused = false
         commit(curation.blocking(room.username), "已屏蔽 \(room.displayName)，可在收藏与屏蔽列表里取消")
     }
 

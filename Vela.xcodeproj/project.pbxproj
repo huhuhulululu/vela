@@ -29,6 +29,7 @@
 		060D66056AF5CB17E24CBF07 /* LoadSlot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LoadSlot.swift"; sourceTree = "<group>"; };
 		D58D9B01FE96A871D43BF155 /* PlaybackPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PlaybackPolicy.swift"; sourceTree = "<group>"; };
 		08207590C42838E351DF1E17 /* StageModel+Quality.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "StageModel+Quality.swift"; sourceTree = "<group>"; };
+		CC8A972A8101B4B06BC687A7 /* PlaybackLane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackLane.swift; sourceTree = "<group>"; };
 		A2F14BB1109403F2F3C26579 /* StageModel+Dwell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "StageModel+Dwell.swift"; sourceTree = "<group>"; };
 		408C6336E8B36C0ED1511721 /* StageModel+Playback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "StageModel+Playback.swift"; sourceTree = "<group>"; };
 		8AD58179CE1D95A346DDE1EC /* StageModel+Curation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "StageModel+Curation.swift"; sourceTree = "<group>"; };
@@ -300,6 +301,7 @@
 				533213F0A3E79556DF74A5C5 /* SettingsStore.swift */,
 				4118C98CD1ACEE3DA63A535B /* StageModel+Taste.swift */,
 				08207590C42838E351DF1E17 /* StageModel+Quality.swift */,
+				CC8A972A8101B4B06BC687A7 /* PlaybackLane.swift */,
 				408C6336E8B36C0ED1511721 /* StageModel+Playback.swift */,
 				7C1E5A90D3B24F68A0C4E9F5 /* StageModel+Favorites.swift */,
 				A2F14BB1109403F2F3C26579 /* StageModel+Dwell.swift */,
@@ -422,6 +424,7 @@
 				4CA5F8B2BCC360A6C97AA444 /* SiteSidecar.swift in Sources */,
 				E85C881A23B06A6B8AE77E59 /* StageModel.swift in Sources */,
 				4466F8C896319175AE607015 /* StageModel+Quality.swift in Sources */,
+				930B1583A2AB045584316637 /* PlaybackLane.swift in Sources */,
 				CFDE7D7A17F4597B18A1D524 /* StageModel+Dwell.swift in Sources */,
 				8B76BE9509C4A2190ACF794D /* StageModel+Playback.swift in Sources */,
 				60DB5560410788B91D32251C /* StageModel+Curation.swift in Sources */,
@@ -536,6 +539,7 @@
 				81845D61A8E7EEE8C17292D7 /* SettingsStore.swift in Sources (VelaPhone) */,
 				BE672A31AE6665AD91A0D039 /* StageModel+Taste.swift in Sources (VelaPhone) */,
 				DC0C4FF5D4FA5F83C40A193B /* StageModel+Quality.swift in Sources (VelaPhone) */,
+				FAEFA726D14323A461F813EF /* PlaybackLane.swift in Sources (VelaPhone) */,
 				E5DC8700909E3CE1DD2D4CF3 /* StageModel+Playback.swift in Sources (VelaPhone) */,
 				15B5BFDDFAFE794727EE2E3D /* StageModel+Favorites.swift in Sources (VelaPhone) */,
 				52C5824A3F696F519C9CFF70 /* StageModel+Dwell.swift in Sources (VelaPhone) */,
@@ -703,6 +707,7 @@
 		B9BB748BBC48D97D4A3D3D92 /* LoadSlot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 060D66056AF5CB17E24CBF07 /* LoadSlot.swift */; };
 		84E18F6BCC0E604427682EEB /* PlaybackPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D58D9B01FE96A871D43BF155 /* PlaybackPolicy.swift */; };
 		4466F8C896319175AE607015 /* StageModel+Quality.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08207590C42838E351DF1E17 /* StageModel+Quality.swift */; };
+		930B1583A2AB045584316637 /* PlaybackLane.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC8A972A8101B4B06BC687A7 /* PlaybackLane.swift */; };
 		CFDE7D7A17F4597B18A1D524 /* StageModel+Dwell.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2F14BB1109403F2F3C26579 /* StageModel+Dwell.swift */; };
 		8B76BE9509C4A2190ACF794D /* StageModel+Playback.swift in Sources */ = {isa = PBXBuildFile; fileRef = 408C6336E8B36C0ED1511721 /* StageModel+Playback.swift */; };
 		60DB5560410788B91D32251C /* StageModel+Curation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AD58179CE1D95A346DDE1EC /* StageModel+Curation.swift */; };
@@ -810,6 +815,7 @@
 		15B5BFDDFAFE794727EE2E3D /* StageModel+Favorites.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 7C1E5A90D3B24F68A0C4E9F5 /* StageModel+Favorites.swift */; };
 		E5DC8700909E3CE1DD2D4CF3 /* StageModel+Playback.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 408C6336E8B36C0ED1511721 /* StageModel+Playback.swift */; };
 		DC0C4FF5D4FA5F83C40A193B /* StageModel+Quality.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 08207590C42838E351DF1E17 /* StageModel+Quality.swift */; };
+		FAEFA726D14323A461F813EF /* PlaybackLane.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = CC8A972A8101B4B06BC687A7 /* PlaybackLane.swift */; };
 		BE672A31AE6665AD91A0D039 /* StageModel+Taste.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 4118C98CD1ACEE3DA63A535B /* StageModel+Taste.swift */; };
 		81845D61A8E7EEE8C17292D7 /* SettingsStore.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 533213F0A3E79556DF74A5C5 /* SettingsStore.swift */; };
 		D938D92DA4FC8F04D1F31746 /* PreferenceHealth.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = AB120348225B6A421E7EC9CF /* PreferenceHealth.swift */; };

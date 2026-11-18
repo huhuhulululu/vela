@@ -11,15 +11,12 @@ final class StageModel: ObservableObject {
     @Published var presence = Presence()
     @Published var pinned = true
     @Published var fitFill = true
-    /// 竖屏房间自动完整画面（只对当前房间，不改 `fitFill`）。
-    @Published var portraitFit = PortraitFit()
     @Published var gender: Gender?
     @Published var region: Region?
     @Published var publicOnly = true
     @Published var restSavesPower = false
     @Published var volume = 0.85
     @Published var muted = true
-    @Published var manuallyPaused = false
     @Published var searchText = ""
     @Published var tagText = ""
     /// 正在显示的全站搜索词：非 nil 时列表是搜索结果组成的临时列表，清空搜索框回到原来源。
@@ -28,7 +25,6 @@ final class StageModel: ObservableObject {
     @Published var ageConfirmed = false
     @Published var loading = false
     @Published var catalogError: String?
-    @Published var playbackNote: String?
     @Published var chromeVisible = true
     @Published var showFilters = false
     @Published var showOpacity = false
@@ -66,9 +62,12 @@ final class StageModel: ObservableObject {
     /// 站点确认页完成后要接着做的事：被确认打断的目录加载或收藏查询。nil 表示只恢复播放。
     var challengeResume: ChallengeResume?
 
-    let player = PlayerController()
-    /// 画面订阅这一份，不直接订阅播放器：播放器会把没变的就绪 / 失败状态反复写进 `@Published`。
-    let playback = PlaybackFace()
+    /// 每路播放的状态（§4.2）。macOS 恒为只有主路；iOS 双窗时再加副路。
+    let primary = PlaybackLane(id: .primary)
+    var secondary: PlaybackLane?
+    var lanes: [PlaybackLane] { secondary.map { [primary, $0] } ?? [primary] }
+    /// 每路 `objectWillChange` 转发到模型：原来模型上的 `@Published` 字段搬进路之后，界面失效时机不变。
+    var laneForwarders: [LaneID: AnyCancellable] = [:]
     let sidecar = SiteSidecar()
     var screenScale = 2.0
 
@@ -78,7 +77,6 @@ final class StageModel: ObservableObject {
     /// 冷启动只进一次 bootstrap；年龄已确认时目录请求只发一次（初始化可以先领）。
     var startupGate = StartupGate()
     var loadGeneration = 0
-    var playGeneration = 0
     var paging = PagingState()
     var loadedOffset: Int {
         get { paging.offset }
@@ -88,25 +86,12 @@ final class StageModel: ObservableObject {
     var loadSlot = LoadSlot()
     /// 当前列表是哪个来源取回的（切换来源失败时据此回滚）。
     var loadedSource: Source = .guess
-    /// 最近一次由播放器失败状态写进 playbackNote 的文案；失败恢复时据此清掉，不动其他来源的提示。
-    var playerNote: String?
-    /// 播放器已报告的状态，来自 StageView 订阅时收到的新值（@Published 在 willSet 发出，回读属性拿到的是旧值）。
-    var readyName: String?
-    var playingName: String?
     var sidecarUntil = Date.distantPast
     var pointHeight = 740.0
     var chromeTask: Task<Void, Never>?
-    var quality = QualityGovernor(now: Date())
-    var qualityTask: Task<Void, Never>?
-    var qualitySignature = ""
-    var currentPlayable: StreamRendition?
-    var currentCap = Double.infinity
     var qualityObserver: AnyCancellable?
     static let qualityLog = Logger(subsystem: "com.vela.stage", category: "quality")
     static let playbackLog = Logger(subsystem: "com.vela.stage", category: "renew")
-    var skipTask: Task<Void, Never>?
-    /// 当前这一轮起播（解析流地址、取档）：同一时间只保留一个，新的起播取消旧的。
-    var playTask: Task<Void, Never>?
     /// 启动时读偏好文件的现场（坏文件已备份，或备份失败进入只读），界面可见后提示一次。
     var startupNotices: [String] = []
     /// 连续质询的弹窗闸门：达到上限后改为提示并跳过，不再循环弹确认页。
@@ -115,13 +100,9 @@ final class StageModel: ObservableObject {
     var targetedTask: Task<Void, Never>?
     /// 冷启动首页之后的目录页。换来源、重新加载、全站搜索时取消，失败只记日志。
     var catalogRestTask: Task<Void, Never>?
-    /// 房间暂时离开时的一次性延迟重试；切房（`playCurrent`）时取消。
-    var awayTask: Task<Void, Never>?
-    var awayTimer = AwayRetryTimer()
     /// 在途全站搜索及其操作代次（见 `SearchEpoch`）。
     var siteSearchTask: Task<Void, Never>?
     var searchEpoch = SearchEpoch()
-    var awayRetry = AwayRetry()
     let tasteSaver: DeferredSaver<Taste>
     let tasteStore: TasteStore
     let curationSaver: DeferredSaver<Curation>
@@ -134,13 +115,8 @@ final class StageModel: ObservableObject {
     var refreshPointerPolling: (() -> Void)?
     /// 口味画像：停留结算、收藏、面板操作都更新它；只存本机。
     @Published var taste = Taste()
-    /// 当前停留记账的房间是在哪个来源里出现的（换来源时 `source` 先变、列表后换，结算要用旧来源）。
-    var dwellSource: Source = .guess
     /// 「猜你喜欢」列表里各房间（小写用户名）的推荐理由，随目录重载整体替换。
     var reasons: [String: String] = [:]
-    var dwell = DwellTracker()
-    var relatedTask: Task<Void, Never>?
-    var skips = SkipTracker()
     var systemInactive = false
     var toastTask: Task<Void, Never>?
     /// 推荐用的常规候选（不含按口味定向拉来的额外页）与它的标签稀有度；记账与排序共用。
@@ -191,10 +167,7 @@ final class StageModel: ObservableObject {
         startupNotices = notices
         for text in notices { log.error("preference file unreadable: \(text, privacy: .public)") }
         loadSettings()
-        player.setVolume(volume, muted: muted)
-        player.refreshRequested = { [weak self] name, isRetry in self?.refreshCurrent(name, isRetry: isRetry) }
-        player.noAudioDetected = { [weak self] name in self?.noteNoAudio(name) }
-        player.renewRendition = { [weak self] name, cap in await self?.renewRendition(name, cap: cap) }
+        for lane in lanes { attach(lane) }
         installObservers()
         kickoffCatalogIfConfirmed()
     }
@@ -231,7 +204,7 @@ final class StageModel: ObservableObject {
     private func installObservers() {
         // 面板开合等不经过 applyPower 的状态变化也要让「离开」计时跟上。
         qualityObserver = objectWillChange.sink { [weak self] _ in
-            DispatchQueue.main.async { self?.refreshQuality() }
+            DispatchQueue.main.async { self?.refreshAllQuality() }
         }
         platform.observeApp(
             unhidden: { [weak self] in
@@ -269,8 +242,9 @@ final class StageModel: ObservableObject {
     }
 
     /// 复查后仍没有可听音轨：用现有横幅说一声，免得人反复点喇叭。
-    func noteNoAudio(_ username: String) {
-        guard username == feed.currentUsername else { return }
+    func noteNoAudio(_ username: String, on given: PlaybackLane? = nil) {
+        let lane = given ?? primary
+        guard username == name(of: lane) else { return }
         showToast("这路没有声音")
     }
 
@@ -283,7 +257,7 @@ final class StageModel: ObservableObject {
     /// 「播放」菜单的重试：有当前房间就重新解析起播，没有（空列表）就重新加载目录。
     func retryFromMenu() {
         if feed.current != nil {
-            retryPlayback()
+            retryPlayback(target())
         } else {
             Task { await retry() }
         }
@@ -358,19 +332,22 @@ final class StageModel: ObservableObject {
 
 
     /// 用户手动划动：记住方向，自动跳过沿同一方向。
-    func step(_ delta: Int) {
-        skips.noteManual(delta)
-        move(delta, userInitiated: true)
+    func step(_ delta: Int, on given: PlaybackLane? = nil) {
+        let lane = given ?? primary
+        lane.skips.noteManual(delta)
+        move(delta, userInitiated: true, on: lane)
     }
 
+    /// 移动一路。主路的落点由 FeedStore 选，副路由 `LaneSelection` 选（两路不重复）。
     @discardableResult
-    func move(_ delta: Int, userInitiated: Bool = false) -> Bool {
-        let before = feed.currentUsername
-        updateFeed { $0.step(delta) }
-        guard feed.currentUsername != before else { return false }
-        manuallyPaused = MoveRules.pausedAfterMove(manuallyPaused: manuallyPaused, userInitiated: userInitiated)
+    func move(_ delta: Int, userInitiated: Bool = false, on given: PlaybackLane? = nil) -> Bool {
+        let lane = given ?? primary
+        let before = name(of: lane)
+        updateFeed(intent: .move(lane.id, delta)) { if lane.id == .primary { $0.step(delta) } }
+        guard name(of: lane) != before else { return false }
+        lane.manuallyPaused = MoveRules.pausedAfterMove(manuallyPaused: lane.manuallyPaused, userInitiated: userInitiated)
         if hintVisible { dismissHint() }
-        requestPlay()
+        requestPlay(on: lane)
         Task { await loadMoreIfNeeded() }
         return true
     }
@@ -378,49 +355,54 @@ final class StageModel: ObservableObject {
     /// 画面已出现：界面与降画质判定用。必须用订阅收到的新值，不能回读 player.readyUsername。
     /// 同一次播放里 `readyUsername` 会被反复写成同一个值；画面镜像只在变化时通知。
     /// 视频尺寸可能比第一次回调更晚才有，竖屏判定仍每次看一眼。
-    func noteReady(_ username: String?) {
-        playback.setReady(username)
-        let readyChanged = username != readyName
-        readyName = username
-        notePortrait(username)
-        if readyChanged { refreshQuality() }
+    func noteReady(_ username: String?, on given: PlaybackLane? = nil) {
+        let lane = given ?? primary
+        lane.playback.setReady(username)
+        let readyChanged = username != lane.readyName
+        lane.readyName = username
+        notePortrait(username, on: lane)
+        if readyChanged { refreshQuality(on: lane) }
     }
 
     /// 播放器此刻真在播的房间变了（缓冲、暂停、失败都会让它变空）：回放成功清连续跳过计数，停留计时随之启停。
     /// `timeControlStatus` 停在 playing 时也会重复回调；房间没变就不要重排停留和画质。
-    func notePlaying(_ username: String?) {
-        playback.setPlaying(username)
-        guard username != playingName else {
+    func notePlaying(_ username: String?, on given: PlaybackLane? = nil) {
+        let lane = given ?? primary
+        lane.playback.setPlaying(username)
+        guard username != lane.playingName else {
             // 仍是这一间在播：只补上「播放成功」该清的标记。重排停留会把收藏提示的等待任务取消再造一份。
-            if let username, username == feed.currentUsername {
-                skips.reset()
-                dwell.clearFailure()
+            if let username, username == name(of: lane) {
+                lane.skips.reset()
+                lane.dwell.clearFailure()
             }
             return
         }
-        playingName = username
-        if let username, username == feed.currentUsername {
-            skips.reset()
-            dwell.clearFailure()
+        lane.playingName = username
+        if let username, username == name(of: lane) {
+            lane.skips.reset()
+            lane.dwell.clearFailure()
+            lane.state = .playing
         }
-        updateDwellActive()
-        refreshQuality()
+        updateDwellActive(on: lane)
+        refreshQuality(on: lane)
     }
 
     /// `onReceive` 不补发当前值。视图刚挂上时若已经在播，把镜像和停留对齐一次；已经对齐则都是空操作。
     func syncPlaybackFace() {
-        let ready = player.readyUsername
-        let playing = player.playingUsername
-        if ready != readyName {
-            noteReady(ready)
-        } else {
-            playback.setReady(ready)
-        }
-        playback.setFailed(player.failed)
-        if playing != playingName {
-            notePlaying(playing)
-        } else {
-            playback.setPlaying(playing)
+        for lane in lanes {
+            let ready = lane.player.readyUsername
+            let playing = lane.player.playingUsername
+            if ready != lane.readyName {
+                noteReady(ready, on: lane)
+            } else {
+                lane.playback.setReady(ready)
+            }
+            lane.playback.setFailed(lane.player.failed)
+            if playing != lane.playingName {
+                notePlaying(playing, on: lane)
+            } else {
+                lane.playback.setPlaying(playing)
+            }
         }
     }
 
@@ -553,12 +535,12 @@ final class StageModel: ObservableObject {
     var effectiveFill: Bool { platform.allowsCrop && portraitFit.fill(global: fitFill, current: feed.currentUsername) }
 
     /// 出画面时按视频尺寸判断竖屏（不另发请求）；尺寸未知按横屏处理。
-    private func notePortrait(_ username: String?) {
+    private func notePortrait(_ username: String?, on lane: PlaybackLane) {
         guard let username else { return }
-        let size = player.player.currentItem?.presentationSize ?? .zero
-        var next = portraitFit
+        let size = lane.player.player.currentItem?.presentationSize ?? .zero
+        var next = lane.portraitFit
         next.noteReady(username, width: Double(size.width), height: Double(size.height))
-        if next != portraitFit { portraitFit = next }
+        if next != lane.portraitFit { lane.portraitFit = next }
     }
 
     /// 竖屏自动完整画面期间按切换：只撤掉这次自动，不改全局设置；否则照常切换全局铺满。
@@ -580,7 +562,7 @@ final class StageModel: ObservableObject {
             settings.volume = volume
         }
         settings.muted = muted
-        player.setVolume(volume, muted: muted)
+        for lane in lanes { lane.player.setVolume(volume, muted: muted) }
         applyPower()
     }
 
@@ -589,15 +571,23 @@ final class StageModel: ObservableObject {
         if volume == 0 { muted = true } else { muted = false }
         settings.volume = volume
         settings.muted = muted
-        player.setVolume(volume, muted: muted)
+        for lane in lanes { lane.player.setVolume(volume, muted: muted) }
     }
 
     func shiftVolume(_ delta: Double) {
         setVolume(volume + delta)
     }
 
-    func togglePause() {
-        manuallyPaused.toggle()
+    /// 暂停 / 继续一路。`target` 为 nil（没有房间时的菜单与空格键）落在主路，与原来一样照常切换。
+    func togglePause(_ target: RoomTarget?) {
+        let lane: PlaybackLane
+        if let target {
+            guard let matched = matchedLane(target) else { return }
+            lane = matched
+        } else {
+            lane = primary
+        }
+        lane.manuallyPaused.toggle()
         applyPower()
     }
 
@@ -669,7 +659,6 @@ final class StageModel: ObservableObject {
     var pointVisible = true
     var pointerKnown = false
     var prepared = PreparedCache()
-    var currentMaster: URL?
 
     var currentQuery: RoomQuery {
         RoomQuery(
@@ -690,16 +679,29 @@ final class StageModel: ObservableObject {
     /// 不能靠 `$feed` 订阅：`@Published` 在 willSet 发出，回调里读 `feed` 还是旧值。
     /// `installing`：这次改动把列表整体换成了这个来源的；即使当前房间同名也要结算旧来源下的停留，
     /// 且 `loadedSource` 先于结算更新，停留归属取新列表的真实来源（不是用户刚选的来源）。
-    func updateFeed(installing: Source? = nil, _ body: (inout FeedStore) -> Void) {
+    /// `intent`：交给 `LaneSelection` 的意图（§4.1）。单窗时它的结果必须与 FeedStore 自己的选择一致。
+    func updateFeed(
+        installing: Source? = nil,
+        intent: LaneSelection.Intent = .filter,
+        _ body: (inout FeedStore) -> Void
+    ) {
         var copy = feed
         let before = copy.current?.username
+        let snapshot = laneSnapshot(of: copy)
         body(&copy)
+        let outcome = LaneSelection.resolve(
+            before: snapshot, afterRooms: copy.rooms.map(\.username),
+            proposedPrimary: copy.current?.username, intent: intent
+        )
+        applySelection(outcome, to: &copy)
         feed = copy
+        primary.username = feed.currentUsername
         let sourceChanged = installing.map { $0 != loadedSource } ?? false
         loadedSource = ListOrigin.dwell(loaded: loadedSource, installing: installing)
         if DwellTracker.shouldSettle(before: before, after: feed.current?.username, sourceChanged: sourceChanged) {
-            currentRoomChanged()
+            currentRoomChanged(on: primary)
         }
+        if let secondary { settleSecondary(secondary, outcome: outcome) }
     }
 
     func updatePresence(_ body: (inout Presence) -> Void) {
@@ -759,34 +761,45 @@ final class StageModel: ObservableObject {
         }
     }
 
-    /// 统一的播放门控：起播、重试、换档、恢复都经过 PlayerController 里的这一个开关。
-    var playbackAllowed: Bool {
+    /// 主路的播放门控（菜单、提示文案等只看主路的地方用）。
+    var playbackAllowed: Bool { laneAllowed(primary) }
+
+    /// 每路的播放门控 = 全局闸门 ∧ !本路手动暂停 ∧ 本路可见（§4.2）。
+    /// 起播、重试、换档、恢复都经过该路 PlayerController 里的这一个开关。
+    func laneAllowed(_ lane: PlaybackLane) -> Bool {
         PlaybackPolicy.allowed(
-            windowVisible: pointVisible, manuallyPaused: manuallyPaused,
+            windowVisible: pointVisible && lane.visible, manuallyPaused: lane.manuallyPaused,
             bossHidden: bossHidden, systemInactive: systemInactive
         )
     }
 
-    /// 把「窗口对用户不可见」同步给播放器，决定停播后要不要释放播放项。
+    /// 把「窗口对用户不可见」同步给各路播放器，决定停播后要不要释放播放项。
     func syncPlayerHidden() {
-        player.setHidden(PlaybackPolicy.windowInvisible(
-            windowVisible: pointVisible, bossHidden: bossHidden, systemInactive: systemInactive, appHidden: platform.appHidden
+        for lane in lanes { syncPlayerHidden(lane) }
+    }
+
+    private func syncPlayerHidden(_ lane: PlaybackLane) {
+        lane.player.setHidden(PlaybackPolicy.windowInvisible(
+            windowVisible: pointVisible && lane.visible, bossHidden: bossHidden,
+            systemInactive: systemInactive, appHidden: platform.appHidden
         ))
     }
 
     func applyPower(windowVisible: Bool? = nil) {
         if let windowVisible { pointVisible = windowVisible }
-        let allowed = playbackAllowed
-        if awayTimer.gateChanged(allowed: allowed) {
-            awayTask?.cancel()
-            awayTask = nil
-            playbackNote = AwayRetry.noteAfterCancel(playbackNote)
+        for lane in lanes {
+            let allowed = laneAllowed(lane)
+            if lane.awayTimer.gateChanged(allowed: allowed) {
+                lane.awayTask?.cancel()
+                lane.awayTask = nil
+                lane.playbackNote = AwayRetry.noteAfterCancel(lane.playbackNote)
+            }
+            syncPlayerHidden(lane)
+            lane.player.setAllowed(allowed)
+            lane.player.setDisplaySleepPrevented(resolvedPresence().engaged && allowed && lane.player.hasItem)
+            updateDwellActive(on: lane)
+            refreshQuality(on: lane)
         }
-        syncPlayerHidden()
-        player.setAllowed(allowed)
-        player.setDisplaySleepPrevented(resolvedPresence().engaged && allowed && player.hasItem)
-        updateDwellActive()
-        refreshQuality()
         // 闸门刚按当前的窗口、暂停、老板键、休眠重算过。轮询是否还要留，由这些状态决定，这里再判一次。
         refreshPointerPolling?()
     }

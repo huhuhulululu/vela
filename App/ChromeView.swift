@@ -44,7 +44,7 @@ struct ChromeView: View {
                     FilterPanel(model: model)
                 }
                 HeartButton(isFavorite: model.currentIsFavorite, canToggle: model.feed.current != nil,
-                            toggle: { model.toggleFavorite() }, openList: { model.showCuration = true })
+                            toggle: { model.toggleFavorite(model.target()) }, openList: { model.showCuration = true })
                 .popover(isPresented: $model.showCuration, arrowEdge: .top) {
                     CurationPanel(
                         model: model,

@@ -50,7 +50,7 @@ struct VelaCommands: Commands {
                     .keyboardShortcut(.downArrow, modifiers: [])
                 Button("上一位") { model.step(-1) }
                     .keyboardShortcut(.upArrow, modifiers: [])
-                Button(model.manuallyPaused ? "继续" : "暂停") { model.togglePause() }
+                Button(model.manuallyPaused ? "继续" : "暂停") { model.togglePause(model.target()) }
                     .keyboardShortcut(" ", modifiers: [])
                 Button(model.muted ? "取消静音" : "静音") { model.toggleMute() }
                     .keyboardShortcut("m", modifiers: [])
@@ -63,13 +63,13 @@ struct VelaCommands: Commands {
             Button("重试当前房间") { model.retryFromMenu() }
                 .disabled(!model.ageConfirmed)
             Divider()
-            Button(model.currentIsFavorite ? "取消收藏当前房间" : "收藏当前房间") { model.toggleFavorite() }
+            Button(model.currentIsFavorite ? "取消收藏当前房间" : "收藏当前房间") { model.toggleFavorite(model.target()) }
                 .keyboardShortcut("d", modifiers: .command)
                 .disabled(model.feed.current == nil)
-            Button("屏蔽当前房间") { model.blockCurrent() }
+            Button("屏蔽当前房间") { model.blockCurrent(model.target()) }
                 .keyboardShortcut("b", modifiers: [.command, .shift])
                 .disabled(model.feed.current == nil)
-            Button("对当前房间不感兴趣") { model.markNotInterested() }
+            Button("对当前房间不感兴趣") { model.markNotInterested(model.target()) }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
                 .disabled(model.feed.current == nil)
             Button("收藏夹…") { model.showCuration = true }

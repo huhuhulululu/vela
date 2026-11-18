@@ -90,7 +90,7 @@ struct RoomCanvas: View {
                     }
                     .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                 }
-            Button("重试") { model.retryPlayback() }
+            Button("重试") { model.retryPlayback(model.target()) }
                 .buttonStyle(ChampagneButton())
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

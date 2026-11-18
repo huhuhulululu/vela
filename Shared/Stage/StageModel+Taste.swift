@@ -79,7 +79,7 @@ extension StageModel {
         let seed = UInt64.random(in: .min ... .max)
         let current = taste
         let signals = rankSignals
-        updateFeed {
+        updateFeed(intent: .merge) {
             $0.reorderAfterCurrent {
                 Recommender.arrange($0, source: .guess, taste: current, now: now, seed: seed, favorites: favorites, signals: signals)
             }
@@ -128,11 +128,11 @@ extension StageModel {
     }
 
     /// 对当前房间不感兴趣：记一次强落空，作废它的停留，立刻切到下一个。
-    func markNotInterested() {
-        guard let room = feed.current else { return }
-        commitTaste(taste.rejecting(room: room, source: dwellSource, now: Date()))
-        dwell.discard()
+    func markNotInterested(_ target: RoomTarget?) {
+        guard let lane = matchedLane(target), let room = room(of: lane) else { return }
+        commitTaste(taste.rejecting(room: room, source: lane.dwellSource, now: Date()))
+        lane.dwell.discard()
         showToast(taste.paused ? "已跳过，学习已暂停所以没有记口味" : "已记下，会少推荐类似的")
-        step(1)
+        step(1, on: lane)
     }
 }

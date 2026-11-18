@@ -4,65 +4,71 @@ import os
 @MainActor
 extension StageModel {
     /// 当前房间变了：结算上一个房间的停留，新房间等播放真正起来再计时，满阈值后做热门关联。
-    func currentRoomChanged() {
-        relatedTask?.cancel()
-        record(dwell.switchTo(feed.current, now: Date()))
-        dwellSource = SiteSearch.dwellSource(loaded: loadedSource, searching: siteSearch != nil)
+    func currentRoomChanged(on given: PlaybackLane? = nil) {
+        let lane = given ?? primary
+        lane.relatedTask?.cancel()
+        record(lane.dwell.switchTo(room(of: lane), now: Date()), from: lane)
+        lane.dwellSource = SiteSearch.dwellSource(loaded: loadedSource, searching: siteSearch != nil)
         suggestSnoozed.removeAll()
-        dwell.setLedgerExcluded(taste.paused, now: Date())
+        lane.dwell.setLedgerExcluded(taste.paused, now: Date())
         dismissFavoriteSuggestIfMismatch()
-        updateDwellActive()
-        scheduleRelated()
+        updateDwellActive(on: lane)
+        scheduleRelated(on: lane)
     }
 
     func endView() {
-        relatedTask?.cancel()
-        record(dwell.finish(now: Date()))
+        for lane in lanes {
+            lane.relatedTask?.cancel()
+            record(lane.dwell.finish(now: Date()), from: lane)
+        }
     }
 
-    /// 停留只在「允许播放，且当前房间的播放项此刻真在播」时计时；状态变化时顺带重排关联任务。
-    func updateDwellActive() {
+    /// 停留只在「允许播放，且这一路当前房间的播放项此刻真在播」时计时；状态变化时顺带重排关联任务。
+    func updateDwellActive(on given: PlaybackLane? = nil) {
+        let lane = given ?? primary
         let active = PlaybackPolicy.dwellActive(
-            allowed: playbackAllowed, playing: playingName, current: feed.currentUsername
+            allowed: laneAllowed(lane), playing: lane.playingName, current: name(of: lane)
         )
-        guard active != dwell.isActive else {
+        guard active != lane.dwell.isActive else {
             if active {
                 checkFavoriteSuggest(now: Date())
                 scheduleFavoriteSuggestWake()
             }
             return
         }
-        dwell.setActive(active, now: Date())
-        scheduleRelated()
+        lane.dwell.setActive(active, now: Date())
+        scheduleRelated(on: lane)
         checkFavoriteSuggest(now: Date())
         scheduleFavoriteSuggestWake()
     }
 
     /// 暂停、缓冲、隐藏时不排唤醒（`.idle`），恢复计时后由 `updateDwellActive` 重排。
-    func scheduleRelated() {
-        relatedTask?.cancel()
-        relatedTask = nil
-        guard let username = feed.currentUsername else { return }
-        switch dwell.relatedPlan(for: username, now: Date()) {
+    /// 热门关联只看主路（焦点路，§4.3）。
+    func scheduleRelated(on given: PlaybackLane? = nil) {
+        let lane = given ?? primary
+        lane.relatedTask?.cancel()
+        lane.relatedTask = nil
+        guard lane.id == .primary, let username = name(of: lane) else { return }
+        switch lane.dwell.relatedPlan(for: username, now: Date()) {
         case .none, .idle:
             return
         case .due:
-            dwell.markRelatedDone()
+            lane.dwell.markRelatedDone()
             promoteRelated(to: username)
         case .wait(let seconds):
-            relatedTask = Task { [weak self] in
+            lane.relatedTask = Task { [weak self] in
                 try? await Task.sleep(nanoseconds: UInt64((seconds + 0.05) * 1_000_000_000))
                 guard !Task.isCancelled else { return }
-                self?.scheduleRelated()
+                self?.scheduleRelated(on: lane)
             }
         }
     }
 
-    func record(_ settled: DwellTracker.Settled?) {
+    func record(_ settled: DwellTracker.Settled?, from lane: PlaybackLane) {
         guard let settled else { return }
         let now = Date()
         let instant = now.timeIntervalSince1970
-        taste = taste.recording(room: settled.room, watched: settled.dwell, source: dwellSource, now: now, rarity: tagRarity)
+        taste = taste.recording(room: settled.room, watched: settled.dwell, source: lane.dwellSource, now: now, rarity: tagRarity)
         tasteSaver.schedule(taste)
         // 账本只记真实开始时刻起、且去掉暂停学习时段的秒数；与实时提示判定同一口径。
         guard settled.ledgerSeconds > 0, let start = settled.start else { return }
@@ -206,6 +212,6 @@ extension StageModel {
         let ahead = Array(feed.rooms.dropFirst(feed.index + 1))
         let names = Recommender.related(to: room, among: ahead, taste: taste)
         guard !names.isEmpty else { return }
-        updateFeed { $0.promoteAfterCurrent(names) }
+        updateFeed(intent: .merge) { $0.promoteAfterCurrent(names) }
     }
 }

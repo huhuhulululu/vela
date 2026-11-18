@@ -52,7 +52,7 @@ extension StageModel {
             updateCandidates(fetched.regular, replacing: true)
             let page = arranged(raw)
             commitFetched(raw: raw, arranged: page, offset: 0, token: token, replacing: true)
-            updateFeed(installing: source) { store in
+            updateFeed(installing: source, intent: .reload) { store in
                 store.replace(with: page)
                 store.setQuery(self.currentQuery)
             }
@@ -141,7 +141,7 @@ extension StageModel {
                 return
             }
             siteSearch = keyword
-            updateFeed { store in
+            updateFeed(intent: .searchInstall) { store in
                 store.replace(with: page)
                 store.setQuery(self.currentQuery)
             }
@@ -244,7 +244,7 @@ extension StageModel {
             commitFetched(raw: raw, arranged: page, offset: offset, token: token, replacing: false)
             // 新开播：每页各自排序后追加会出现断层，追加后对当前位置之后整体重排。
             let reorder = source == .fresh
-            updateFeed {
+            updateFeed(intent: .merge) {
                 $0.append(page, from: offset)
                 if reorder { $0.reorderAfterCurrent(Recommender.newest) }
             }
@@ -349,14 +349,14 @@ extension StageModel {
             guard !Task.isCancelled, token == loadGeneration else { return }
             let offset = query.offset
             if page.rooms.isEmpty {
-                updateFeed { $0.mergePageAfterCurrent(page, from: offset) { $0 } }
+                updateFeed(intent: .merge) { $0.mergePageAfterCurrent(page, from: offset) { $0 } }
                 loadedOffset = page.nextOffset
                 break
             }
             updateCandidates(page.rooms, replacing: false)
             let ordered = arranged(page)
             guard commitFetched(raw: page, arranged: ordered, offset: offset, token: token, replacing: false) else { return }
-            updateFeed { store in
+            updateFeed(intent: .merge) { store in
                 store.mergePageAfterCurrent(page, from: offset) { rooms in
                     self.arranged(CatalogPage(rooms: rooms, total: 0, nextOffset: 0)).rooms
                 }
@@ -400,7 +400,7 @@ extension StageModel {
         for room in rooms {
             reasons[room.username.lowercased()] = Recommender.reason(for: room, taste: current, favorites: favorites, now: now)
         }
-        updateFeed { store in
+        updateFeed(intent: .merge) { store in
             store.mergeAfterCurrent(rooms) { self.arranged(CatalogPage(rooms: $0, total: 0, nextOffset: 0)).rooms }
         }
         if idleStart.takeStart(hasCurrent: feed.current != nil) {

@@ -145,7 +145,7 @@ extension StageModel {
         cancelSiteSearch()
         dismissSurfaces()
         // 搜索条件会挡住目标时清掉它，确保播放的就是点击的房间。
-        updateFeed { _ = $0.reveal(room) }
+        updateFeed(intent: .reveal(room.username)) { _ = $0.reveal(room) }
         if siteSearch == nil, feed.query.text != searchText { searchText = feed.query.text }
         requestPlay()
     }
