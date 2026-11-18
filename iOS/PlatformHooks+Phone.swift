@@ -12,7 +12,21 @@ final class PlatformHooks {
     private(set) var scenePhase: PhoneScenePhase = .active
     private static let log = Logger(subsystem: "com.vela.stage", category: "lifecycle")
 
+    /// 音频转换的唯一执行者与内存警告订阅，由 `attachAudio(to:)` 在模型初始化时装上。
+    private(set) var audioFocus: AudioFocusController?
+    private var memoryWarning: NSObjectProtocol?
+
     nonisolated init() {}
+
+    /// 模型初始化时调用：启动杂务（备份排除）、装上音频控制器与内存警告订阅。
+    func attachAudio(to stage: StageModel) {
+        PhoneHousekeeping.ensureBackupExclusion()
+        memoryWarning = PhoneHousekeeping.observeMemoryWarnings(stage: stage)
+        let controller = AudioFocusController(stage: stage)
+        controller.start()
+        audioFocus = controller
+        stage.audioFocus = controller
+    }
 
     var appHidden: Bool { false }
 
@@ -90,7 +104,7 @@ final class PlatformHooks {
             // 画中画那一路照常播放；其余路已在 `releaseLane` 作废自己的中继源，源表里只剩这一路。
             break
         case .audioDeactivate:
-            deactivateAudio()
+            deactivateAudio(on: stage)
         case .stopListener:
             PlaylistRelay.shared.stopListener()
             Self.log.info("relay listener stopped")
@@ -108,14 +122,12 @@ final class PlatformHooks {
         }
     }
 
-    /// 后台释放音频会话，让被打断的其他 App 恢复（§3.3）。会话类别与出声转换由后续的 `AudioFocusController` 接管。
-    private func deactivateAudio() {
-        do {
-            try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-            Self.log.info("audio deactivated")
-        } catch {
-            Self.log.error("audio deactivate failed")
-        }
+    /// 后台释放音频会话，让被打断的其他 App 恢复（§3.3）。交给 `AudioFocusController` 按计划执行。
+    private func deactivateAudio(on stage: StageModel) {
+        guard let audioFocus else { return }
+        let outcome = audioFocus.perform(.deactivate(.background))
+        stage.applyAudioOutcome(outcome)
+        Self.log.info("audio deactivated")
     }
 }
 

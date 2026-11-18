@@ -16,6 +16,9 @@ final class PlatformHooks {
 
     nonisolated init() {}
 
+    /// 没有音频转换执行者：macOS 的音量与静音由 `StageModel` 直接设给播放器。
+    func attachAudio(to stage: StageModel) {}
+
     /// App 是否被隐藏（老板键或 ⌘H）。
     var appHidden: Bool { NSApp.isHidden }
 

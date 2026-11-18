@@ -226,7 +226,8 @@ public enum AudioTransition {
                 detach: detach,
                 notifyOthers: true,
                 writesSettings: true,
-                pausesPlayback: decision.pauses
+                pausesPlayback: decision.pauses,
+                keepSessionActive: pictureInPictureActive
             )
         }
     }
