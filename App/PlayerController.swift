@@ -54,6 +54,8 @@ final class PlayerController: ObservableObject {
     /// 窗口连续不可见的起点；可见时为 nil。
     private var hiddenSince: Date?
     private var lastPlay: (rendition: StreamRendition, username: String, peak: Double)?
+    /// 本播放器在中继里登记的源 id。中继可同时有多个源（双窗），这里只动自己的；换项先作废旧源再登记新源。
+    private var relaySource: String?
     private var retried = false
     /// 当前播放项是否真正开播过（与 readyUsername 无关：换档保留上一帧但新项仍要证明自己能播）。
     private var itemPlayed = false
@@ -115,15 +117,21 @@ final class PlayerController: ObservableObject {
             await self?.adoptRenewed(fresh, username: username, token: token)
             return fresh
         }
+        // 先作废自己的旧源，再登记新源（别的播放器登记的源不动）。
+        if let relaySource { PlaylistRelay.shared.deactivate(source: relaySource) }
+        relaySource = nil
+        // 新项先按「还不知道能不能不选音轨」登记静音标志；读到可听组后由 syncAudioSuppression 更新。
+        let suppressed = MuteAudioPolicy.shouldSuppressAudioFetch(muted: wantsMuted, allowsEmptySelection: nil)
         // 中继没就绪时不把低延迟主列表直接交给 AVPlayer（会卡住甚至不起播）：停下并报错，界面给出重试。
-        guard let playback = PlaylistRelay.shared.localURL(for: rendition, maxBandwidth: peakBitrate, renew: renew) else {
+        guard let source = PlaylistRelay.shared.localURL(for: rendition, maxBandwidth: peakBitrate, audioSuppressed: suppressed, renew: renew) else {
             Self.log.error("relay unavailable")
             stop()
             lastError = "本地中继没能启动，暂时无法播放"
             failed = true
             return
         }
-        let item = makeItem(url: playback)
+        relaySource = source.id
+        let item = makeItem(url: source.url)
         cancelStuckWatchdog()
         audioTask?.cancel()
         audioTask = nil
@@ -170,9 +178,9 @@ final class PlayerController: ObservableObject {
     }
 
     private func syncAudioSuppression() {
-        PlaylistRelay.shared.setAudioSuppressed(
-            MuteAudioPolicy.shouldSuppressAudioFetch(muted: wantsMuted, allowsEmptySelection: audioAllowsEmpty)
-        )
+        guard let relaySource else { return }
+        let suppressed = MuteAudioPolicy.shouldSuppressAudioFetch(muted: wantsMuted, allowsEmptySelection: audioAllowsEmpty)
+        PlaylistRelay.shared.setAudioSuppressed(suppressed, source: relaySource)
     }
 
     /// 静音起播时先关掉自动选轨，等可听组读到再决定：允许空选择就保持不选，不允许就选回去并重新打开自动选择。
@@ -303,14 +311,15 @@ final class PlayerController: ObservableObject {
     }
 
     private func syncRelayRefreshing() {
-        PlaylistRelay.shared.setRefreshing(PlaybackPolicy.relayShouldRefresh(allowed: allowed, failed: failed))
+        guard let relaySource else { return }
+        PlaylistRelay.shared.setRefreshing(PlaybackPolicy.relayShouldRefresh(allowed: allowed, failed: failed), source: relaySource)
     }
 
     private func pauseDecoding() {
         startupTask?.cancel()
         startupTask = nil
         cancelStuckWatchdog()
-        PlaylistRelay.shared.setRefreshing(false)
+        if let relaySource { PlaylistRelay.shared.setRefreshing(false, source: relaySource) }
         guard hasItem else { return }
         if pausedAt == nil { pausedAt = Date() }
         player.pause()
@@ -373,7 +382,8 @@ final class PlayerController: ObservableObject {
         #endif
         player.pause()
         player.replaceCurrentItem(with: nil)
-        PlaylistRelay.shared.deactivate()
+        if let relaySource { PlaylistRelay.shared.deactivate(source: relaySource) }
+        relaySource = nil
         itemPlayed = false
         if playingUsername != nil { playingUsername = nil }
         if readyUsername != nil { readyUsername = nil }
@@ -420,7 +430,7 @@ final class PlayerController: ObservableObject {
             startupTask?.cancel()
             startupTask = nil
             cancelStuckWatchdog()
-            PlaylistRelay.shared.setRefreshing(false)
+            if let relaySource { PlaylistRelay.shared.setRefreshing(false, source: relaySource) }
             refresh.begin()
             refreshRequested(last.username, false)
         } else {
@@ -455,7 +465,8 @@ final class PlayerController: ObservableObject {
         audibleTask?.cancel()
         audibleTask = nil
         cachedAudibleGroup = nil
-        PlaylistRelay.shared.deactivate()
+        if let relaySource { PlaylistRelay.shared.deactivate(source: relaySource) }
+        relaySource = nil
         #if DEBUG
         keepUpObservation = nil
         if let tickToken { player.removeTimeObserver(tickToken) }
@@ -664,7 +675,7 @@ final class PlayerController: ObservableObject {
         startupTask = nil
         cancelStuckWatchdog()
         if let refreshRequested {
-            PlaylistRelay.shared.setRefreshing(false)
+            if let relaySource { PlaylistRelay.shared.setRefreshing(false, source: relaySource) }
             refresh.begin()
             refreshRequested(username, true)
         } else {
@@ -715,7 +726,7 @@ final class PlayerController: ObservableObject {
             refreshing: refresh.pending,
             retryAvailable: !retried,
             bufferAdvancing: PlaybackPolicy.bufferAdvanced(previousEnd: stuckBaseEnd, currentEnd: loadedEnd()),
-            renewing: PlaylistRelay.shared.isRenewing
+            renewing: relaySource.map { PlaylistRelay.shared.isRenewing(source: $0) } ?? false
         )
         guard let username = lastPlay?.username else { return }
         switch action {

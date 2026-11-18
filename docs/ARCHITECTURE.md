@@ -9,9 +9,10 @@
 - 技术栈：SwiftUI（界面）、AVPlayer / AVPlayerLayer（播放）、Network.framework（本地中继 `NWListener`）、WKWebView（侧车与确认页）、Carbon `RegisterEventHotKey`（老板键）。没有账号体系，也不使用钥匙串。
 - 两层结构：
   - `Sources/VelaCore/`：纯逻辑（模型、接口编解码、HLS 改写、推荐、策略、存储），不依赖 AppKit，`swift test` 可测。SwiftPM 库产品 `VelaCore`。
+  - `Shared/Relay/`：本地 HLS 中继 `PlaylistRelay`（Network.framework + Foundation，不依赖 AppKit）。macOS 目标直接编译它；SwiftPM 另有目标 `VelaRelay`（路径 `Shared/Relay`，依赖 `VelaCore`），供 `swift test` 用真实回环端口测试。文件头 `#if SWIFT_PACKAGE import VelaCore #endif`，整文件包 `#if canImport(Network)`（Linux 上编译为空）。
   - `App/`：界面与系统集成（SwiftUI、AppKit、AVFoundation、WebKit、Carbon），只能用 `xcodebuild` 编译验证，没有自动化测试。
-- Xcode 工程（`Vela.xcodeproj`）显式列出每个源文件：`App/` 与 `Sources/VelaCore/` 下新增、重命名、删除 Swift 文件都必须同步登记 `project.pbxproj`（每个文件在 PBXBuildFile 与 PBXSourcesBuildPhase 各出现一次）。`Tests/` 不在 Xcode 工程里，只属于 SwiftPM。
-- 目录：`App/`（37 个源文件）、`Sources/VelaCore/`（50 个源文件）、`Tests/VelaCoreTests/`（57 个文件）、`.github/workflows/macos.yml`。
+- Xcode 工程（`Vela.xcodeproj`）显式列出每个源文件：`App/`、`Shared/` 与 `Sources/VelaCore/` 下新增、重命名、删除 Swift 文件都必须同步登记 `project.pbxproj`（每个文件在 PBXBuildFile 与 PBXSourcesBuildPhase 各出现一次）。`Tests/` 不在 Xcode 工程里，只属于 SwiftPM。
+- 目录：`App/`（36 个源文件）、`Shared/Relay/`（1 个源文件）、`Sources/VelaCore/`（61 个源文件）、`Tests/VelaCoreTests/`（68 个文件）、`Tests/VelaRelayTests/`（1 个文件）、`.github/workflows/macos.yml`。
 
 ## 2. 模块表
 
@@ -28,7 +29,7 @@
 | `App/StageModel+Curation.swift` | App | 收藏、屏蔽、名单提交与换房 |
 | `App/StageModel+Favorites.swift` | App | 收藏来源：解析全部收藏的在线状态（目录与缓存优先，其余逐个查；同一时间只有一批，直连被拦后经侧车重查）、刷新、离线收藏的上次开播时间按需补查、点击切换（清掉会挡住目标的搜索条件）、手动添加、导出导入 |
 | `App/PlayerController.swift` | App | AVPlayer 封装（起播看门狗、卡住看门狗：到点时若缓冲末端仍在增长或续期进行中则重新计时，不消耗重试；重试、暂停恢复、开播音轨日志）；静音时不选独立音轨并通知中继停刷音频清单（`MuteAudioPolicy`）；停播且窗口不可见满 30 秒释放播放项与中继源（`setHidden` / `releasePausedSource`，日志 `paused-release`）；每个媒体项首次真正播放记一条 `playing-started`（Release 也有，探针以它为起播时刻） |
-| `App/PlaylistRelay.swift` | App | 本地 HLS 中继：起播选一次档、视频与音轨各自后台刷新、按完整分片进展判新鲜（超宽限先有界挂起等待再 503）、本地主列表；续期换过子列表地址后，每一路下一次成功取回直接采纳新列表（`addressChanged`）；从不 302 到上游；`waitUntilListening` 供起播前等监听就绪；静音且播放器能空选音轨时（`setAudioSuppressed`）停掉音频清单的后台刷新，不取消在途、不清已缓存列表，播放器来要 `audio.m3u8` 仍按需取；取消静音立即恢复刷新；`deactivate` 丢掉当前源状态 |
+| `Shared/Relay/PlaylistRelay.swift` | Shared（SwiftPM 目标 `VelaRelay`） | 本地 HLS 中继，多源：每个源按 id 各有列表、循环与在途请求，刷新与静音标志记在 `RelaySourceTable`（最多两个源，再登记淘汰最旧的）；`localURL(...audioSuppressed:)` 登记新源并返回 `(id, url)`，`setRefreshing` / `setAudioSuppressed` / `deactivate` / `isRenewing` 都带 `source:`；监听代次（`start` 与 `stopListener` 各加一，旧监听回调与新连接先核对代次），`stopListener` 取消监听、已登记连接与应答任务并清空源表；`allowStart` 关闭时不起监听（macOS 恒开）；本地地址统一由 `localBase(port:)` 与 `RelayHost.name` 生成；internal `init(session:)` 供测试注入上游会话。每个源：起播选一次档、视频与音轨各自后台刷新、按完整分片进展判新鲜（超宽限先有界挂起等待再 503）、本地主列表；续期换过子列表地址后，每一路下一次成功取回直接采纳新列表（`addressChanged`）；从不 302 到上游；`waitUntilListening` 供起播前等监听就绪；静音且播放器能空选音轨时（`setAudioSuppressed`）停掉音频清单的后台刷新，不取消在途、不清已缓存列表，播放器来要 `audio.m3u8` 仍按需取；取消静音立即恢复刷新；`deactivate(source:)` 只丢掉该源状态 |
 | `App/SiteSidecar.swift` | App | 离屏 WKWebView（闲置 30 秒销毁，`SidecarIdlePolicy`；只拆视图，默认数据仓库里的通关 cookie 保留，下次使用重建）：站点要求确认时代为请求流地址与收藏状态（`SidecarHTTPClient`）；清理旧会话期间先等清理完成 |
 | `App/URLSessionHTTPClient.swift` | App | `HTTPClient` 的 URLSession 实现（ephemeral，不收发 cookie，请求超时 12 秒；不等待网络恢复，断网立刻失败，界面给出「网络不通」与重试） |
 | `App/LegacyLoginCleanup.swift` | App | 启动时一次性清掉旧版本遗留的钥匙串会话与网页 sessionid cookie（cookie 删除完成后才写完成标记） |
@@ -129,7 +130,7 @@ VelaApp ──> StageModel ──> StageView ──> PagerView ──> RoomCanva
                                            GlobalHotKey / SystemActivity (BossKey)
 
 PlayerController ──> PlaybackPolicy, MuteAudioPolicy, RefreshTracker, PlaybackErrorCopy (Core)
-                 ──> PlaylistRelay（App/PlaylistRelay.swift）──> PlaylistLadder, StreamRendition, RelayFeed, RelayPolicy, RenewalPolicy, RenewalBudget, UserAgent (Core)
+                 ──> PlaylistRelay（Shared/Relay/PlaylistRelay.swift，SwiftPM 目标 VelaRelay）──> RelaySourceTable / RelayTrack, PlaylistLadder, StreamRendition, RelayFeed, RelayPolicy, RenewalPolicy, RenewalBudget, UserAgent (Core)
 SiteSidecar      ──> StreamDecoder, UserAgent, SidecarIdlePolicy (Core)
 WindowBridge     ──> StageModel, WheelInterpreter, WindowDragPolicy, PointerPolling (Core), SiteSidecar.hold, ClickableRegionView
 ChallengeSheet   ──> StageModel.retryAfterChallenge（站点确认完成后继续播放）
@@ -180,7 +181,7 @@ App 引用 Core，Core 不引用 App。`PlayerController` 与 `StageModel` 的�
 1. 地址来源：`PreparedCache.fresh`（预取缓存，保存已选档的 `StreamRendition`，即视频与音轨子列表地址，`maxAge` 20 秒，按档位上限区分）命中就直接用；否则 `resolve(username)` 取主列表再选档。缓存过期就重新解析；万一仍用到过期地址，中继遇 403 原地续期（第 10 节），不走播放项失败。
 2. `resolve` / `resolveSourced`（起播、预取、403 续期、换档共用）：`sidecarUntil` 未到期期间一律走侧车。否则先 `ChatContext.probe` 请求 `chatvideocontext`，由 `StreamSourcing.first` 选择：公开且 `hls_source` 非空直接用（一次请求同时拿到状态与地址）；离开、私密、群组、离线、隐藏、需密码直接给出原因，不再请求 ajax；公开但 `hls_source` 为空、状态未知、请求失败或超时（8 秒）、被质询、非 JSON、退避中，退回直连 `get_edge_hls_url_ajax`（`StreamDecoder.fetch`）。ajax 解码出质询时 `sidecarUntil` 设为现在加 600 秒并改走侧车；其他网络错误加 120 秒并走侧车；取消原样抛出，不当网络故障。退回后由 `StreamSourcing.settle` 定论：`chatvideocontext` 说公开无地址、ajax 也给不出可播地址（公开无地址或状态说不清）时归为地区受限「当前地区不可观看」，其余以 ajax 为准。每次起播解析记一条事件日志 `start-source <chatvideocontext | ajax | sidecar>`（`com.vela.stage` 的 `renew` 类别，不记地址）。`StreamTicket.isPlayable` 为假时停播、给出中文原因并安排自动跳过（暂时离开除外，见 5.3）；流地址暂时不可用（403 / 503、非 JSON、退避中）显示「暂时无法播放」并自动跳过。
 3. 选档：`playbackCap()`，常规为 `.infinity`（取最高档）；开了「离开后降低画质」且指针不在窗口内时取 `PowerPolicy.peakBitrate(resting: true)`，即不超过 896000。`selectRendition` 取主列表（超时 8 秒）后用 `StreamRendition.select`：选不超过上限加 20000 的最高档（没有就取最低档），并取该档 `AUDIO` 组里的默认音轨；上游把音频做成独立 `EXT-X-MEDIA` 音轨，只给视频子列表会没有声音。取不到时回落为未选档的主列表地址，由中继自己选。
-4. `PlayerController.start` 经 `PlaylistRelay.localURL` 注册选中档与档位上限，返回 `http://127.0.0.1:<端口>/<uuid>/master.m3u8`（中继尚未绑定端口时返回 nil，直接播视频子列表）。中继只保留当前活跃源，换房 / 换档 / 停止时旧源整体作废。
+4. `PlayerController.start` 经 `PlaylistRelay.localURL` 注册选中档与档位上限，返回源 id 与 `http://127.0.0.1:<端口>/<uuid>/master.m3u8`（地址前缀统一由 `PlaylistRelay.localBase(port:)` 生成；中继尚未绑定端口时返回 nil，停播并报错）。`PlayerController` 把 id 记为 `relaySource`，之后所有中继调用都带 `source:`；换房 / 换档 / 停止时先作废自己的旧源再登记新源，不碰别的播放器登记的源。macOS 只有一个播放器，表里同时只有一个源，行为与单源时相同。
 5. 中继起播时取一次主列表选档（缓存命中时免取），记下视频与音轨子列表地址，之后只刷新这两路（主列表 30 秒就过期，子列表地址只要持续被请求就有效）。每路用 `PlaylistLadder.steadyPlaylist` 去掉 `EXT-X-SERVER-CONTROL / PART / PRELOAD-HINT / SKIP / RENDITION-REPORT`、版本改为 7、相对地址全部改绝对。
 6. AVPlayerItem：`preferredPeakBitRate = 0`（档位已由中继选定）、`preferredForwardBufferDuration = 6`、`configuredTimeOffsetFromLive = 3` 秒、暂停时不拉流（`canUseNetworkResourcesForLiveStreamingWhilePaused = false`）。开播时记一条 `audio tracks=N enabled=M` 事件日志；`enabled=0` 记 error。**静音音轨选择**（`MuteAudioPolicy`）：本地主列表始终保留 `EXT-X-MEDIA` 独立音轨（删掉后取消静音就没声音）；静音时关掉 `appliesMediaSelectionCriteriaAutomatically`，可听组 `allowsEmptySelection` 才 `select(nil)`（日志 `audio selection clear`），并 `PlaylistRelay.setAudioSuppressed(true)` 停刷音频清单、AVPlayer 也不再取音频分片；组不允许空选择或读不到时保持选中、只靠 `isMuted`，不重载播放项，也不停刷音频。此时「开始播放」日志为 `audio tracks=N enabled=N held`（N 是可选项个数，不是在渲染的轨），不报「这路没有声音」；组还没读到时先复查再记。取消静音：选回默认音轨（`audio selection pick`）、恢复音频刷新，只有「音轨确实被拿掉过且正在播」才 seek 到直播边缘，暂停中不 seek。每个媒体项首次真正开播记一条 `playing-started <房间>`（Release 也有，房间名标 private），供 `scripts/perf-probe.sh` 算起播耗时。
 7. 竖屏自动完整画面（`PortraitFit`）：画面就绪（`readyUsername` 变为该房间，`StageModel.noteReady`）时读 `AVPlayer.currentItem.presentationSize`，竖屏就记下该房间，横屏或尺寸为零时撤掉它的记录。不用 `chatvideocontext` 的 `is_portrait`：起播解析只取 `room_status` 与 `hls_source`，退回 ajax 时也没有该字段，读尺寸更可靠且不多发请求。画面实际是否铺满取 `StageModel.effectiveFill`（全局 `fitFill` 为真且当前房间不是被判为竖屏的那个），`fitFill` 与设置值不变；换到别的房间即恢复。在自动完整画面里按 F（`toggleFit`）只撤掉该房间这次的自动（同一房间重试、换档再出画面不再套用），不改全局设置；其他情况照常切换全局铺满。
@@ -188,8 +189,9 @@ App 引用 Core，Core 不引用 App。`PlayerController` 与 `StageModel` 的�
 
 ### 5.2 中继刷新与新鲜度（`RelayPolicy`、`RelayFeed`）
 
-- 后台刷新：只刷新活跃源，视频与音轨各一个循环；每路同一时刻只有一个在途请求（AVPlayer 的请求与后台刷新共用它），换房 / 暂停 / 换档 / 停止时取消并作废在途请求，晚到的结果丢弃；比已知进度更旧的结果不覆盖。节奏：上次有新完整分片约隔一个分片时长（不超过 TARGETDURATION）再刷，没进展或失败约隔 T/2（下限 0.25 秒）。暂停期间不刷新（与「暂停不拉流」一致）。
+- 后台刷新：每个源各自刷新（刷新与静音标志按源记在 `RelaySourceTable`），视频与音轨各一个循环；每路同一时刻只有一个在途请求（AVPlayer 的请求与后台刷新共用它），换房 / 暂停 / 换档 / 停止时取消并作废在途请求，晚到的结果丢弃；比已知进度更旧的结果不覆盖。节奏：上次有新完整分片约隔一个分片时长（不超过 TARGETDURATION）再刷，没进展或失败约隔 T/2（下限 0.25 秒）。暂停期间不刷新（与「暂停不拉流」一致）。
 - 新鲜度按「最后一个完整分片的媒体序号（`EXT-X-MEDIA-SEQUENCE` 加分片数，LL 的 `EXT-X-PART` 不算）何时前进」判断，每路各自跟踪。AVPlayer 请求时直接给最新已知内容；距上次前进不超过宽限（`graceFactor` 1 × 列表里的 TARGETDURATION，本流 2 秒，低于 AVPlayer 约 1.5 × T 的判定）就回放，超过则不立刻失败，请求挂起并按 `waitPoll`（T/4，下限 0.25 秒）反复刷新，最长等 `waitFactor` 1 × T（`RelayWait`），分片一前进就回新列表；正常发布抖动（间隔至多约 1.5 × T，实测偶尔 2.8 秒 / T=2）因此不再 503。等待总时长严格有界：每次刷新只拿剩余预算（`RelayWait.bounded` 竞速，单次上游请求最长 4 秒也不能拖过上限；超时的刷新自行收尾、结果照常落进状态），预算用完不再发起新刷新。等满仍无前进才返回 503，让 AVPlayer 看到失败并走恢复（上游持续 200 但分片不动同样如此）。上游请求失败按同一宽限与等待。中继生命周期内从不 302 到上游：某一路起播前完全拿不到列表时同样等满后回 503，由播放失败与一次自动重试路径处理。终态失败（播放项失败、看门狗放弃、失败界面）时 `PlayerController` 经 `PlaybackPolicy.relayShouldRefresh` 停止该源的后台刷新；重试、切房重新起播时再开启。
+- 监听生命周期：`start` 每起一个新监听把代次加一，监听状态回调与新连接先核对代次，旧监听迟到的「已取消」回调清不掉新端口。`stopListener`（供 iOS 挂起用，macOS 不调）依次：代次加一 → 取消监听 → 取消已登记的连接与应答任务 → 清空源表（每个源的循环与在途一并取消），旧地址全部失效。`allowStart` 关闭期间 `start` 与 `waitUntilListening` 直接返回 false，`StageModel.relayReady` 据此静默放弃起播（不报「中继没能启动」）。
 - 观测（`com.vela.stage` 的 `relay` 类别，只在事件发生时写，不含地址）：上游失败原因（`http-<状态码>` 或错误域 / 码）、请求超过 1 秒、分片恢复前进（间隔超过 2 秒）、回放旧内容的年龄、503（含无前进时长与最近上游失败）。
 
 ### 5.3 失败重试与重新解析
@@ -279,7 +281,7 @@ App 引用 Core，Core 不引用 App。`PlayerController` 与 `StageModel` 的�
 
 ## 7. 安全边界
 
-- 中继只绑 `127.0.0.1`（`requiredLocalEndpoint`，端口由系统分配），不监听其他网卡；路径里的 id 是每次起播新生成的 UUID。
+- 中继只绑 `127.0.0.1`（常量 `RelayHost.name`，`requiredLocalEndpoint`，端口由系统分配），不监听其他网卡；路径里的 id 是每次起播新生成的 UUID。
 - 不保存任何账号凭据：没有登录，`URLSessionHTTPClient` 与中继的会话配置都关闭 cookie 存取。收藏夹导出文件只含用户名。
 - 日志（`os.Logger`）只记事件名、状态码、错误域与码、码率等；不记地址、cookie、令牌。系统错误原文（`localizedDescription`）只以 private 进日志，不进界面，界面用 `PlaybackErrorCopy` 的中文文案。
 - 侧车 WKWebView：只在站点质询时代发流地址请求，离屏（y = -4200）挂在主窗口里保持真实布局尺寸；弹出确认页时 `suspend`，关闭后 `resumeIfNeeded`；闲置 600 秒销毁，下次用到重建；页面加载超时 18 秒。播放本身不经过 WebKit。
@@ -302,7 +304,7 @@ App 引用 Core，Core 不引用 App。`PlayerController` 与 `StageModel` 的�
 
 ## 9. 构建与测试
 
-- 逻辑测试（仓库根目录）：`swift test`（`Tests/VelaCoreTests/`，XCTest，只测 `VelaCore`）。
+- 逻辑测试（仓库根目录）：`swift test`（`Tests/VelaCoreTests/` 测 `VelaCore`；`Tests/VelaRelayTests/` 测 `VelaRelay`：真实回环端口 + `URLProtocol` 假上游，覆盖多源并发、按源作废、受控 403 只续该源、按源停音频刷新、`stopListener` 后旧地址失效、重启时旧回调清不掉新端口、`allowStart` 关闭不起监听）。
 - 构建应用（与 CI 一致）：
 
 ```sh
