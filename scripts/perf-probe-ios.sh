@@ -1,10 +1,13 @@
 #!/bin/bash
-# Vela iOS Spike 模拟器探针：在 iOS 模拟器里静音起播，按宿主进程 pid 周期采样，输出一行 JSON。
-# 用法：scripts/perf-probe-ios.sh --app <.app> --bundle <id> --duration 秒 --scenario single|dual|background|pip
-#       [--launch-args "额外启动参数"] [--device 名称] [--out 文件] [--raw-dir 目录] [--bg-hold 秒]
+# Vela iOS 模拟器探针：在 iOS 模拟器里静音起播，按宿主进程 pid 周期采样，输出一行 JSON。
+# 用法：scripts/perf-probe-ios.sh --app <.app> [--bundle <id>] --duration 秒 --scenario single|dual|background|pip
+#       [--profile vela|spike] [--launch-args "额外启动参数"] [--device 名称] [--out 文件] [--raw-dir 目录] [--bg-hold 秒]
 #       [--play-timeout 秒] [--wait-quiet 最多等待秒数] [--teardown]
 # 兼容 macOS 自带 bash 3.2。依赖：xcrun simctl、ps、top、footprint、nettop、python3。
-# 全程静音（Spike 的 AVPlayer.volume 恒为 0）；只 simctl boot，不打开 Simulator.app，不截屏、不点击。
+# 全程静音（正式 App 的 --perf-autoplay 强制静音；Spike 的 AVPlayer.volume 恒为 0）；只 simctl boot，不打开 Simulator.app，不截屏、不点击。
+# --profile vela（默认）：正式 App 的 Perf 构建，bundle 缺省 com.vela.stage.ios.perf，日志子系统 com.vela.stage，
+#   启动参数 --perf-autoplay，只支持 single 与 background（双窗、画中画尚未接入）。
+# --profile spike：旧 Spike 原型，bundle 缺省 com.vela.stage.spike，日志子系统 com.vela.stage.spike，场景参数如下。
 # 场景：
 #   single      单窗（--autoplay-single）
 #   dual        双窗（--autoplay-dual）
@@ -30,7 +33,7 @@ WAIT_QUIET=0
 TEARDOWN=0
 INTERVAL=5
 SETTLE=5
-LOG_SUBSYSTEM=com.vela.stage.spike
+PROFILE=vela
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -38,6 +41,7 @@ while [ $# -gt 0 ]; do
         --bundle) BUNDLE="$2"; shift 2 ;;
         --duration) DURATION="$2"; shift 2 ;;
         --scenario) SCENARIO="$2"; shift 2 ;;
+        --profile) PROFILE="$2"; shift 2 ;;
         --launch-args) LAUNCH_ARGS="$2"; shift 2 ;;
         --device) DEVICE_NAME="$2"; shift 2 ;;
         --out) OUT_JSON="$2"; shift 2 ;;
@@ -46,13 +50,25 @@ while [ $# -gt 0 ]; do
         --play-timeout) PLAY_TIMEOUT="$2"; shift 2 ;;
         --wait-quiet) WAIT_QUIET="$2"; shift 2 ;;
         --teardown) TEARDOWN=1; shift ;;
-        -h|--help) sed -n 2,17p "$0"; exit 0 ;;
+        -h|--help) sed -n 2,20p "$0"; exit 0 ;;
         *) echo "未知参数: ${1}" >&2; exit 2 ;;
     esac
 done
 
 case "$SCENARIO" in single|dual|background|pip) ;; *) echo "--scenario 只能是 single|dual|background|pip" >&2; exit 2 ;; esac
-[ -n "$APP" ] && [ -n "$BUNDLE" ] || { echo "必须给 --app 与 --bundle" >&2; exit 2; }
+case "$PROFILE" in
+    vela)
+        LOG_SUBSYSTEM=com.vela.stage
+        BUNDLE="${BUNDLE:-com.vela.stage.ios.perf}"
+        case "$SCENARIO" in single|background) ;; *) echo "--profile vela 只支持 single|background" >&2; exit 2 ;; esac
+        ;;
+    spike)
+        LOG_SUBSYSTEM=com.vela.stage.spike
+        BUNDLE="${BUNDLE:-com.vela.stage.spike}"
+        ;;
+    *) echo "--profile 只能是 vela|spike" >&2; exit 2 ;;
+esac
+[ -n "$APP" ] || { echo "必须给 --app" >&2; exit 2; }
 case "$DURATION" in ''|*[!0-9]*) echo "--duration 必须是整数秒" >&2; exit 2 ;; esac
 [ -d "$APP" ] || { echo "找不到 App: ${APP}" >&2; exit 1; }
 
@@ -139,12 +155,16 @@ xcrun simctl spawn "$UDID" log config --subsystem "$LOG_SUBSYSTEM" --mode level:
     || echo "WARN: log config 失败" >&2
 
 # 启动参数
-case "$SCENARIO" in
-    single) ARGS="--autoplay-single" ;;
-    dual) ARGS="--autoplay-dual" ;;
-    background) ARGS="--autoplay-single --no-pip" ;;
-    pip) ARGS="--autoplay-single" ;;
-esac
+if [ "$PROFILE" = vela ]; then
+    ARGS="--perf-autoplay"
+else
+    case "$SCENARIO" in
+        single) ARGS="--autoplay-single" ;;
+        dual) ARGS="--autoplay-dual" ;;
+        background) ARGS="--autoplay-single --no-pip" ;;
+        pip) ARGS="--autoplay-single" ;;
+    esac
+fi
 # 额外参数：带 --autoplay-dual 则去掉单窗参数
 if [ -n "$LAUNCH_ARGS" ]; then
     case "$LAUNCH_ARGS" in *--autoplay-dual*) ARGS="" ;; esac
@@ -258,7 +278,7 @@ xcrun simctl spawn "$UDID" log show --start "$START_STR" --info --debug --style 
 cp "$STREAM" "$WORK/app-stream.log"
 cp "$SHOW" "$WORK/app-show.log"
 
-printf 'scenario=%s\nexpect=%s\nt0=%s\ntbg=%s\ntres=%s\n' "$SCENARIO" "$EXPECT" "$T0" "$T_BG" "$T_RESUME" >"$WORK/meta.txt"
+printf 'scenario=%s\nexpect=%s\nt0=%s\ntbg=%s\ntres=%s\nsubsystem=%s\n' "$SCENARIO" "$EXPECT" "$T0" "$T_BG" "$T_RESUME" "$LOG_SUBSYSTEM" >"$WORK/meta.txt"
 python3 -I "$(dirname "$0")/perf-probe-ios-analyze.py" "$WORK" >"$WORK/result.json"
 RC=$?
 cp "$WORK/result.json" "$OUT_JSON"

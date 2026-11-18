@@ -1,8 +1,10 @@
 #!/bin/bash
 # perf-probe-ios.sh 负样本自测：每个失败路径必须以预期的非 0 码退出。
-# 用法：scripts/test-perf-probe-ios.sh <VelaSpike.app>   （1、2 不需要模拟器；3-5 会起模拟器并联网，各约 30 秒）
+# 用法：scripts/test-perf-probe-ios.sh [<VelaPhone Perf .app> [vela|spike]]
+#       （前四项不需要模拟器；带 App 时后三项会起模拟器并联网，各约 30 秒；profile 缺省 vela）
 set -u
 APP="${1:-}"
+PROFILE="${2:-vela}"
 HERE=$(cd "$(dirname "$0")" && pwd)
 PROBE="$HERE/perf-probe-ios.sh"
 OUT=$(mktemp /tmp/vela-sim-neg.XXXXXX)
@@ -15,8 +17,10 @@ expect() {  # 名称 期望码 命令...
 }
 expect bad-scenario 2 bash "$PROBE" --app /tmp --bundle x --scenario nope
 expect missing-app 1 bash "$PROBE" --app /nonexistent.app --bundle x --scenario single
+expect bad-profile 2 bash "$PROBE" --app /tmp --scenario single --profile nope
+expect vela-no-dual 2 bash "$PROBE" --app /tmp --scenario dual --profile vela
 if [ -n "$APP" ]; then
-    common="--app $APP --bundle com.vela.stage.spike --out $OUT"
+    common="--app $APP --profile $PROFILE --out $OUT"
     # shellcheck disable=SC2086
     PROBE_FORCE_FAIL=nosamples expect no-samples 6 bash "$PROBE" $common --scenario single --duration 10
     # shellcheck disable=SC2086

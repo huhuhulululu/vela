@@ -29,12 +29,13 @@ final class SharedCopyLayoutTests: XCTestCase {
     private func renderedWidth(_ view: some View, proposed: CGFloat) -> CGFloat {
         let renderer = ImageRenderer(content: view)
         renderer.proposedSize = ProposedViewSize(width: proposed, height: nil)
-        renderer.scale = 1
+        // 3 倍取样再折回点：ImageRenderer 按像素向上取整，1 倍时亚像素也会读成多出 1 点。
+        renderer.scale = 3
         guard let image = renderer.cgImage else {
             XCTFail("渲染失败")
             return .infinity
         }
-        return CGFloat(image.width)
+        return CGFloat(image.width) / 3
     }
 }
 
