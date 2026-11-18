@@ -62,6 +62,8 @@ final class PlaybackLane: ObservableObject {
     var currentCap = Double.infinity
     /// 热状态升降档引起的换档任务；切房、释放时取消。
     var capTask: Task<Void, Never>?
+    /// 换档请求次数（含因播放项未就绪而没能应用的），测试与日志用。
+    var capSyncRequests = 0
 
     // 身份与状态
     /// 本路当前房间。主路与 `feed.currentUsername` 同步（`updateFeed` 写入）。

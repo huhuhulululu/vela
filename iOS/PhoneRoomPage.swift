@@ -54,6 +54,11 @@ struct PhoneRoomPage: View {
         active && !videoReady && !hasNote && laneAllowed
     }
 
+    /// 加载线用的本路闸门。读已发布的 `playbackGateOpen` 只为让闸门变化触发重绘，判断只看本路。
+    static func loadingLaneAllowed(model: StageModel, lane: PlaybackLane) -> Bool {
+        model.playbackGateOpen && model.laneAllowed(lane)
+    }
+
     private var pipController: PictureInPictureCoordinator? {
         Self.carriesPictureInPicture(lane: lane.id, focus: model.focusLane) ? model.platform.pipCoordinator : nil
     }

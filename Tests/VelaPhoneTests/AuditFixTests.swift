@@ -77,7 +77,9 @@ final class AuditFixTests: XCTestCase {
         var canAutoEnter = true
         var autoEnter = true
         var stopCalls = 0
+        var abortCalls = 0
         func stop() { stopCalls += 1 }
+        func abort() { abortCalls += 1 }
     }
 
     func testDualToggleIgnoredWhilePictureInPictureIsUp() {
@@ -255,5 +257,94 @@ final class AuditFixTests: XCTestCase {
         XCTAssertEqual(names[at + 1], "kim", "相近的房间紧随副路正在看的那一间之后")
         XCTAssertEqual(stage.name(of: stage.primary), "alice")
         XCTAssertEqual(stage.name(of: stage.secondary!), "bob")
+    }
+
+    // MARK: 复审 1：热上限补同步在首帧就绪时重试
+
+    func testReadyAfterThermalLimitRequestsCapSync() {
+        let stage = makeStage(plain(["alice", "bob"]))
+        stage.screenScale = 3
+        for lane in stage.lanes { lane.displaySize = CGSize(width: 393, height: 221); lane.currentCap = .infinity }
+        stage.noteThermal(.serious, now: Date())
+        let lane = stage.secondary!
+        let before = lane.capSyncRequests
+        // 起播时的补换档发生在首帧之前，播放器会拒绝；首帧就绪时必须再请求一次。
+        stage.noteReady("bob", on: lane)
+        XCTAssertGreaterThan(lane.capSyncRequests, before, "就绪时补做尚未应用的上限同步")
+    }
+
+    func testReadyWithUpToDateCapDoesNotRequestCapSync() {
+        let stage = makeStage(plain(["alice", "bob"]))
+        let lane = stage.secondary!
+        lane.currentCap = .infinity
+        let before = lane.capSyncRequests
+        stage.noteReady("bob", on: lane)
+        XCTAssertEqual(lane.capSyncRequests, before, "上限没变不用换档")
+    }
+
+    // MARK: 复审 2：空主路恢复后停留要初始化
+
+    func testClosingDualAfterPrimaryEmptiedInitialisesPrimaryDwell() {
+        let stage = makeStage(plain(["alice", "bob"]))
+        stage.setFocus(.secondary)
+        stage.blockCurrent(stage.target(.primary))
+        XCTAssertNil(stage.primary.dwell.room, "空主路没有停留房间")
+        stage.setDual(false)
+        XCTAssertEqual(stage.name(of: stage.primary), "bob")
+        XCTAssertEqual(stage.primary.dwell.room?.username, "bob", "恢复后的主路要开始记停留")
+    }
+
+    func testReloadRestoringEmptyPrimaryInitialisesDwell() {
+        let stage = makeStage(plain(["alice", "bob"]))
+        stage.setFocus(.secondary)
+        stage.blockCurrent(stage.target(.primary))
+        stage.unblock("alice")
+        if let name = stage.name(of: stage.primary) {
+            XCTAssertEqual(stage.primary.dwell.room?.username, name, "主路回来了，停留跟着初始化")
+        }
+        stage.updateFeed(installing: stage.loadedSource, intent: .reload) {
+            $0.replace(with: CatalogPage(rooms: ["alice", "bob"].map { Room.direct(username: $0)! }, total: 2, nextOffset: 2))
+        }
+        XCTAssertEqual(stage.primary.dwell.room?.username, stage.name(of: stage.primary))
+        XCTAssertNotNil(stage.primary.dwell.room)
+    }
+
+    // MARK: 复审 3：副路加载线不受主路暂停影响
+
+    func testSecondaryLoadingLineSurvivesPrimaryPause() {
+        let stage = makeStage(plain(["alice", "bob"]))
+        stage.primary.manuallyPaused = true
+        stage.applyPower()
+        XCTAssertFalse(stage.playbackGateOpen, "playbackGateOpen 其实是主路的闸门")
+        XCTAssertTrue(stage.laneAllowed(stage.secondary!))
+        XCTAssertTrue(PhoneRoomPage.loadingLaneAllowed(model: stage, lane: stage.secondary!), "副路自己允许就该显示加载线")
+        XCTAssertFalse(PhoneRoomPage.loadingLaneAllowed(model: stage, lane: stage.primary))
+    }
+
+    // MARK: 复审 4：回退清掉协调器
+
+    func testFallbackAbortsCoordinatorNotJustStops() async {
+        let stage = makeStage(plain(["alice", "bob"]))
+        let pip = FakePiP()
+        stage.platform.pip = pip
+        stage.platform.playerAdvancing = { _ in true }
+        stage.platform.pipFallbackDelay = 0.05
+        stage.primary.playingName = "alice"
+        stage.platform.pictureInPictureEvent(.willStart, stage: stage)
+        stage.platform.scenePhaseChanged(.inactive, stage: stage)
+        stage.platform.scenePhaseChanged(.background, stage: stage)
+        try? await Task.sleep(nanoseconds: 400_000_000)
+        XCTAssertEqual(pip.abortCalls, 1, "回退走中止入口，不只是 stop()")
+    }
+
+    func testCoordinatorAbortClearsActiveSoItCanRebind() {
+        let coordinator = PictureInPictureCoordinator(autoEnter: true)
+        coordinator.deliver(.willStart)
+        XCTAssertTrue(coordinator.active)
+        coordinator.abort()
+        XCTAssertFalse(coordinator.active, "中止后不再卡在 active，attach 与 detach 的守卫才会放行")
+        XCTAssertFalse(coordinator.possible)
+        coordinator.deliver(.didStop)
+        XCTAssertFalse(coordinator.active, "旧控制器迟到的事件无害")
     }
 }

@@ -19,6 +19,13 @@ protocol PictureInPictureControlling: AnyObject {
     /// 设置里的「回桌面自动进入画中画」，改动立即落到系统控制器上。
     var autoEnter: Bool { get set }
     func stop()
+    /// 启动中止：回退全停时调用。系统控制器还没真正进入时 `stop()` 是空操作、也不会有回调，
+    /// 这里要把协调器的 active、旧控制器与播放层绑定一并清掉，之后能重新绑到新的焦点路。
+    func abort()
+}
+
+extension PictureInPictureControlling {
+    func abort() { stop() }
 }
 
 /// 回桌面后的回退判定（修订 A3）：按「将自动进入」放行焦点路之后，到时仍不在后台画中画里就全停释放。
@@ -60,7 +67,7 @@ final class PictureInPictureCoordinator: NSObject, ObservableObject, PictureInPi
         return PictureInPictureCoordinator(autoEnter: autoEnter)
     }
 
-    private init(autoEnter: Bool) {
+    init(autoEnter: Bool) {
         self.autoEnter = autoEnter
         super.init()
     }
@@ -106,13 +113,15 @@ final class PictureInPictureCoordinator: NSObject, ObservableObject, PictureInPi
         controller?.stopPictureInPicture()
     }
 
+    func abort() {}
+
     private func setPossible(_ value: Bool) {
         guard possible != value else { return }
         possible = value
         Self.log.notice("pip possible=\(value)")
     }
 
-    fileprivate func deliver(_ event: PiPEvent) {
+    func deliver(_ event: PiPEvent) {
         switch event {
         case .willStart, .didStart: if !active { active = true }
         case .failed, .didStop: if active { active = false }
