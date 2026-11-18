@@ -133,6 +133,10 @@ class ChallengeEmulatorTest {
                 onMainOrNull(activity) { web.url?.contains("challenge-ok") == true } == true
             })
 
+            // WebView.url 在 loadUrl 返回时就已是新地址，不代表伪上游已收到通关请求。
+            // 此时立刻重试会和通关请求抢先后，抢先到的重试拿到 403，之后没有人再重试。
+            // 改为等伪上游自己说已通关（站点根由 403 变 200），再重试。
+            assertTrue("伪上游没有记下通关", waitUntil(40_000) { upstreamCleared(page) })
             onMainOrNull(activity) { stage.dispatch(StageIntent.RetryAfterChallenge) }
             val lane = laneRef.get()
             assertTrue(
@@ -166,6 +170,25 @@ class ChallengeEmulatorTest {
         val raw = args.getString("upstream").orEmpty().ifEmpty { vela.app.BuildConfig.VELA_UPSTREAM }
         assertTrue("没有伪上游地址", raw.startsWith("http://") || raw.startsWith("https://"))
         return raw.trimEnd('/')
+    }
+
+    private fun upstreamCleared(page: String): Boolean {
+        val result = AtomicReference(false)
+        val probe = Thread {
+            val connection = java.net.URL(page.trimEnd('/') + "/").openConnection() as java.net.HttpURLConnection
+            try {
+                connection.connectTimeout = 3_000
+                connection.readTimeout = 3_000
+                result.set(connection.responseCode == 200)
+            } catch (_: java.io.IOException) {
+                result.set(false)
+            } finally {
+                connection.disconnect()
+            }
+        }
+        probe.start()
+        probe.join(8_000)
+        return result.get()
     }
 
     private fun findWeb(root: View?): WebView? {

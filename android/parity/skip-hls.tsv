@@ -33,11 +33,11 @@ Tests/VelaCoreTests/RelayWaitTests.swift	testBoundedReturnsEarlyWhenOperationFin
 Tests/VelaCoreTests/RelaySourceTableTests.swift	testTwoSourcesKeepIndependentFlags	不移植 RelaySourceTable；replaced-by:vela.app.playback.LaneDataSourceTest
 Tests/VelaCoreTests/RelaySourceTableTests.swift	testThirdSourceEvictsTheOldest	不移植 RelaySourceTable；replaced-by:vela.app.playback.LaneDataSourceTest
 Tests/VelaCoreTests/RelaySourceTableTests.swift	testRemoveAllClearsEveryQuery	不移植 RelaySourceTable；replaced-by:vela.app.playback.LaneDataSourceTest
-Tests/VelaCoreTests/LaneQualityTests.swift	testSizeCapOnlyAppliesToThreeLanes	不移植：iOS 三窗按路数的画质上限与热降档（安卓只有单窗）
-Tests/VelaCoreTests/LaneQualityTests.swift	testThermalStepsDownFromTheCurrentCap	不移植：iOS 三窗按路数的画质上限与热降档（安卓只有单窗）
-Tests/VelaCoreTests/LaneQualityTests.swift	testCriticalEscalatesAndCoolingDownBelowCriticalKeepsTheDeeperCapUntilRecovery	不移植：iOS 三窗按路数的画质上限与热降档（安卓只有单窗）
-Tests/VelaCoreTests/LaneQualityTests.swift	testNilWhenNotLimitedOrStillHot	不移植：iOS 三窗按路数的画质上限与热降档（安卓只有单窗）
-Tests/VelaCoreTests/LaneQualityTests.swift	testCountsDownFromFairAndResetsOnReheat	不移植：iOS 三窗按路数的画质上限与热降档（安卓只有单窗）
-Tests/VelaCoreTests/LaneQualityTests.swift	testNilAfterRecovered	不移植：iOS 三窗按路数的画质上限与热降档（安卓只有单窗）
-Tests/VelaCoreTests/PlaybackFailureClassifierTests.swift	testBackoffIsFiniteAndDoubling	不移植：iOS 重试退避上限口径（安卓走 ExoPlayer 自己的重试）
-Tests/VelaCoreTests/RelaySourceTableTests.swift	testFourthSourceEvictsTheOldest	不移植：iOS 本地中继源表的容量淘汰（安卓进程内数据源，不开本地端口）
+Tests/VelaCoreTests/LaneQualityTests.swift	testSizeCapOnlyAppliesToThreeLanes	milestone-B: 多路画质上限与热降档，由 B 阶段移植
+Tests/VelaCoreTests/LaneQualityTests.swift	testThermalStepsDownFromTheCurrentCap	milestone-B: 多路画质上限与热降档，由 B 阶段移植
+Tests/VelaCoreTests/LaneQualityTests.swift	testCriticalEscalatesAndCoolingDownBelowCriticalKeepsTheDeeperCapUntilRecovery	milestone-B: 多路画质上限与热降档，由 B 阶段移植
+Tests/VelaCoreTests/LaneQualityTests.swift	testNilWhenNotLimitedOrStillHot	milestone-B: 多路画质上限与热降档，由 B 阶段移植
+Tests/VelaCoreTests/LaneQualityTests.swift	testCountsDownFromFairAndResetsOnReheat	milestone-B: 多路画质上限与热降档，由 B 阶段移植
+Tests/VelaCoreTests/LaneQualityTests.swift	testNilAfterRecovered	milestone-B: 多路画质上限与热降档，由 B 阶段移植
+Tests/VelaCoreTests/PlaybackFailureClassifierTests.swift	testBackoffIsFiniteAndDoubling	milestone-B: 播放失败重试退避口径，由 B 阶段移植
+Tests/VelaCoreTests/RelaySourceTableTests.swift	testFourthSourceEvictsTheOldest	milestone-B: 多路源表容量淘汰，由 B 阶段评估移植

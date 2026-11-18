@@ -175,6 +175,14 @@ FeedCache 的随机性质测试只断言不变量。Kotlin 用同一个种子，
 - [Track selection](https://developer.android.com/media/media3/exoplayer/track-selection)：关音轨、限制视频码率走 `TrackSelectionParameters`。
 - [`DefaultLoadControl`](https://developer.android.com/reference/androidx/media3/exoplayer/DefaultLoadControl) 与 [`TrackSelectionParameters.Builder.setMaxVideoBitrate`](https://developer.android.com/reference/androidx/media3/common/TrackSelectionParameters.Builder#setMaxVideoBitrate(int)) 的 API 参考页存在。缓冲 min/max 6000 ms、`setMaxVideoBitrate` 按计划在后续播放任务里用，不在这四篇指南正文里。
 
+## milestone-B 跳过项
+
+`android/parity/skip*.tsv` 里理由以 `milestone-B:` 开头的行，是共用 Core 逻辑、安卓里程碑 B（双窗）要移植的 Swift 用例（双窗与三窗选房、最近划走共享、多路画质、停留焦点秒、音频切换顺序等）。它们只为保持 `--all` 不失败而暂时登记为跳过，不等于不移植。
+
+- 里程碑 B 内必须把这些用例移植成 Kotlin 测试，并删除对应的 skip 行；里程碑 B 收尾时 `grep -rn 'milestone-B' android/parity` 必须无输出。
+- 理由以「不移植：iOS」开头的行才是真正依赖 iOS 平台 API（AVAudioSession、UIKit 生命周期、MetricKit、画中画等）的用例，长期保留。
+- 新增 skip 行时按这条区分，不要把共用逻辑写成 iOS 专属。
+
 ## 本次 release 体积
 
 2026-11-18，本机 `check-apk.sh` 对 `app-release.apk`：`apk_bytes=667213`（651.6 KB），低于 5120 KB。`--max-kb 1` 因超过 1024 字节失败。权限只有 `INTERNET`、`ACCESS_NETWORK_STATE`、`vela.app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`。`allowBackup=false`。R8 mapping 里没有 `vela.app.hooks`。`:app:assemblePerf` 也能打出包。
