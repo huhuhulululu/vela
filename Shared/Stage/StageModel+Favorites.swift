@@ -1,6 +1,4 @@
-import AppKit
 import Foundation
-import UniformTypeIdentifiers
 
 /// 一次收藏查询的结果。
 struct FavoriteResolution: Sendable {
@@ -161,28 +159,6 @@ extension StageModel {
         return FavoritesBoard.make(favorites: curation.favorites, statuses: statuses, catalog: feed.catalog)
     }
 
-    /// 菜单栏用：把主窗口带到前面。老板键隐藏中走老板键的恢复路径（取消隐藏、恢复解码），
-    /// 其余情况取消应用隐藏、还原最小化并置前。
-    func revealMainWindow() {
-        if bossHidden { toggleBoss() }
-        NSApp.unhide(nil)
-        NSApp.activate(ignoringOtherApps: true)
-        guard let window = NSApp.windows.first(where: { $0.title == "Vela" && !($0 is NSPanel) }) else { return }
-        if window.isMiniaturized { window.deminiaturize(nil) }
-        window.makeKeyAndOrderFront(nil)
-    }
-
-    func playFromMenuBar(_ name: String) {
-        revealMainWindow()
-        playFavorite(name)
-    }
-
-    func openFavoritesFromMenuBar() {
-        revealMainWindow()
-        dismissSurfaces()
-        showCuration = true
-    }
-
     /// 按用户名手动添加。返回错误文案，成功返回 nil。
     func addFavorite(_ raw: String) -> String? {
         let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -193,36 +169,13 @@ extension StageModel {
         return nil
     }
 
-    func exportFavorites() {
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [.json]
-        panel.nameFieldStringValue = "vela-favorites.json"
-        panel.begin { [weak self] response in
-            guard response == .OK, let url = panel.url else { return }
-            MainActor.assumeIsolated { self?.writeFavorites(to: url) }
-        }
+    /// 导出文件的内容（JSON）。文件面板（macOS）或 `.fileExporter`（iOS）负责写到哪里。
+    func exportFavoritesData() throws -> Data {
+        try FavoriteExchange.encode(curation.favorites)
     }
 
-    private func writeFavorites(to url: URL) {
-        do {
-            try FavoriteExchange.encode(curation.favorites).write(to: url, options: .atomic)
-            showToast("已导出 \(curation.favorites.count) 个收藏")
-        } catch {
-            showToast("导出失败")
-        }
-    }
-
-    func importFavorites() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.json]
-        panel.allowsMultipleSelection = false
-        panel.begin { [weak self] response in
-            guard response == .OK, let url = panel.url else { return }
-            MainActor.assumeIsolated { self?.readFavorites(from: url) }
-        }
-    }
-
-    private func readFavorites(from url: URL) {
+    /// 从用户选中的文件导入并合并收藏。文件面板（macOS）或 `.fileImporter`（iOS）负责选文件。
+    func importFavorites(_ url: URL) {
         do {
             let size = (try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
             guard size <= Preferences.maxFileBytes else { throw FavoriteExchange.Failure.tooLarge }

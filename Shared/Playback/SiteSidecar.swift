@@ -1,4 +1,3 @@
-import AppKit
 import Foundation
 import WebKit
 
@@ -11,7 +10,10 @@ enum SidecarError: Error {
 
 @MainActor
 final class SiteSidecar: NSObject, WKNavigationDelegate {
-    private weak var host: NSWindow?
+    /// 离屏网页视图的宿主（macOS 挂到主窗口内容视图，iOS 挂到场景窗口），两个平台各有一份 `SidecarHost`。
+    let host: SidecarHost
+    /// 每次加载页面前先等它：默认等旧登录会话清理完，不带旧 sessionid 发请求；iOS 可再接生命周期挂起检查。
+    private let beforeLoad: @MainActor () async -> Void
     private var webView: WKWebView?
     private var pendingLoad: CheckedContinuation<Void, Error>?
     private var loaded = false
@@ -21,10 +23,19 @@ final class SiteSidecar: NSObject, WKNavigationDelegate {
     /// 用完后空闲达到 `SidecarIdlePolicy.seconds` 就销毁离屏网页视图。30 秒内再使用仍是这一份；超过则按需重建。
     private var idleTask: Task<Void, Never>?
 
-    func hold(window: NSWindow) {
-        host = window
+    init(
+        host: SidecarHost = SidecarHost(),
+        beforeLoad: @escaping @MainActor () async -> Void = { await LegacyLoginCleanup.waitUntilDone() }
+    ) {
+        self.host = host
+        self.beforeLoad = beforeLoad
+        super.init()
+    }
+
+    /// 宿主刚就绪（窗口挂上）：没停着且网页视图还没挂上就挂过去。
+    func hostDidAttach() {
         guard !suspended, let webView, webView.superview == nil else { return }
-        window.contentView?.addSubview(webView)
+        host.attach(webView)
     }
 
     func suspend() {
@@ -35,8 +46,8 @@ final class SiteSidecar: NSObject, WKNavigationDelegate {
 
     func resumeIfNeeded() {
         suspended = false
-        guard let webView, webView.superview == nil, let host else { return }
-        host.contentView?.addSubview(webView)
+        guard let webView, webView.superview == nil else { return }
+        host.attach(webView)
     }
 
     func resolve(username: String) async throws -> StreamTicket {
@@ -136,7 +147,7 @@ final class SiteSidecar: NSObject, WKNavigationDelegate {
     }
 
     private func ensureLoaded() async throws {
-        await LegacyLoginCleanup.waitUntilDone()
+        await beforeLoad()
         if loaded { return }
         if let loading {
             try await loading.value
@@ -177,13 +188,11 @@ final class SiteSidecar: NSObject, WKNavigationDelegate {
         configuration.mediaTypesRequiringUserActionForPlayback = .all
         // Keep a real layout size. A 2×2, fully transparent view often never finishes the page,
         // so the stream request never leaves WebKit.
-        let view = WKWebView(frame: NSRect(x: 0, y: -4200, width: 800, height: 600), configuration: configuration)
+        let view = WKWebView(frame: CGRect(x: 0, y: -4200, width: 800, height: 600), configuration: configuration)
         view.navigationDelegate = self
         view.customUserAgent = UserAgent.safari
         // 新建的视图马上要加载。停着（确认页还没把侧车挂回来）也先放进窗口外，否则页面经常加载不完。
-        if let host {
-            host.contentView?.addSubview(view)
-        }
+        host.attach(view)
         webView = view
         return view
     }
