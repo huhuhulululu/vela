@@ -304,7 +304,7 @@ final class PlatformHooks {
     /// 没能进入画中画：关掉可能半开的小窗，再全停释放。
     private func fallbackStop(stage: StageModel, reason: String) {
         Self.pipLog.notice("pip fallback-stop reason=\(reason, privacy: .public)")
-        if pictureInPictureState != .none { pip?.stop() }
+        if pictureInPictureState != .none { pip?.abort() }
         // 还没真正进入时 stop() 是空操作，不会有委托回调：不等它，立刻放开焦点锁与另一路的扣留。
         pictureInPictureState = .none
         stage.setPipSolo(false)

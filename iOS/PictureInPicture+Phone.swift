@@ -113,7 +113,20 @@ final class PictureInPictureCoordinator: NSObject, ObservableObject, PictureInPi
         controller?.stopPictureInPicture()
     }
 
-    func abort() {}
+    /// 启动中止（3 秒回退）：系统控制器没真正进入时 `stopPictureInPicture()` 是空操作且没有回调，
+    /// `active` 会一直是 true，`attach` / `detach` 的守卫都被挡住。这里不等回调：摘掉委托（旧控制器迟到的事件不再进来）、
+    /// 清掉控制器与绑定、`active` 与 `possible` 归位；播放层还在窗口里就重新绑一个新控制器，焦点换了则由新焦点路的视图去绑。
+    func abort() {
+        let layer = boundLayer
+        controller?.delegate = nil
+        controller?.stopPictureInPicture()
+        possibleObservation = nil
+        controller = nil
+        boundLayer = nil
+        setPossible(false)
+        if active { active = false }
+        if let layer, layer.superlayer != nil { attach(layer) }
+    }
 
     private func setPossible(_ value: Bool) {
         guard possible != value else { return }
