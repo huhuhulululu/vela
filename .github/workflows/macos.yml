@@ -21,6 +21,23 @@ jobs:
         run: |
           if [ -x scripts/test-perf-gate.sh ]; then bash scripts/test-perf-gate.sh; else echo "skip: no perf gate yet"; fi
 
+      - name: serve-test-stream 单元测试
+        run: python3 -I scripts/test_serve_test_stream.py
+      - name: selftest 清理回归测试
+        run: bash scripts/test-selftest-cleanup.sh
+
+  linux:
+    name: Linux swift test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container: swift:6.0
+    steps:
+      - uses: actions/checkout@v4
+      - name: swift build
+        run: swift build
+      - name: swift test
+        run: swift test
+
   mac:
     name: macOS build (${{ matrix.configuration }})
     runs-on: macos-latest
