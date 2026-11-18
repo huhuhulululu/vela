@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXFileReference section */
+		B7A0C0DE0000000000000001 /* VelaPhoneApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VelaPhoneApp.swift; sourceTree = "<group>"; };
+		B7A0C0DE0000000000000003 /* VelaPhone.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VelaPhone.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A5E7C0DE00000000000000A1 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		9653C9F16ADFAD2C0473D61D /* TasteView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TasteView.swift"; sourceTree = "<group>"; };
 		24E59ED6C2DB401D71A6A691 /* TasteParts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TasteParts.swift"; sourceTree = "<group>"; };
@@ -111,6 +113,7 @@
 
 /* Begin PBXFrameworksBuildPhase section */
 		7561BFB015D8F536760CB671 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = ( ); runOnlyForDeploymentPostprocessing = 0; };
+		B7A0C0DE0000000000000006 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = ( ); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -120,6 +123,7 @@
 				3C3B0F03DC089F93B8457928 /* App */,
 				B0B8C84E77856132D5681A59 /* VelaCore */,
 				A1F0C0DE00000000000000B1 /* Shared */,
+				B7A0C0DE0000000000000002 /* iOS */,
 				615B463D1028E4E24B674CF7 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -257,8 +261,17 @@
 			isa = PBXGroup;
 			children = (
 				38A007151ABE87CC01A5B6E9 /* Vela.app */,
+				B7A0C0DE0000000000000003 /* VelaPhone.app */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		B7A0C0DE0000000000000002 /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				B7A0C0DE0000000000000001 /* VelaPhoneApp.swift */,
+			);
+			path = iOS;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -279,6 +292,22 @@
 			name = Vela;
 			productName = Vela;
 			productReference = 38A007151ABE87CC01A5B6E9 /* Vela.app */;
+			productType = "com.apple.product-type.application";
+		};
+		B7A0C0DE0000000000000004 /* VelaPhone */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B7A0C0DE0000000000000007 /* Build configuration list for PBXNativeTarget "VelaPhone" */;
+			buildPhases = (
+				B7A0C0DE0000000000000005 /* Sources */,
+				B7A0C0DE0000000000000006 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = VelaPhone;
+			productName = VelaPhone;
+			productReference = B7A0C0DE0000000000000003 /* VelaPhone.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -305,6 +334,7 @@
 			projectRoot = "";
 			targets = (
 				0E8A3AD980EC179856012B7E /* Vela */,
+				B7A0C0DE0000000000000004 /* VelaPhone */,
 			);
 		};
 /* End PBXProject section */
@@ -421,9 +451,142 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B7A0C0DE0000000000000005 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B7A0C0DE0000000000000064 /* CatalogAPI.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000065 /* DisplayFit.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000066 /* LaneCursor.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000067 /* LaneSelection.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000068 /* RoomTarget.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000069 /* AudioTransition.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000006A /* LaneQuality.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000006B /* LaneSettlement.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000006C /* LifecycleEpoch.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000006D /* PhoneLifecycle.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000006E /* FeedStore.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000006F /* HTTP.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000070 /* Models.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000071 /* Pager.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000072 /* InfoVisibility.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000073 /* MenuBarVisibility.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000074 /* AssignIf.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000075 /* PlaylistLadder.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000076 /* QualityGovernor.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000077 /* PlaybackError.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000078 /* Presence.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000079 /* Feedback.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000007A /* StreamerAffinity.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000007B /* TagRarity.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000007C /* HotTags.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000007D /* PortraitFit.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000007E /* LastBroadcast.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000007F /* SiteSearch.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000080 /* TasteTargeting.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000081 /* Recommender.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000082 /* Preferences.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000083 /* StreamAPI.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000084 /* SkipTracker.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000085 /* DeferredSaver.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000086 /* DwellTracker.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000087 /* PlaybackPolicy.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000088 /* LoadSlot.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000089 /* PlaybackRefresh.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000008A /* UpstreamRenewal.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000008B /* RelayFeed.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000008C /* StreamRendition.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000008D /* Curation.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000008E /* FavoritesBoard.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000008F /* StreamSourcing.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000090 /* EndpointBackoff.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000091 /* AwayRetry.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000092 /* FavoriteStatus.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000093 /* TasteStore.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000094 /* TasteSummary.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000095 /* BetaSampler.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000096 /* Taste.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000097 /* WatchLedger.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000098 /* PromptRules.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000099 /* AudioPolicy.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000009A /* ShortcutGate.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000009B /* TimedFanOut.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000009C /* WindowDragPolicy.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000009D /* PreferenceQuarantine.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000009E /* ChallengeGate.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000009F /* RelaySourceTable.swift in Sources (VelaPhone) */,
+				B7A0C0DE00000000000000A0 /* PlaybackFailureClassifier.swift in Sources (VelaPhone) */,
+				B7A0C0DE00000000000000A1 /* PlaylistRelay.swift in Sources (VelaPhone) */,
+				B7A0C0DE00000000000000A2 /* VelaPhoneApp.swift in Sources (VelaPhone) */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXBuildFile section */
+		B7A0C0DE0000000000000064 /* CatalogAPI.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = B6C2710BAE15BF34AD8D8064 /* CatalogAPI.swift */; };
+		B7A0C0DE0000000000000065 /* DisplayFit.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 6C6318BDB00A5C5629A5771D /* DisplayFit.swift */; };
+		B7A0C0DE0000000000000066 /* LaneCursor.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 3B5557D6CBCE24FB261DDCF2 /* LaneCursor.swift */; };
+		B7A0C0DE0000000000000067 /* LaneSelection.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = E105A9BBD540FBADA3E55DE6 /* LaneSelection.swift */; };
+		B7A0C0DE0000000000000068 /* RoomTarget.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 8015B67F2FEA4F082C6E96B0 /* RoomTarget.swift */; };
+		B7A0C0DE0000000000000069 /* AudioTransition.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = AAF0875BDC7DECDE9CB2FD72 /* AudioTransition.swift */; };
+		B7A0C0DE000000000000006A /* LaneQuality.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 02272C5A60C4F4A5D576924F /* LaneQuality.swift */; };
+		B7A0C0DE000000000000006B /* LaneSettlement.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 855F7F46F047F54717D13227 /* LaneSettlement.swift */; };
+		B7A0C0DE000000000000006C /* LifecycleEpoch.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = C541058AFE0AC80AD146EDBA /* LifecycleEpoch.swift */; };
+		B7A0C0DE000000000000006D /* PhoneLifecycle.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 777EFF4FBADFF6F05037CA34 /* PhoneLifecycle.swift */; };
+		B7A0C0DE000000000000006E /* FeedStore.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 91C7787D7F9A6CEEF15836DC /* FeedStore.swift */; };
+		B7A0C0DE000000000000006F /* HTTP.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = CAEC71EA4CE7DDD16ED71C33 /* HTTP.swift */; };
+		B7A0C0DE0000000000000070 /* Models.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 1620C4EBECC91E93F7005537 /* Models.swift */; };
+		B7A0C0DE0000000000000071 /* Pager.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 9FE0D685E99DE971D002F9EB /* Pager.swift */; };
+		B7A0C0DE0000000000000072 /* InfoVisibility.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B5C /* InfoVisibility.swift */; };
+		B7A0C0DE0000000000000073 /* MenuBarVisibility.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B6C /* MenuBarVisibility.swift */; };
+		B7A0C0DE0000000000000074 /* AssignIf.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = B1A55E1F00000000000000A1 /* AssignIf.swift */; };
+		B7A0C0DE0000000000000075 /* PlaylistLadder.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 0E0217F1F59C9FADB6815759 /* PlaylistLadder.swift */; };
+		B7A0C0DE0000000000000076 /* QualityGovernor.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B03 /* QualityGovernor.swift */; };
+		B7A0C0DE0000000000000077 /* PlaybackError.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B01 /* PlaybackError.swift */; };
+		B7A0C0DE0000000000000078 /* Presence.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 5564DAE75964EA8083413E1C /* Presence.swift */; };
+		B7A0C0DE0000000000000079 /* Feedback.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = AA10F00DFEED0000000000C1 /* Feedback.swift */; };
+		B7A0C0DE000000000000007A /* StreamerAffinity.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = AA10F00DFEED0000000000C2 /* StreamerAffinity.swift */; };
+		B7A0C0DE000000000000007B /* TagRarity.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = AA10F00DFEED0000000000C3 /* TagRarity.swift */; };
+		B7A0C0DE000000000000007C /* HotTags.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = AC08A0DE00000000000000F4 /* HotTags.swift */; };
+		B7A0C0DE000000000000007D /* PortraitFit.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = AC08A0DE00000000000000F3 /* PortraitFit.swift */; };
+		B7A0C0DE000000000000007E /* LastBroadcast.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = AC08A0DE00000000000000F2 /* LastBroadcast.swift */; };
+		B7A0C0DE000000000000007F /* SiteSearch.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = AC08A0DE00000000000000F1 /* SiteSearch.swift */; };
+		B7A0C0DE0000000000000080 /* TasteTargeting.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = AA10F00DFEED0000000000C4 /* TasteTargeting.swift */; };
+		B7A0C0DE0000000000000081 /* Recommender.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = AA10F00DFEED0000000000A2 /* Recommender.swift */; };
+		B7A0C0DE0000000000000082 /* Preferences.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = AA10F00DFEED0000000000A1 /* Preferences.swift */; };
+		B7A0C0DE0000000000000083 /* StreamAPI.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 168F2029045FEFC53698CFF0 /* StreamAPI.swift */; };
+		B7A0C0DE0000000000000084 /* SkipTracker.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 634BC02D414C020142CE76CB /* SkipTracker.swift */; };
+		B7A0C0DE0000000000000085 /* DeferredSaver.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = A1D0C0DE00000000000000F3 /* DeferredSaver.swift */; };
+		B7A0C0DE0000000000000086 /* DwellTracker.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = A1D0C0DE00000000000000F1 /* DwellTracker.swift */; };
+		B7A0C0DE0000000000000087 /* PlaybackPolicy.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = D58D9B01FE96A871D43BF155 /* PlaybackPolicy.swift */; };
+		B7A0C0DE0000000000000088 /* LoadSlot.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 060D66056AF5CB17E24CBF07 /* LoadSlot.swift */; };
+		B7A0C0DE0000000000000089 /* PlaybackRefresh.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = A1F0C0DE0000000000000001 /* PlaybackRefresh.swift */; };
+		B7A0C0DE000000000000008A /* UpstreamRenewal.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = A1F0C0DE00000000000000A1 /* UpstreamRenewal.swift */; };
+		B7A0C0DE000000000000008B /* RelayFeed.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = A1F0C0DE0000000000000011 /* RelayFeed.swift */; };
+		B7A0C0DE000000000000008C /* StreamRendition.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = A1F0C0DE0000000000000031 /* StreamRendition.swift */; };
+		B7A0C0DE000000000000008D /* Curation.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = CE23B12C71B11DE6435B02DC /* Curation.swift */; };
+		B7A0C0DE000000000000008E /* FavoritesBoard.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = AB10C0DE0100000000000F01 /* FavoritesBoard.swift */; };
+		B7A0C0DE000000000000008F /* StreamSourcing.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 0E09A0A00000000000000F03 /* StreamSourcing.swift */; };
+		B7A0C0DE0000000000000090 /* EndpointBackoff.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 0E09A0A00000000000000F02 /* EndpointBackoff.swift */; };
+		B7A0C0DE0000000000000091 /* AwayRetry.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 0E09A0A00000000000000F01 /* AwayRetry.swift */; };
+		B7A0C0DE0000000000000092 /* FavoriteStatus.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 7C1E5A90D3B24F68A0C4E9F7 /* FavoriteStatus.swift */; };
+		B7A0C0DE0000000000000093 /* TasteStore.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = CEE35AC21C10B14D097FD661 /* TasteStore.swift */; };
+		B7A0C0DE0000000000000094 /* TasteSummary.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 06F0221475B24E4DBEC2C11D /* TasteSummary.swift */; };
+		B7A0C0DE0000000000000095 /* BetaSampler.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 14D089E2F47CE8C234FABAA6 /* BetaSampler.swift */; };
+		B7A0C0DE0000000000000096 /* Taste.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 8220312BA7B03985E12F72D1 /* Taste.swift */; };
+		B7A0C0DE0000000000000097 /* WatchLedger.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = A1WATCH0000000000000001 /* WatchLedger.swift */; };
+		B7A0C0DE0000000000000098 /* PromptRules.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = AB12F73D92204416CFD4E780 /* PromptRules.swift */; };
+		B7A0C0DE0000000000000099 /* AudioPolicy.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = AB1278BACC538F1FDDAA2AF2 /* AudioPolicy.swift */; };
+		B7A0C0DE000000000000009A /* ShortcutGate.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = AB129B7897BC09E3F5627BC4 /* ShortcutGate.swift */; };
+		B7A0C0DE000000000000009B /* TimedFanOut.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = AB12C1EB4B6CA954F19CAE43 /* TimedFanOut.swift */; };
+		B7A0C0DE000000000000009C /* WindowDragPolicy.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = AB1257F392515A0C52EC5566 /* WindowDragPolicy.swift */; };
+		B7A0C0DE000000000000009D /* PreferenceQuarantine.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = AB11C0DE0100000000000F02 /* PreferenceQuarantine.swift */; };
+		B7A0C0DE000000000000009E /* ChallengeGate.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = AB11C0DE0100000000000F01 /* ChallengeGate.swift */; };
+		B7A0C0DE000000000000009F /* RelaySourceTable.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = AB14C0DE0100000000000F02 /* RelaySourceTable.swift */; };
+		B7A0C0DE00000000000000A0 /* PlaybackFailureClassifier.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = AB14C0DE0100000000000F01 /* PlaybackFailureClassifier.swift */; };
+		B7A0C0DE00000000000000A1 /* PlaylistRelay.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = A1F0C0DE0000000000000021 /* PlaylistRelay.swift */; };
+		B7A0C0DE00000000000000A2 /* VelaPhoneApp.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = B7A0C0DE0000000000000001 /* VelaPhoneApp.swift */; };
 		A5E7C0DE00000000000000A2 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5E7C0DE00000000000000A1 /* Assets.xcassets */; };
 		74A5EE0426725FCC9CBD0B47 /* TasteView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9653C9F16ADFAD2C0473D61D /* TasteView.swift */; };
 		5EF5037CBD04595CEC5832D5 /* TasteParts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24E59ED6C2DB401D71A6A691 /* TasteParts.swift */; };
@@ -632,6 +795,60 @@
 			};
 			name = Release;
 		};
+		B7A0C0DE0000000000000008 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Vela;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.vela.stage.ios;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		B7A0C0DE0000000000000009 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Vela;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.vela.stage.ios;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -649,6 +866,15 @@
 			buildConfigurations = (
 				FE30E34D2E074F83C0BB8B14 /* Debug */,
 				8DB33D080F2095ABF270D5AF /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B7A0C0DE0000000000000007 /* Build configuration list for PBXNativeTarget "VelaPhone" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B7A0C0DE0000000000000008 /* Debug */,
+				B7A0C0DE0000000000000009 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
