@@ -97,6 +97,10 @@ android {
     testOptions {
         unitTests.isIncludeAndroidResources = true
         unitTests.isReturnDefaultValues = true
+        unitTests.all {
+            // P1 播放管线实验按墙钟跑数分钟，只在 -Pspike 时执行；日常与 CI 不跑。
+            if (!project.hasProperty("spike")) it.exclude("vela/app/spike/**")
+        }
     }
 
     packaging {
