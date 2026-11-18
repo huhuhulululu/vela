@@ -300,6 +300,9 @@ final class StageModel: ObservableObject {
     /// 年龄已确认就在模型初始化后发唯一一次目录请求，不等首个视图出现。
     /// 未确认时不发；确认后仍由 `confirmAge` 加载。
     private func kickoffCatalogIfConfirmed() {
+        #if os(macOS) && (DEBUG || PERF_PROBE)
+        if startPerfStreamIfRequested() { return }
+        #endif
         guard startupGate.claimCatalog(ageConfirmed: ageConfirmed) else { return }
         Task { await reload() }
     }

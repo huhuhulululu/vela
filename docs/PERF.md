@@ -155,9 +155,37 @@
 - 另一轮带 `sample` 的 play（60 秒）cpu 5.28%、vtdecoder 3.90%，是码流和 sample 自身开销导致，不作对比口径。
 
 
-## G-mac 基线（main）
+## G-mac 基线（固定测试流，2026-11-17，现行）
 
-构建：`origin/main`（6ad572f），Release，经 `ssh localhost` 回环运行 `scripts/perf-probe.sh --duration 60`，静音，play 共 5 轮，各指标取中位数（逐轮值记在 `docs/perf-baseline-main.json` 的 `*_runs`）。判定命令 `python3 -I scripts/perf_gate.py docs/perf-baseline-main.json <结果.json> [--scenario idle]`。
+**口径变更（ADR-005）**：实跑门改用固定测试流，CPU 直接比较主进程。原因：活直播每轮随机房间，码率不同；`vtdecoder` 是独立进程，用它去扣 `cpu_avg` 会让另一个进程的负载抵消主进程的回退。
+
+固定测试流：`scripts/make-test-stream.sh` 用 ffmpeg 生成 testsrc2 彩条（自带计时），1920x1080 30fps，H.264 固定码率，平均约 3.1 Mbps，2 秒分片、240 秒素材，视频档加静音 AAC 独立音轨（`EXT-X-MEDIA`，与线上主列表结构一致）；`scripts/serve-test-stream.py` 把它按墙钟变成滑动窗口的直播列表（3 个分片，到尾回绕并带 `EXT-X-DISCONTINUITY`），只绑 `127.0.0.1` 的系统分配端口；生成物在 `/tmp`，不入库。`perf-probe.sh --fixed-stream` 自动生成、起服务，并以 `--perf-stream <地址>` 启动 App：钩子（`App/PerfStream+Mac.swift`，仅 DEBUG 或 PERF_PROBE 构建）跳过目录与站点解析，把一个测试房间塞进列表后走正常的 `playCurrent`、本地中继与 `PlayerController`，所以中继开销测得到。加 `--build` 时探针以 `SWIFT_ACTIVE_COMPILATION_CONDITIONS=PERF_PROBE` 构建 Release；Release 产物不含钩子（`scripts/check-release-no-perf-hook.sh`，CI 里跑）。注意 Swift 把 15 字节以内的字符串编进指令，`strings` 搜不到 `--perf-stream`，所以检测的是钩子里的长标识串。
+
+基线来源：origin/main 没有钩子，无法在它上面测，改用 feat/ios 1375e19 合并本分支后的 Release（PERF_PROBE 构建，与 Release 只差测试流钩子），经 `ssh localhost` 回环，`--fixed-stream` play 60 秒 x 3 轮取中位数，idle 60 秒 1 轮（编排者裁决从 120 秒 x 5 轮缩减：固定流本身稳定）。逐轮值在 `docs/perf-baseline-fixed.json`。判定：`python3 -I scripts/perf_gate.py docs/perf-baseline-fixed.json <结果.json> [--scenario idle]`。
+
+| 轮次 | cpu_avg（主进程） | vtdecoder（独立进程，只打印） | footprint | wakeups/s | 起播 |
+|---|---|---|---|---|---|
+| 1 | 2.71% | 2.30% | 36.5 MB | 1.3 | 1.77 秒 |
+| 2 | 2.46% | 1.92% | 35.3 MB | 1.5 | 1.22 秒 |
+| 3 | 2.79% | 2.20% | 36.3 MB | 1.5 | 1.20 秒 |
+| 中位数（基线） | 2.71% | 2.20% | 36.3 MB | 1.5 | 1.22 秒 |
+
+`runtime_issues` 全 0，`app_size` 3.7 MB，每轮 12 个有效样本、0 个无效。idle（60 秒，锁屏后等 10 秒再采样）：cpu 0.0%、wakeups 0.0/s、网络 0，达标。判定规则：主进程 `cpu_avg ≤ 基线 x 1.15 + 0.3`（基线 2.71 即上限 3.42）；footprint ≤ 基线 + 5 MB；app_size ≤ 基线 + 0.3 MB；起播中位数 + 1 秒；`runtime_issues` = 0；wakeups 只作 idle 门。基线与结果都必须是 `stream_mode=fixed`，模式不同拒绝比较；footprint 或 app_size 为 0、有效样本 < 5、无效样本占比 > 10%、样本数与时长不符一律拒绝。
+
+### 固定流与活直播的离散度对照（同一构建、同为 60 秒 x 3 轮）
+
+| 模式 | cpu_avg 各轮 | 均值 | 标准差（总体 / 样本） | 网络入 MB/min |
+|---|---|---|---|---|
+| 固定测试流 | 2.71、2.46、2.79 | 2.65% | 0.14 / 0.17 | 0（回环；分片 22.7 到 23.4） |
+| 活直播 | 2.83、3.04、3.16 | 3.01% | 0.14 / 0.17 | 11.4、22.0、36.6 |
+
+**结论要如实写：这 3 轮里，固定流并没有让 cpu_avg 的标准差明显变小，两组几乎相同（样本标准差 0.17 对 0.17）。** 能确认的是：活直播这 3 轮的码率相差三倍（11 到 37 MB/min），cpu_avg 随码率单调上升（2.83 到 3.16），说明码率是混杂因素；固定流把它去掉了，且固定流恒定 3.1 Mbps、各轮分片流量一致（22.7 到 23.4 MB/min）。但 3 轮样本太小，噪声（约 0.15 个百分点）压过了码率带来的约 0.3 个百分点的差，不能据此说固定流离散度小。已有的旁证：main 上活直播 5 轮 60 秒的 cpu_avg 为 2.42、4.29、2.03、1.80、2.56（标准差约 1.0），其中第 2 轮疑似断流重连，固定流因为是本机服务，不会出现这类外部离群。要量化「离散度明显更小」，需要更多轮次，本次按裁决缩减未做。门限 `x 1.15 + 0.3`（约 0.7 个百分点）仍大于本次噪声（约 0.15），可用。
+
+## 历史：G-mac 基线（main，活直播，已作废）
+
+下面是 2026-11-17 早先在活直播上取的基线与口径（`cpu_app` 扣除硬解），已由上一节取代；保留作留痕。其中的 `docs/perf-baseline-main.json` 已删除，数据以下表为准。
+
+构建：`origin/main`（6ad572f），Release，经 `ssh localhost` 回环运行 `scripts/perf-probe.sh --duration 60`，静音，play 共 5 轮，各指标取中位数（逐轮值见下表）。
 
 判定口径（2026-11-17 编排者裁决）：
 - CPU：`cpu_app = cpu_avg − vtdecoder_cpu_avg`，要求 `cpu_app ≤ 基线 cpu_app × 1.15 + 0.3` 个百分点；总 `cpu_avg` 只打印不判（各房间码率不同，硬解波动会淹没 App 自身变化）。结果缺 `vtdecoder_cpu_avg` 即不合格。
@@ -178,7 +206,7 @@
 观察：
 - **wakeups 在 main 自身的 5 轮里就是 0.0 到 24.0 的双峰**，不是脚本或 shell 优先级问题：工具 shell 里的 3 轮也是 3.2、16.0、24.9。与码流（对应网络入 11 与 35 MB/min 两档）有关的可能性最大，未做对照。据此 wakeups 不作 play 门（上面的裁决）。
 - 第 2 轮 cpu_app 2.70%、起播 4.51 秒，疑似该轮遇到断流重连，单轮离群；中位数基线不受其影响，但同样说明 5 轮的单次判定会有误报。
-- idle：main 因 `LoadingLine` 在播放器释放（`paused-release`，约 31 秒）后空转（`repeatForever` 动画让 `NSHostingView` 每帧重排）不达标，热修分支 `fix/idle-loading-line`（PR #1）处理中；idle 绝对阈值不放宽，待合入后重测 idle 基线。`docs/perf-baseline-main.json` 的 idle 段是合入前的旧值，仅供留痕。
+- idle：main 因 `LoadingLine` 在播放器释放（`paused-release`，约 31 秒）后空转（`repeatForever` 动画让 `NSHostingView` 每帧重排）不达标，热修分支 `fix/idle-loading-line`（PR #1）处理中；idle 绝对阈值不放宽，待合入后重测 idle 基线。
 
 复核记录：先前一版（play wakeups 0.0、idle 6.0/s）受并行模拟器实验干扰，已作废。改动前后的 `perf-probe.sh` 在同一产物、模拟器全部关闭下对照 60 秒，play 2.93%/28.8 对 2.41%/27.0，idle 3.67%/19.9 对 3.55%/19.4，两版一致，脚本无问题。idle 偏高的证据：锁屏后前约 20 秒正常（cpu 0.0%、wakeups 0.5/s），`paused-release` 之后 cpu 升到 5% 以上、wakeups 约 30/s，`sample` 显示主线程 `NSHostingView.layout()` 每帧重排。
 

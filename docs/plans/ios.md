@@ -320,12 +320,13 @@ Bundle ID：
 
 ### G-mac：macOS 实跑门（在 m424 后台跑，Release，静音）
 
+0. **固定测试流（ADR-005）**：回归门一律用 `scripts/perf-probe.sh --fixed-stream`，播放本机合成 HLS（`scripts/make-test-stream.sh` 生成，`scripts/serve-test-stream.py` 提供，1920x1080 30fps，约 3 Mbps 固定码率，视频档加独立音轨），App 以 `--perf-stream <地址>` 启动（仅 DEBUG / PERF_PROBE 构建有此钩子，Release 不含，CI 安全门检查）。活直播每轮房间码率不同，只用于观察，不做门。
 1. T3 先在 main 上跑出基线，写进 `docs/PERF.md`（R3-4）。
 2. 通过阈值：
 
    | 指标 | 阈值 |
    |---|---|
-   | CPU | `cpu_app = cpu_avg − vtdecoder_cpu_avg ≤ 基线 cpu_app × 1.15 + 0.3` 个百分点；总 `cpu_avg` 只打印不判，缺 `vtdecoder_cpu_avg` 即不合格（2026-11-17 编排者裁决：各房间码率不同，硬解波动会误判退化） |
+   | CPU | 直接比较主进程 `cpu_avg ≤ 基线 × 1.15 + 0.3` 个百分点；`vtdecoder_cpu_avg` 是独立进程，只打印，不与主进程相加减（2026-11-17 ADR-005 撤销 ADR-003 的「扣除硬解」：用另一进程的负载抵消会掩盖主进程回退）。基线与结果都必须是固定测试流模式（`stream_mode = fixed`），模式不同即拒绝比较 |
    | `footprint` | ≤ 基线 + 5 MB |
    | play 的 `wakeups` | 只打印，不判（2026-11-17 编排者裁决：wakeups 只作 idle 门；main 自身 5 轮就在 0 到 24/s 间波动） |
    | `app_size` | ≤ 基线 + 0.3 MB |
@@ -333,7 +334,7 @@ Bundle ID：
    | idle 场景 | `cpu ≤ 0.1%`，`wakeups ≤ 2/s`，网络为 0 |
    | `runtime_issues` | = 0 |
 
-3. 以下情况一律判为不合格，脚本必须非 0 退出：起播时间为 -1、结果带 `skipped`、`samples = 0`、任一指标缺失或为 NaN、测试期间进程退出。
+3. 以下情况一律判为不合格，脚本必须非 0 退出：起播时间为 -1、结果带 `skipped`、`samples = 0`、任一指标缺失或为 NaN、测试期间进程退出、`footprint` 或 `app_size` 为 0（补零）、有效样本 < 5 或无效样本占比 > 10%、样本数与时长不符、基线或结果不是固定测试流模式。采样失败记无效样本，不补 0；探针开头先删旧结果文件。
 4. `runtime_issues` 除了现有那一种警告，还要统计 `AttributeGraph: cycle`、`Modifying state during view update`，以及 `com.vela.stage` 的 fault 级日志。
 5. 判定命令：`python3 -I scripts/perf_gate.py <基线> <结果>`。实测一律经 `ssh localhost` 回环运行 `perf-probe.sh`（工具 shell 被降优先级，数字失真；脚本会警告）。
 
