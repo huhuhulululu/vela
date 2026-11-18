@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXFileReference section */
+		E1A0C0DE00000000000000A1 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		0638102034C5E7A666AF3C0A /* PhoneViewLogicTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneViewLogicTests.swift; sourceTree = "<group>"; };
 		B13942897F484DDD9D9F6F79 /* FilterPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilterPanel.swift; sourceTree = "<group>"; };
 		1E6711CA2612754A46CD8F1E /* ChallengeSheet+Phone.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChallengeSheet+Phone.swift"; sourceTree = "<group>"; };
@@ -343,6 +344,7 @@
 				530F0A44EED4FAE366351B2E /* ClickRegion+Phone.swift */,
 				B7A0C0DE0000000000000001 /* VelaPhoneApp.swift */,
 				C12A00000000000000000001 /* Info.plist */,
+				E1A0C0DE00000000000000A1 /* Assets.xcassets */,
 			);
 			path = iOS;
 			sourceTree = "<group>";
@@ -475,6 +477,7 @@
 			buildPhases = (
 				B7A0C0DE0000000000000005 /* Sources */,
 				B7A0C0DE0000000000000006 /* Frameworks */,
+				E1A0C0DE00000000000000A3 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -535,6 +538,9 @@
 /* Begin PBXResourcesBuildPhase section */
 		0189424A5A60FED329FA868E /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (
 				A5E7C0DE00000000000000A2 /* Assets.xcassets in Resources */,
+			); runOnlyForDeploymentPostprocessing = 0; };
+		E1A0C0DE00000000000000A3 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (
+				E1A0C0DE00000000000000A2 /* Assets.xcassets in Resources */,
 			); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXResourcesBuildPhase section */
 
@@ -820,6 +826,7 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXBuildFile section */
+		E1A0C0DE00000000000000A2 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E1A0C0DE00000000000000A1 /* Assets.xcassets */; };
 		036C0C7D6C970966BE45B68E /* PhoneViewLogicTests.swift in Sources (VelaPhoneTests) */ = {isa = PBXBuildFile; fileRef = 0638102034C5E7A666AF3C0A /* PhoneViewLogicTests.swift */; };
 		CDC8E405B032BF8C8DFC25AD /* FilterPanel.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = B13942897F484DDD9D9F6F79 /* FilterPanel.swift */; };
 		61CB972CE6D828FF67E25309 /* FilterPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B13942897F484DDD9D9F6F79 /* FilterPanel.swift */; };
@@ -1211,6 +1218,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_TESTABILITY = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				INFOPLIST_FILE = iOS/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -1237,6 +1245,7 @@
 			buildSettings = {
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				INFOPLIST_FILE = iOS/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -1317,6 +1326,7 @@
 			buildSettings = {
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				INFOPLIST_FILE = iOS/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
