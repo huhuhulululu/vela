@@ -311,7 +311,19 @@ extension StageModel {
         lane.qualitySignature = ""
         applyPower()
         scheduleChromeHide()
-        Task { await prefetchAhead(on: lane) }
+        startPrefetch(on: lane)
+    }
+
+    /// 起播成功后预取下一间。任务登记在这一路上，挂起与取消本路工作时一并取消（§3.1）。
+    /// 预取按共享工作校验生命周期：挂起期间（含画中画只放行一路）一律不预取。
+    func startPrefetch(on lane: PlaybackLane) {
+        lane.prefetchTask?.cancel()
+        lane.prefetchTask = nil
+        guard sharedToken() != nil else { return }
+        lane.prefetchTask = Task { [weak self, weak lane] in
+            guard let self, let lane else { return }
+            await self.prefetchAhead(on: lane)
+        }
     }
 
     func resolve(_ username: String) async throws -> StreamTicket {
@@ -386,16 +398,18 @@ extension StageModel {
     }
 
     /// 预取下一个房间：解析并选好档位，缓存子列表地址（主列表 30 秒就过期，不存）。
+    /// 为别的房间发请求，属于共享工作：用共享作用域的 token，画中画只放行焦点路时也不预取。
     func prefetchAhead(on given: PlaybackLane? = nil) async {
         let lane = given ?? primary
         let token = lane.playGeneration
         let cap = playbackCap()
-        guard let life = laneToken(lane) else { return }
+        guard let life = sharedToken() else { return }
         guard let next = feed.prefetchUsernames().first, prepared.fresh(next, cap: cap, now: Date()) == nil else { return }
+        guard lifecycleAllows(.beforeRequest, life), !Task.isCancelled else { return }
         guard let ticket = try? await resolve(next), ticket.isPlayable, let master = ticket.url else { return }
-        guard token == lane.playGeneration, lifecycleAllows(.beforeRequest, life) else { return }
+        guard token == lane.playGeneration, !Task.isCancelled, lifecycleAllows(.beforeRequest, life) else { return }
         let playable = await selectRendition(master: master, cap: cap)
-        guard token == lane.playGeneration, !playable.isUnselected, lifecycleAllows(.beforeCommit, life) else { return }
+        guard token == lane.playGeneration, !Task.isCancelled, !playable.isUnselected, lifecycleAllows(.beforeCommit, life) else { return }
         prepared.set(playable, cap: cap, for: next, now: Date())
         RoomThumbnailCache.shared.prefetch(url: feed.rooms.first { $0.username == next }?.thumbnailURL)
     }

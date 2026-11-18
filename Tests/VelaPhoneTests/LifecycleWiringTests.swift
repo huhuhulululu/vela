@@ -15,10 +15,10 @@ final class LifecycleWiringTests: XCTestCase {
         super.tearDown()
     }
 
-    private func makeStage(secondary: String? = nil) -> StageModel {
+    private func makeStage(secondary: String? = nil, http: URLSessionHTTPClient = URLSessionHTTPClient()) -> StageModel {
         let name = "vela-phone-tests-\(UUID().uuidString)"
         suites.append(name)
-        let stage = StageModel(settings: SettingsStore(defaults: UserDefaults(suiteName: name)!))
+        let stage = StageModel(settings: SettingsStore(defaults: UserDefaults(suiteName: name)!), http: http)
         stage.updateFeed { $0.insertDirect(Room.direct(username: "alice")!) }
         if let secondary {
             let lane = PlaybackLane(id: .secondary)
@@ -286,5 +286,105 @@ final class LifecycleWiringTests: XCTestCase {
         let actions = stage.platform.scenePhaseChanged(.active, stage: stage)
         XCTAssertTrue(actions.isEmpty)
         XCTAssertNil(stage.primary.playTask)
+    }
+    // MARK: 审计修复：预取、侧车、旧恢复入口、停留计时
+
+    /// 站点请求一律记下来、不出网：`hang` 为真时挂着不回，便于观察取消；否则回 404。
+    private final class StubProtocol: URLProtocol {
+        final class Log: @unchecked Sendable {
+            private let lock = NSLock()
+            private var startedURLs: [String] = []
+            private var stoppedURLs: [String] = []
+            var hang = false
+            func start(_ url: String) { lock.lock(); startedURLs.append(url); lock.unlock() }
+            func stop(_ url: String) { lock.lock(); stoppedURLs.append(url); lock.unlock() }
+            var started: [String] { lock.lock(); defer { lock.unlock() }; return startedURLs }
+            var stopped: [String] { lock.lock(); defer { lock.unlock() }; return stoppedURLs }
+            func reset() { lock.lock(); startedURLs = []; stoppedURLs = []; hang = false; lock.unlock() }
+        }
+        static let log = Log()
+
+        override class func canInit(with request: URLRequest) -> Bool { true }
+        override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+        override func startLoading() {
+            let url = request.url?.absoluteString ?? ""
+            Self.log.start(url)
+            guard !Self.log.hang, let target = request.url else { return }
+            let response = HTTPURLResponse(url: target, statusCode: 404, httpVersion: nil, headerFields: nil)!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: Data())
+            client?.urlProtocolDidFinishLoading(self)
+        }
+
+        override func stopLoading() {
+            Self.log.stop(request.url?.absoluteString ?? "")
+        }
+    }
+
+    private func stubbedHTTP(hang: Bool) -> URLSessionHTTPClient {
+        StubProtocol.log.reset()
+        StubProtocol.log.hang = hang
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StubProtocol.self]
+        return URLSessionHTTPClient(session: URLSession(configuration: configuration))
+    }
+
+    private func waitUntil(_ timeout: TimeInterval = 2, _ condition: () -> Bool) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() { return true }
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+        return condition()
+    }
+
+    /// 主路起播一次（真的 `lastPlay`）：本地中继起监听，播放地址指向不会应答的本机端口。
+    private func startRealPlayback(_ stage: StageModel) async throws -> Bool {
+        PlaylistRelay.shared.allowStart = true
+        let listening = await PlaylistRelay.shared.waitUntilListening(timeout: 5)
+        XCTAssertTrue(listening, "本地中继没能监听")
+        guard listening else { return false }
+        let room = try XCTUnwrap(Room.direct(username: "alice"))
+        let rendition = StreamRendition(video: try XCTUnwrap(URL(string: "http://127.0.0.1:9/lifecycle-probe.m3u8")))
+        stage.startPlayback(room: room, target: .init(master: nil, playable: rendition), cap: .infinity, isRetry: false, lane: stage.primary)
+        XCTAssertTrue(stage.primary.player.hasItem)
+        return true
+    }
+
+    /// 预取登记在该路任务里：进后台时连同在途请求一起取消，后台不再发站点请求。
+    func testBackgroundCancelsInflightPrefetch() async throws {
+        let stage = makeStage(http: stubbedHTTP(hang: true))
+        stage.updateFeed { $0.replace(with: CatalogPage(rooms: [Room.direct(username: "alice")!, Room.direct(username: "bobprefetch")!], total: 2, nextOffset: 2)) }
+        stage.updateFeed { $0.select("alice") }
+        defer { stage.primary.player.stop() }
+        guard try await startRealPlayback(stage) else { return }
+        let sent = await waitUntil { StubProtocol.log.started.contains { $0.contains("bobprefetch") } }
+        XCTAssertTrue(sent, "前台照常预取下一间：\(StubProtocol.log.started)")
+
+        _ = background(stage)
+
+        let cancelled = await waitUntil { StubProtocol.log.stopped.contains { $0.contains("bobprefetch") } }
+        XCTAssertTrue(cancelled, "进后台取消在途预取请求")
+        XCTAssertNil(stage.primary.prefetchTask, "挂起时预取任务已撤")
+    }
+
+    /// 画中画只放行那一路的起播与续期；预取属于共享工作，画中画期间不预取。
+    func testPictureInPictureDoesNotPrefetch() async {
+        let stage = makeStage(http: stubbedHTTP(hang: false))
+        stage.updateFeed { $0.replace(with: CatalogPage(rooms: [Room.direct(username: "alice")!, Room.direct(username: "bobprefetch")!], total: 2, nextOffset: 2)) }
+        stage.updateFeed { $0.select("alice") }
+        stage.platform.run([
+            .suspendSharedTasks, .allowLaneRequests(.primary), .settleDwell(.background), .flushSavers,
+            .continueLane(.primary), .retainRelaySource(.primary), .noteResumeIntent(nil)
+        ], on: stage)
+        XCTAssertNotNil(stage.laneToken(stage.primary), "画中画路本身放行")
+
+        await stage.prefetchAhead(on: stage.primary)
+        stage.startPrefetch(on: stage.primary)
+        try? await Task.sleep(nanoseconds: 200_000_000)
+
+        XCTAssertTrue(StubProtocol.log.started.isEmpty, "画中画期间不得为下一房间发请求：\(StubProtocol.log.started)")
+        XCTAssertNil(stage.primary.prefetchTask)
     }
 }

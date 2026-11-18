@@ -134,14 +134,21 @@ extension StageModel {
         for each in lanes where each.id.role != lane {
             cancelLaneWork(each)
         }
+        // 预取是为别的房间发请求：画中画放行的那一路也不留。
+        for each in lanes {
+            each.prefetchTask?.cancel()
+            each.prefetchTask = nil
+        }
         let allowing = lane.map { Self.label($0) } ?? "none"
         Self.lifecycleLog.info("epoch suspend allowing=\(allowing, privacy: .public)")
     }
 
-    /// 取消这一路自己的起播、跳过、离开重试、关联与换档任务；代次加一，在途的预取、续期、刷新结果作废。
+    /// 取消这一路自己的起播、预取、跳过、离开重试、关联与换档任务；代次加一，在途的续期、刷新结果作废。
     func cancelLaneWork(_ lane: PlaybackLane) {
         lane.playTask?.cancel()
         lane.playTask = nil
+        lane.prefetchTask?.cancel()
+        lane.prefetchTask = nil
         lane.skipTask?.cancel()
         lane.skipTask = nil
         lane.awayTask?.cancel()
