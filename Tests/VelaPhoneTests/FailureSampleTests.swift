@@ -97,19 +97,10 @@ final class FailureSampleTests: XCTestCase {
         assertRoomFailure(await failureChain(of: url))
     }
 
-    func testHLSPlaylistWithGarbageSegmentIsRoomFailureOnSecondary() async throws {
-        try garbage(32_768).write(to: dir.appendingPathComponent("seg0.ts"))
-        let playlist = """
-        #EXTM3U
-        #EXT-X-VERSION:3
-        #EXT-X-TARGETDURATION:2
-        #EXT-X-MEDIA-SEQUENCE:0
-        #EXTINF:2.0,
-        seg0.ts
-        #EXT-X-ENDLIST
-        """
-        let url = dir.appendingPathComponent("index.m3u8")
-        try playlist.write(to: url, atomically: true, encoding: .utf8)
+    func testGarbageQuickTimeFileIsRoomFailureOnSecondary() async throws {
+        // 另一种容器后缀：同样是读不出的内容，错误链也不能落进降级白名单。
+        let url = dir.appendingPathComponent("garbage.mov")
+        try garbage(24_576).write(to: url)
         assertRoomFailure(await failureChain(of: url))
     }
 
