@@ -278,7 +278,7 @@ class Stream(object):
         if new_seq >= seq and seq > 0:
             new_seq = seq - 1
         text = text.replace("#EXT-X-MEDIA-SEQUENCE:%d" % seq, "#EXT-X-MEDIA-SEQUENCE:%d" % new_seq, 1)
-        if "#EXT-X-DISCONTINUITY" not in text:
+        if "#EXT-X-DISCONTINUITY" not in text.split("\n"):  # 整行判断；DISCONTINUITY-SEQUENCE 不算
             text = text.replace("#EXTINF:", "#EXT-X-DISCONTINUITY\n#EXTINF:", 1)
         if not text.endswith("\n"):
             text += "\n"
