@@ -114,14 +114,18 @@ class ModelLeafTests {
     @Test
     fun flexIntAcceptsJsonShapes() {
         val json = Json
-        assertEquals(24, json.decodeFromString(FlexInt.serializer(), "24").value)
-        assertEquals(1, json.decodeFromString(FlexInt.serializer(), "1.9").value)
-        assertEquals(-1, json.decodeFromString(FlexInt.serializer(), "-1.9").value)
-        assertEquals(12, json.decodeFromString(FlexInt.serializer(), "\"12\"").value)
+        assertEquals(24L, json.decodeFromString(FlexInt.serializer(), "24").value)
+        assertEquals(1L, json.decodeFromString(FlexInt.serializer(), "1.9").value)
+        assertEquals(-1L, json.decodeFromString(FlexInt.serializer(), "-1.9").value)
+        assertEquals(12L, json.decodeFromString(FlexInt.serializer(), "\"12\"").value)
+        assertEquals(3_000_000_000L, json.decodeFromString(FlexInt.serializer(), "3000000000").value)
+        assertEquals(3_000_000_000L, json.decodeFromString(FlexInt.serializer(), "\"3000000000\"").value)
+        assertEquals(-3_000_000_000L, json.decodeFromString(FlexInt.serializer(), "-3000000000").value)
         assertNull(json.decodeFromString(FlexInt.serializer(), "\"12.5\"").value)
         assertNull(json.decodeFromString(FlexInt.serializer(), "null").value)
         assertNull(json.decodeFromString(FlexInt.serializer(), "true").value)
         assertNull(json.decodeFromString(FlexInt.serializer(), "{}").value)
+        assertNull(json.decodeFromString(FlexInt.serializer(), "[]").value)
     }
 
     @Test
