@@ -199,18 +199,20 @@ public enum LaneSelection {
 
     /// 房间还在就不动。消失的副路沿自己的方向找，再反向；主路采用 FeedStore 的选择，落到副路就让开。
     private static func filtered(_ before: Snapshot, afterRooms: [String], proposedPrimary: String?) -> Outcome {
+        var primary = before.primary
+        primary.username = proposedPrimary.flatMap { canonical($0, in: afterRooms) }
         var secondary = before.secondary ?? LaneCursor()
         if let name = secondary.username {
             if let kept = canonical(name, in: afterRooms) {
                 secondary.username = kept
             } else {
+                // 替补不能落在主路的房间上，否则主路会被挤走。
                 secondary.username = replacement(
-                    for: name, before: before.rooms, after: afterRooms, direction: secondary.direction
+                    for: name, before: before.rooms, after: afterRooms, direction: secondary.direction,
+                    excluding: primary.username
                 )
             }
         }
-        var primary = before.primary
-        primary.username = proposedPrimary.flatMap { canonical($0, in: afterRooms) }
         primary = yield(primary, to: secondary.username, rooms: afterRooms)
         secondary = refilled(secondary, besides: primary, rooms: afterRooms)
         return outcome(before, primary: primary, secondary: secondary, placed: .filter)
@@ -241,7 +243,8 @@ public enum LaneSelection {
                 secondary.username = kept
             } else {
                 secondary.username = replacement(
-                    for: name, before: before.rooms, after: afterRooms, direction: secondary.direction
+                    for: name, before: before.rooms, after: afterRooms, direction: secondary.direction,
+                    excluding: primary.username
                 )
             }
         }
@@ -343,10 +346,12 @@ public enum LaneSelection {
     }
 
     /// 从已经不在新列表里的房间出发，沿方向找仍可见的下一间，没有再反方向。
-    private static func replacement(for missing: String, before: [String], after: [String], direction: Int) -> String? {
+    private static func replacement(
+        for missing: String, before: [String], after: [String], direction: Int, excluding taken: String? = nil
+    ) -> String? {
         guard let at = index(of: missing, in: before) else { return nil }
         func allowed(_ name: String) -> Bool {
-            !same(name, missing) && after.contains { same($0, name) }
+            !same(name, missing) && !same(name, taken) && after.contains { same($0, name) }
         }
         let later = before[(at + 1)...].first(where: allowed).flatMap { canonical($0, in: after) }
         let earlier = before[..<at].last(where: allowed).flatMap { canonical($0, in: after) }
