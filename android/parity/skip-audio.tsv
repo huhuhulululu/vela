@@ -1,0 +1,5 @@
+# 音频组跳过。三列制表符：swift_file	swift_test	reason。
+swift_file	swift_test	reason
+Tests/VelaCoreTests/AudioTransitionTests.swift	testBackgroundAndLastLaneDeactivationKeepRuntimeMuteIntent	不移植：iOS AVAudioSession 会话预备与运行时静音意图（安卓无对应会话类别）
+Tests/VelaCoreTests/AudioTransitionTests.swift	testPrepareMutedActivatesMixedPlaybackSession	不移植：iOS AVAudioSession 会话预备与运行时静音意图（安卓无对应会话类别）
+Tests/VelaCoreTests/AudioTransitionTests.swift	testPrepareAudibleUsesUnmixedPlaybackWithoutWritingSettings	不移植：iOS AVAudioSession 会话预备与运行时静音意图（安卓无对应会话类别）
