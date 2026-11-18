@@ -49,6 +49,11 @@ final class PlatformHooks {
         return registered
     }
 
+    #if DEBUG
+    /// 自测：模拟锁屏 / 解锁。
+    func selftestSet(inactive: Bool) { activity?.selftestSet(inactive: inactive) }
+    #endif
+
     func terminate() {
         NSApp.terminate(nil)
     }

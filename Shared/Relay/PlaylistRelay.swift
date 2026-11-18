@@ -343,6 +343,9 @@ final class PlaylistRelay: @unchecked Sendable {
     private func record(_ applied: RelayFeed.Applied, track: Track, elapsed: TimeInterval) {
         let ms = Int(elapsed * 1000)
         let name = track.label
+        #if DEBUG
+        if track == .audio { selftestAudioFetchCount.withLock { $0 += 1 } }
+        #endif
         switch applied {
         case .failed(let failure):
             Self.log.error("fetch-failed \(name, privacy: .public) \(failure.label, privacy: .public) \(ms)ms")
@@ -627,6 +630,20 @@ private extension RelayTrack {
         case .video: return "video"
         case .audio: return "audio"
         }
+    }
+}
+#endif
+
+#if DEBUG
+/// 音频清单拉取次数（自测用；Debug 专有）。
+let selftestAudioFetchCount = OSAllocatedUnfairLock(initialState: 0)
+
+extension PlaylistRelay {
+    var selftestAudioFetches: Int { selftestAudioFetchCount.withLock { $0 } }
+
+    /// 指定源是否带独立音频清单、音频刷新是否被抑制。
+    func selftestAudioState(source id: String) -> (hasFeed: Bool, suppressed: Bool) {
+        lock.withLock { (entries[id]?.feeds[.audio] != nil, sources.isAudioSuppressed(id: id)) }
     }
 }
 #endif

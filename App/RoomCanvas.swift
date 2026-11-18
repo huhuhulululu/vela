@@ -107,7 +107,15 @@ struct LoadingLine: View {
             .fill(Theme.champagne)
             .frame(width: wide ? 92 : 28, height: 2)
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.85).repeatForever(autoreverses: true), value: wide)
-            .onAppear { wide = true }
+            .onAppear {
+                wide = true
+                #if DEBUG
+                selftestLoadingLines.add(1)
+                #endif
+            }
+            #if DEBUG
+            .onDisappear { selftestLoadingLines.add(-1) }
+            #endif
             .allowsHitTesting(false)
     }
 }

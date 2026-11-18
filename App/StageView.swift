@@ -46,6 +46,9 @@ struct StageRoot: View {
         .onAppear {
             model.bootstrap()
             model.syncPlaybackFace()
+            #if DEBUG
+            SelfTest.startIfRequested(model)
+            #endif
         }
         // @Published 在 willSet 发出：回调里一律用收到的新值，不回读 model.primary.player 上的同名属性。macOS 只有主路。
         .onReceive(model.primary.player.$failed) { model.notePlaybackFailed($0, on: model.primary) }

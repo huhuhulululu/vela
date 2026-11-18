@@ -187,7 +187,12 @@ final class PlayerController: ObservableObject {
     func setVolume(_ volume: Double, muted: Bool) {
         let muteChanged = wantsMuted != muted
         wantsMuted = muted
+        #if DEBUG
+        // 自测期间音量恒为 0：取消静音也不会出声。
+        player.volume = Self.selftestActive ? 0 : Float(min(max(volume, 0), 1))
+        #else
         player.volume = Float(min(max(volume, 0), 1))
+        #endif
         player.isMuted = muted
         syncAudioSuppression()
         guard muteChanged else { return }
@@ -303,6 +308,9 @@ final class PlayerController: ObservableObject {
             audioWasDetached: wasDetached && justAttached,
             playing: allowed && player.timeControlStatus == .playing
         ) {
+            #if DEBUG
+            selftestLiveSeeks.add(1)
+            #endif
             player.seek(to: CMTime.positiveInfinity)
         }
     }
@@ -901,3 +909,50 @@ final class PlayerController: ObservableObject {
         }
     }
 }
+
+#if DEBUG
+/// 自测用的音频状态快照（含中继侧的音频清单状态）。
+struct SelfTestAudioSnapshot {
+    var isMuted: Bool
+    var volume: Float
+    var wantsMuted: Bool
+    var groupOptions: Int?
+    var audibleSelected: Bool?
+    var tracks: Int
+    var enabled: Int
+    var detached: Bool
+    var relayAudioFeed: Bool
+    var relayAudioSuppressed: Bool
+}
+
+/// 线程安全计数器：直播边缘 seek 次数（仅 Debug）。
+final class SelfTestCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    func add(_ delta: Int) { lock.lock(); count += delta; lock.unlock() }
+    var value: Int { lock.lock(); defer { lock.unlock() }; return count }
+}
+
+let selftestLiveSeeks = SelfTestCounter()
+
+extension PlayerController {
+    /// 命令行带 `--selftest` 时为真：音量恒为 0。
+    static let selftestActive = CommandLine.arguments.contains("--selftest")
+
+    func selftestAudioSnapshot() -> SelfTestAudioSnapshot {
+        let item = player.currentItem
+        let audio = item?.tracks.filter { $0.assetTrack?.mediaType == .audio } ?? []
+        var selected: Bool?
+        if let item, let group = cachedAudibleGroup {
+            selected = item.currentMediaSelection.selectedMediaOption(in: group) != nil
+        }
+        let relay = relaySource.map { PlaylistRelay.shared.selftestAudioState(source: $0) } ?? (false, false)
+        return SelfTestAudioSnapshot(
+            isMuted: player.isMuted, volume: player.volume, wantsMuted: wantsMuted,
+            groupOptions: cachedAudibleGroup?.options.count, audibleSelected: selected,
+            tracks: audio.count, enabled: audio.filter(\.isEnabled).count, detached: audioDetached,
+            relayAudioFeed: relay.0, relayAudioSuppressed: relay.1
+        )
+    }
+}
+#endif
