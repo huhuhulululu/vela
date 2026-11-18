@@ -1,0 +1,35 @@
+# C2 跳过。三列制表符：swift_file、swift_test、reason。
+# deferred:C9 在 --group hls 视为已登记；--all 要等 C9 消化。
+# 中继不移植。理由里的 replaced-by 没有单独的列。
+swift_file	swift_test	reason
+Tests/VelaCoreTests/PlaybackRefreshTests.swift	testOverlappingReloadsRollBackToLoadedCursor	deferred:C9 引用 PagingState（LoadSlot，C5）
+Tests/VelaCoreTests/PlaybackRefreshTests.swift	testCommitMovesSnapshotOnlyOnSuccess	deferred:C9 引用 PagingState（LoadSlot，C5）
+Tests/VelaCoreTests/PlaybackRefreshTests.swift	testFillStopsAtBlankPageCap	deferred:C9 引用 FeedStore（C5）
+Tests/VelaCoreTests/PlaybackFlowFixTests.swift	testRewindWithDiscontinuityAdoptsNewBody	不移植中继采纳；replaced-by:vela.app.playback.LaneDataSourceAdoptionTest#r1
+Tests/VelaCoreTests/PlaybackFlowFixTests.swift	testRewindWithoutDiscontinuityStaysOlder	不移植中继采纳；replaced-by:vela.app.playback.LaneDataSourceAdoptionTest#r1
+Tests/VelaCoreTests/PlaybackFlowFixTests.swift	testAddressChangedAdoptsEvenWhenSequenceDoesNotAdvance	不移植中继采纳；replaced-by:vela.app.playback.LaneDataSourceAdoptionTest#r2
+Tests/VelaCoreTests/PlaybackFlowFixTests.swift	testSameSequenceNewURIAdoptsAndClearsReplay	不移植中继采纳；replaced-by:vela.app.playback.LaneDataSourceAdoptionTest#r3
+Tests/VelaCoreTests/PlaybackFlowFixTests.swift	testSameSequenceSameURIStaysUnchanged	不移植中继采纳；replaced-by:vela.app.playback.LaneDataSourceAdoptionTest#r3
+Tests/VelaCoreTests/PlaybackFlowFixTests.swift	testSameSequenceWithoutURIsStaysUnchanged	不移植中继采纳；replaced-by:vela.app.playback.LaneDataSourceAdoptionTest#r3
+Tests/VelaCoreTests/RelayFeedTests.swift	testParseCountsFullSegmentsOnly	不移植 RelayFeed；replaced-by:vela.app.playback.LaneDataSourceTest
+Tests/VelaCoreTests/RelayFeedTests.swift	testStaysFreshWhileSegmentsAdvance	不移植 RelayFeed；replaced-by:vela.app.playback.LaneDataSourceTest
+Tests/VelaCoreTests/RelayFeedTests.swift	testUpstream200WithoutNewSegmentExpiresAfterGrace	不移植 RelayFeed；replaced-by:vela.app.playback.LaneDataSourceTest
+Tests/VelaCoreTests/RelayFeedTests.swift	testUpstreamFailuresUseSameGrace	不移植 RelayFeed；replaced-by:vela.app.playback.LaneDataSourceTest
+Tests/VelaCoreTests/RelayFeedTests.swift	testGraceDerivedFromTargetDuration	不移植 RelayFeed；replaced-by:vela.app.playback.LaneDataSourceTest
+Tests/VelaCoreTests/RelayFeedTests.swift	testReplayFlagAndEmpty	不移植 RelayFeed；replaced-by:vela.app.playback.LaneDataSourceTest
+Tests/VelaCoreTests/RelayFeedTests.swift	testSingleFlightAndCancelDiscardsLateResult	不移植 RelayFeed；replaced-by:vela.app.playback.LaneDataSourceTest
+Tests/VelaCoreTests/RelayFeedTests.swift	testOlderResultNeverOverwritesNewerProgress	不移植 RelayFeed；replaced-by:vela.app.playback.LaneDataSourceTest
+Tests/VelaCoreTests/RelayFeedTests.swift	testRefreshCadence	不移植 RelayFeed；replaced-by:vela.app.playback.LaneDataSourceTest
+Tests/VelaCoreTests/RelayFeedTests.swift	testFailureLabelsCarryNoURL	不移植 RelayFeed；replaced-by:vela.app.playback.LaneDataSourceTest
+Tests/VelaCoreTests/RelayWaitTests.swift	testPublishJitterOf2point6SecondsDoesNotFail	不移植 RelayWait；replaced-by:vela.app.playback.LaneDataSourceTest
+Tests/VelaCoreTests/RelayWaitTests.swift	testJitterUpToOneAndHalfTargetNeverFails	不移植 RelayWait；replaced-by:vela.app.playback.LaneDataSourceTest
+Tests/VelaCoreTests/RelayWaitTests.swift	testRealStallStillExpiresAfterBoundedWait	不移植 RelayWait；replaced-by:vela.app.playback.LaneDataSourceTest
+Tests/VelaCoreTests/RelayWaitTests.swift	testFreshFeedReturnsImmediatelyWithoutWaiting	不移植 RelayWait；replaced-by:vela.app.playback.LaneDataSourceTest
+Tests/VelaCoreTests/RelayWaitTests.swift	testFirstFetchLateStillServesInsteadOfRedirecting	不移植 RelayWait；replaced-by:vela.app.playback.LaneDataSourceTest
+Tests/VelaCoreTests/RelayWaitTests.swift	testNeverAnyContentEndsEmptyForCallerToFail	不移植 RelayWait；replaced-by:vela.app.playback.LaneDataSourceTest
+Tests/VelaCoreTests/RelayWaitTests.swift	testRefreshReceivesRemainingBudgetAndNoRefreshOnceExhausted	不移植 RelayWait；replaced-by:vela.app.playback.LaneDataSourceTest
+Tests/VelaCoreTests/RelayWaitTests.swift	testSlowRefreshCannotBreakTheWaitBound	不移植 RelayWait；replaced-by:vela.app.playback.LaneDataSourceTest
+Tests/VelaCoreTests/RelayWaitTests.swift	testBoundedReturnsEarlyWhenOperationFinishesFirst	不移植 RelayWait；replaced-by:vela.app.playback.LaneDataSourceTest
+Tests/VelaCoreTests/RelaySourceTableTests.swift	testTwoSourcesKeepIndependentFlags	不移植 RelaySourceTable；replaced-by:vela.app.playback.LaneDataSourceTest
+Tests/VelaCoreTests/RelaySourceTableTests.swift	testThirdSourceEvictsTheOldest	不移植 RelaySourceTable；replaced-by:vela.app.playback.LaneDataSourceTest
+Tests/VelaCoreTests/RelaySourceTableTests.swift	testRemoveAllClearsEveryQuery	不移植 RelaySourceTable；replaced-by:vela.app.playback.LaneDataSourceTest
