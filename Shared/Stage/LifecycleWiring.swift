@@ -208,7 +208,7 @@ extension StageModel {
     func resumePlay(_ lane: PlaybackLane, activity: PhoneLaneActivity) {
         lane.player.forgetSuspendedResume()
         // 回前台是资源降级扣住的规定清除入口之一（§4.4），先放开再起播。
-        lane.degradedHold.release(.foregroundResume)
+        releaseDegradedHold(lane, .foregroundResume)
         requestPlay(on: lane)
         let name = Self.label(lane.id.role)
         let doing = String(describing: activity)

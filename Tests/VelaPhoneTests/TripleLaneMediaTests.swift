@@ -360,4 +360,40 @@ final class TripleLaneMediaTests: XCTestCase {
         stage.notePlaying("carol", on: lane)
         XCTAssertEqual(lane.degradedRetries, 0, "播起来后清零")
     }
+    // MARK: 复审 medium：恢复后旧退避任务不能改写重试计数
+
+    /// 用户重试、回前台、切房放开降级门时都要取消在途退避；之后播起来清零，过了原定时刻计数也不被改写。
+    func testRecoveryCancelsThePendingBackoffSoTheBudgetIsNotConsumed() async {
+        for path in ["retry", "resume", "roomSwitch"] {
+            let stage = makeStage()
+            stage.degradedRetryDelays = [0.05, 0.1, 0.2]
+            let lane = stage.tertiary!
+            lane.player.resourceDegraded?(info("carol"))
+            XCTAssertNotNil(lane.degradedRetryTask)
+            switch path {
+            case "retry": stage.retryPlayback(stage.target(.tertiary))
+            case "resume": stage.resumePlay(lane, activity: .idle)
+            default: stage.step(1, on: lane)
+            }
+            XCTAssertNil(lane.degradedRetryTask, "\(path)：放开降级门时取消在途退避")
+            stage.notePlaying(stage.name(of: lane), on: lane)
+            XCTAssertEqual(lane.degradedRetries, 0)
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            XCTAssertEqual(lane.degradedRetries, 0, "\(path)：原定时刻过了也不改写计数")
+        }
+    }
+
+    /// 到点时这一路被横屏临时释放（不可见）：不消耗一次重试，也不放开门；回竖屏由恢复流程重试。
+    func testBackoffFiringWhileHiddenDoesNotConsumeAnAttempt() async {
+        let stage = makeStage()
+        stage.degradedRetryDelays = [0.05, 0.1, 0.2]
+        let lane = stage.tertiary!
+        lane.player.resourceDegraded?(info("carol"))
+        stage.setLandscape(true)
+        try? await Task.sleep(nanoseconds: 150_000_000)
+        XCTAssertEqual(lane.degradedRetries, 0, "不可见时到点不计数")
+        XCTAssertTrue(lane.degradedHold.held, "不可见时不放开门")
+        stage.setLandscape(false)
+        XCTAssertFalse(lane.degradedHold.held, "回竖屏由恢复流程重试")
+    }
 }
