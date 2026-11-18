@@ -23,10 +23,11 @@ extension StageModel {
         }
     }
 
-    /// 停留只在「允许播放，且这一路当前房间的播放项此刻真在播」时计时；状态变化时顺带重排关联任务。
+    /// 停留只在「允许播放、用户在看（iOS 只有 `.active`，§2 `attentive`），且这一路当前房间的播放项此刻真在播」时计时；
+    /// 状态变化时顺带重排关联任务。
     func updateDwellActive(on given: PlaybackLane? = nil) {
         let lane = given ?? primary
-        let active = PlaybackPolicy.dwellActive(
+        let active = platform.attentive && PlaybackPolicy.dwellActive(
             allowed: laneAllowed(lane), playing: lane.playingName, current: name(of: lane)
         )
         guard active != lane.dwell.isActive else {

@@ -68,6 +68,9 @@ final class PlatformHooks {
         return fixed
     }
 
+    /// 只有 `.active` 算在看（§2 `attentive`）：`.inactive` 时画面照常播，停留不计时。
+    var attentive: Bool { PhoneLifecycle.attentive(scenePhase) }
+
     func observeApp(
         unhidden: @escaping @MainActor () -> Void,
         hidden: @escaping @MainActor () -> Void,
@@ -113,6 +116,9 @@ final class PlatformHooks {
         let visible = PhoneLifecycle.pointVisible(next)
         if !stage.lifecycleSuspended, stage.pointVisible != visible {
             stage.applyPower(windowVisible: visible)
+        } else if !stage.lifecycleSuspended, PhoneLifecycle.attentive(previous) != PhoneLifecycle.attentive(next) {
+            // `.active` 与 `.inactive` 之间画面都在、闸门不变，只是停留要停表或续表。
+            for lane in stage.lanes { stage.updateDwellActive(on: lane) }
         }
         return actions
     }

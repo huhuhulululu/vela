@@ -444,6 +444,20 @@ final class LifecycleWiringTests: XCTestCase {
         XCTAssertNotNil(stage.primary.playTask, "由 Stage 层重新起播")
     }
 
+    /// `.inactive`（控制中心、来电横幅）画面照常播，但停留不计时（§2 `attentive`）。
+    func testInactivePausesDwellTimingAndActiveResumesIt() {
+        let stage = makeStage()
+        stage.primary.playingName = "alice"
+        stage.updateDwellActive(on: stage.primary)
+        XCTAssertTrue(stage.primary.dwell.isActive, "前台在播时计时")
+
+        stage.platform.scenePhaseChanged(.inactive, stage: stage)
+        XCTAssertTrue(stage.playbackAllowed, ".inactive 时画面照常播放")
+        XCTAssertFalse(stage.primary.dwell.isActive, ".inactive 时停留不计时")
+
+        stage.platform.scenePhaseChanged(.active, stage: stage)
+        XCTAssertTrue(stage.primary.dwell.isActive, "回到 .active 继续计时")
+    }
     // MARK: iOS 的 Presence（§2）
 
     /// iOS 上 Presence 固定为 engaged：不按指针淡出、不点击穿透；不写进设置。
