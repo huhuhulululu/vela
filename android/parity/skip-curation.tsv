@@ -1,0 +1,4 @@
+# C7 跳过。三列制表符：swift_file、swift_test、reason。
+# deferred:C9 在 --group curation 视为已登记；--all 要等 C9 消化。
+swift_file	swift_test	reason
+Tests/VelaCoreTests/LoadCommitTests.swift	testDwellOriginFollowsLoadedListNotSelection	deferred:C9 引用 ListOrigin.dwell（C6b DwellTracker），本包没有 ledger 类型
