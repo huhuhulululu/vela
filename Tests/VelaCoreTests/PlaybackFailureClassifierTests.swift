@@ -1,5 +1,9 @@
 import XCTest
+#if SWIFT_PACKAGE
 @testable import VelaCore
+#else
+@testable import VelaPhone
+#endif
 
 /// 播放失败分类。损坏码流按房间重试；只有双窗副路的解码器暂时不可用才降级。
 final class PlaybackFailureClassifierTests: XCTestCase {

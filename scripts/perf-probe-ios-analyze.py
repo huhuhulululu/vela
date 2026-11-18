@@ -14,6 +14,7 @@ except OSError:
     pass
 scenario = opts.get("--scenario", meta.get("scenario", ""))
 expect = int(opts.get("--expect", meta.get("expect", "1")))
+subsystem = opts.get("--subsystem", meta.get("subsystem", "com.vela.stage.spike"))
 t0 = float(meta.get("t0", 0)); tbg = float(meta.get("tbg", 0)); tres = float(meta.get("tres", 0))
 samples_f = os.path.join(d, "samples.tsv"); net_f = os.path.join(d, "net.csv"); phases_f = os.path.join(d, "phases.txt")
 stream_f = os.path.join(d, "app-stream.log"); show_f = os.path.join(d, "app-show.log")
@@ -25,7 +26,7 @@ def parse_log(path):
     except OSError: return out
     for ln in lines:
         m = re.match(r"^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d+)", ln)
-        k = re.search(r"\[com\.vela\.stage\.spike:(\w+)\]\s+(.*)$", ln)
+        k = re.search(r"\[" + re.escape(subsystem) + r":(\w+)\]\s+(.*)$", ln)
         if not (m and k): continue
         t = datetime.datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S.%f").timestamp()
         out.append((t, k.group(1), k.group(2)))
@@ -92,11 +93,16 @@ for t, c, m in logs:
     if m.startswith("lane-start"):
         s = re.search(r"slot=(\d+).* bw=(\d+)", m)
         if s: sel_bw[int(s.group(1))] = int(s.group(2))
+LANE_SLOT = {"primary": 0, "secondary": 1}
 for t, c, m in msg_find("first-frame"):
-    s = re.search(r"slot=(\d+) ms=(\d+)", m)
-    if s and int(s.group(1)) not in ff_abs:
-        slot = int(s.group(1)); ff_abs[slot] = t
-        first_frame_s[str(slot)] = round(int(s.group(2)) / 1000.0, 2)
+    s = re.search(r"slot=(\d+) ms=(\d+)", m)  # Spike：first-frame slot=<n> ms=<毫秒>
+    v = re.search(r"lane=(\w+) ([\d.]+)s", m)  # 正式 App：first-frame lane=<id> <秒>s size=WxH
+    if s: slot, secs = int(s.group(1)), int(s.group(2)) / 1000.0
+    elif v and v.group(1) in LANE_SLOT: slot, secs = LANE_SLOT[v.group(1)], float(v.group(2))
+    else: continue
+    if slot not in ff_abs:
+        ff_abs[slot] = t
+        first_frame_s[str(slot)] = round(secs, 2)
 first_frame_since_launch_s = {str(k): round(v - t0, 2) for k, v in ff_abs.items()}
 
 fg_start = phases.get("fg_start", t0); fg_end = phases.get("fg_end", fg_start)
@@ -143,7 +149,15 @@ res["fetch_failed"] = sum(1 for _, c, m in logs if m.startswith("fetch-failed"))
 
 dc = [m for _, c, m in logs if m.startswith("display-check")]
 res["display_checks"] = len(dc)
-res["uncropped_all"] = bool(dc) and all("uncropped=true" in m and re.search(r"gravity=\S*ResizeAspect(?!Fill)", m, re.I) for m in dc)
+def _wh(m, key):
+    r = re.search(r"\b" + key + r"=(\d+)x(\d+)", m)
+    return (int(r.group(1)), int(r.group(2))) if r else None
+def _layer_ok(m):  # 播放层 bounds 与窗格（bounds=）每边相差 ≤1 点；旧格式没有 layer= 一律判否
+    b, l = _wh(m, "bounds"), _wh(m, "layer")
+    return bool(b and l and abs(b[0] - l[0]) <= 1 and abs(b[1] - l[1]) <= 1)
+res["layer_matches_all"] = bool(dc) and all(_layer_ok(m) for m in dc)
+res["uncropped_all"] = bool(dc) and res["layer_matches_all"] and all(
+    "uncropped=true" in m and re.search(r"gravity=\S*ResizeAspect(?!Fill)", m, re.I) for m in dc)
 res["display_samples"] = sorted(set(re.sub(r"lane=\S+ ", "", m) for m in dc))[:6]
 src = [int(re.search(r"sources=(\d+)", m).group(1)) for _, c, m in logs if m.startswith("relay sources=")]
 res["relay_sources_max"] = max(src) if src else 0
@@ -168,15 +182,26 @@ if scenario in ("background", "pip"):
                      ("pip_failed", "pip failed"), ("pip_will_start", "pip will-start")):
         res[key] = len([1 for t, c, m in logs if t >= bg_launch and m.startswith(pat)])
     res["suspend_lines"] = [m for _, c, m in msg_find("suspend", bg_launch)][:3]
+    # 正式 App 的后台顺序（§3.2）：lane suspend → audio deactivated → relay listener stopped；回前台 epoch resume / lane resume
+    for key, pat in (("lane_suspend", "lane suspend"), ("epoch_suspend", "epoch suspend"),
+                     ("epoch_resume", "epoch resume"), ("lane_resume", "lane resume")):
+        res[key] = len([1 for t, c, m in logs if t >= bg_launch and m.startswith(pat)])
+    seq = [(t, m) for t, c, m in logs if t >= bg_launch and t < tres and
+           (m.startswith(("lane suspend", "audio deactivated", "relay listener stopped", "epoch suspend")) or m.startswith("audio step"))]
+    res["bg_sequence"] = [m for _, m in seq][:12]
+    order = [next((t for t, m in seq if m.startswith(p)), None) for p in ("lane suspend", "audio deactivated", "relay listener stopped")]
+    res["bg_order_ok"] = all(order) and order[0] <= order[1] <= order[2]
     res["pip_lines"] = [m for t, c, m in logs if c == "pip" and t >= bg_launch][:10]
     fetches = [(t, int(re.search(r"total=(\d+)", m).group(1))) for t, c, m in msg_find("relay fetches", bgs) if t <= bge]
     res["bg_relay_fetch_total_delta"] = (fetches[-1][1] - fetches[0][1]) if len(fetches) >= 2 else 0
     res["bg_relay_fetch_lines"] = len(fetches)
     rf = [t for t, c, m in msg_find("first-frame", tres)]
     res["resume_first_frame_s"] = round(rf[0] - tres, 2) if rf else None
-    res["resume_lines"] = [m for _, c, m in msg_find("resume after", tres - 1)][:2]
+    res["resume_lines"] = ([m for _, c, m in msg_find("resume after", tres - 1)] + [m for _, c, m in msg_find("epoch resume", tres - 1)]
+                           + [m for _, c, m in msg_find("lane resume", tres - 1)])[:4]
     res["scene_lines"] = [m for _, c, m in msg_find("scenePhase", bg_launch)][:4]
 
+res["audio_lines"] = [m for _, c, m in logs if c == "audio"][:12]
 res["samples"] = len(fg_rows)
 if err is None:
     for k in ["cpu_avg", "footprint_mb", "wakeups", "net_in_mb_per_min", "threads"]:

@@ -13,6 +13,11 @@ final class RoomThumbnailCache {
 
     private let cache = NSCache<NSURL, CGImage>()
     private var inflight = [NSURL: Task<CGImage?, Never>]()
+    /// 统一挂起（iOS 后台，§3.1）：挂起期间不发下载，挂起前开始的下载结果不入缓存。
+    private var lifecycle = LifecycleEpoch()
+
+    /// 在途下载数（测试用）。
+    var inflightCount: Int { inflight.count }
 
     private init() {
         cache.countLimit = 20
@@ -31,6 +36,27 @@ final class RoomThumbnailCache {
         return await beginFetch(url: url)?.value
     }
 
+    /// 放进缓存，按位图字节计费（宽 × 高 × 4）。测试也用它预置缩略图。
+    func store(_ image: CGImage, for url: URL) {
+        cache.setObject(image, forKey: url as NSURL, cost: image.width * image.height * 4)
+    }
+
+    /// 内存警告：丢掉已缓存的图。在途下载不动，完成后照常入缓存。
+    func removeAll() {
+        cache.removeAllObjects()
+    }
+
+    /// 挂起：取消全部在途下载，之后的预取与取图直到 `resumeAll()` 都不发请求。已缓存的图照常可用。
+    func suspendAll() {
+        lifecycle.suspend()
+        for task in inflight.values { task.cancel() }
+        inflight.removeAll()
+    }
+
+    func resumeAll() {
+        lifecycle.resume()
+    }
+
     /// 预取缩略图到内存，切房时垫底可立即命中。
     func prefetch(url: URL?) {
         guard let url, image(for: url) == nil else { return }
@@ -42,8 +68,10 @@ final class RoomThumbnailCache {
         let key = url as NSURL
         if let cached = cache.object(forKey: key) { return Task { cached } }
         if let existing = inflight[key] { return existing }
+        guard let token = lifecycle.begin() else { return nil }
         let task = Task<CGImage?, Never> { @MainActor in
-            defer { inflight[key] = nil }
+            // 挂起时 `suspendAll` 已清空登记；旧任务不要清掉恢复后同一地址的新登记。
+            defer { if lifecycle.allows(.beforeCommit, token: token) { inflight[key] = nil } }
             guard let (data, response) = try? await URLSession.shared.data(from: url),
                   let http = response as? HTTPURLResponse,
                   (200..<300).contains(http.statusCode) else { return nil }
@@ -52,9 +80,8 @@ final class RoomThumbnailCache {
             guard let cgImage = await Task.detached { () -> CGImage? in
                 RoomThumbnailCache.decodeThumbnail(from: data, maxPixelSize: maxPixelSize)
             }.value else { return nil }
-            if cache.object(forKey: key) == nil {
-                cache.setObject(cgImage, forKey: key, cost: cgImage.width * cgImage.height * 4)
-            }
+            guard lifecycle.allows(.beforeCommit, token: token) else { return nil }
+            if cache.object(forKey: key) == nil { store(cgImage, for: url) }
             return cgImage
         }
         inflight[key] = task

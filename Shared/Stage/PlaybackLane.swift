@@ -39,6 +39,8 @@ final class PlaybackLane: ObservableObject {
     /// 当前这一轮起播（解析流地址、取档）：同一时间只保留一个，新的起播取消旧的。
     var playTask: Task<Void, Never>?
     var skipTask: Task<Void, Never>?
+    /// 起播成功后为下一间房的预取。属于这一路的任务：挂起、取消本路工作时一并取消。
+    var prefetchTask: Task<Void, Never>?
     /// 房间暂时离开时的一次性延迟重试；切房（`playCurrent`）时取消。
     var awayTask: Task<Void, Never>?
     var awayRetry = AwayRetry()
@@ -86,7 +88,7 @@ final class PlaybackLane: ObservableObject {
 extension StageModel {
     /// 把一路接到模型上：音量、播放器回调、失败分类钩子与 `objectWillChange` 转发。
     func attach(_ lane: PlaybackLane) {
-        lane.player.setVolume(volume, muted: muted)
+        pushVolume(to: lane)
         lane.player.refreshRequested = { [weak self, weak lane] name, isRetry in
             guard let lane else { return }
             self?.refreshCurrent(name, isRetry: isRetry, on: lane)

@@ -1,6 +1,7 @@
 import SwiftUI
 
 /// 垫底：当前房间的模糊缩略图，没有图时是柔和渐变。放在播放层下面，留边区自然露出它。
+/// 尺寸只取父视图给的大小（`Color.clear` 打底，图放在叠加层里再裁掉），铺满的缩略图不会把父视图撑大（裁决 5）。
 struct SwapBackdrop: View {
     let room: Room
     /// 带房间标识的下载结果：切房复用同一视图时，只有标识与当前房间一致才显示，迟到的旧图不会盖住新图。
@@ -13,19 +14,17 @@ struct SwapBackdrop: View {
     }
 
     var body: some View {
-        ZStack {
-            backdropLayer
-            Theme.backdropScrim
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .clipped()
-        .task(id: room.username) {
-            let name = room.username
-            if loaded?.username != name { loaded = nil }
-            guard let fetched = await RoomThumbnailCache.shared.imageOrFetch(for: room.thumbnailURL),
-                  !Task.isCancelled else { return }
-            loaded = (name, fetched)
-        }
+        Color.clear
+            .overlay { backdropLayer }
+            .overlay { Theme.backdropScrim }
+            .clipped()
+            .task(id: room.username) {
+                let name = room.username
+                if loaded?.username != name { loaded = nil }
+                guard let fetched = await RoomThumbnailCache.shared.imageOrFetch(for: room.thumbnailURL),
+                      !Task.isCancelled else { return }
+                loaded = (name, fetched)
+            }
     }
 
     @ViewBuilder
@@ -36,16 +35,17 @@ struct SwapBackdrop: View {
                 .scaledToFill()
                 .scaleEffect(Theme.backdropScale)
                 .blur(radius: Theme.backdropBlurRadius)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            LinearGradient(
-                colors: [Theme.ink, Theme.backdropWarm, Theme.ink.opacity(0.92)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            Text(room.displayName.isEmpty ? room.username : room.displayName)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(Theme.textSecondary)
+            ZStack {
+                LinearGradient(
+                    colors: [Theme.ink, Theme.backdropWarm, Theme.ink.opacity(0.92)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                Text(room.displayName.isEmpty ? room.username : room.displayName)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Theme.textSecondary)
+            }
         }
     }
 }

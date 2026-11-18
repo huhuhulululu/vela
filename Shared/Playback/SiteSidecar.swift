@@ -22,15 +22,28 @@ final class SiteSidecar: NSObject, WKNavigationDelegate {
     private var busy = 0
     /// 用完后空闲达到 `SidecarIdlePolicy.seconds` 就销毁离屏网页视图。30 秒内再使用仍是这一份；超过则按需重建。
     private var idleTask: Task<Void, Never>?
+    /// 统一挂起（iOS 后台，§3.1）：挂起期间不加载页面、不执行脚本，挂起前开始的调用在提交前作废。
+    private var lifecycle = LifecycleEpoch()
+
+    /// 测试替身：替换「加载站点页面」与「在页面里执行脚本」两步，免得测试真的联网。nil 用真实实现。
+    private let pageLoader: (@MainActor (WKWebView) async throws -> Void)?
+    private let scriptRunner: (@MainActor (WKWebView, String, [String: Any]) async throws -> Any?)?
 
     init(
         host: SidecarHost = SidecarHost(),
-        beforeLoad: @escaping @MainActor () async -> Void = { await LegacyLoginCleanup.waitUntilDone() }
+        beforeLoad: @escaping @MainActor () async -> Void = { await LegacyLoginCleanup.waitUntilDone() },
+        pageLoader: (@MainActor (WKWebView) async throws -> Void)? = nil,
+        scriptRunner: (@MainActor (WKWebView, String, [String: Any]) async throws -> Any?)? = nil
     ) {
         self.host = host
         self.beforeLoad = beforeLoad
+        self.pageLoader = pageLoader
+        self.scriptRunner = scriptRunner
         super.init()
     }
+
+    /// 离屏网页视图是否存在（测试用）。
+    var hasWebView: Bool { webView != nil }
 
     /// 宿主刚就绪（窗口挂上）：没停着且网页视图还没挂上就挂过去。
     func hostDidAttach() {
@@ -42,6 +55,24 @@ final class SiteSidecar: NSObject, WKNavigationDelegate {
         suspended = true
         webView?.stopLoading()
         webView?.removeFromSuperview()
+    }
+
+    /// 统一挂起：停止加载、让挂起中的页面加载以取消结束、拆掉离屏网页视图（通关 cookie 留在默认数据存储里）。
+    /// 与确认页用的 `suspend()` 不同，这里之后的调用一律以取消结束，直到 `resumeAll()`。
+    func suspendAll() {
+        lifecycle.suspend()
+        idleTask?.cancel()
+        idleTask = nil
+        loading?.cancel()
+        if let pending = pendingLoad {
+            pendingLoad = nil
+            pending.resume(throwing: CancellationError())
+        }
+        tearDown()
+    }
+
+    func resumeAll() {
+        lifecycle.resume()
     }
 
     func resumeIfNeeded() {
@@ -102,15 +133,26 @@ final class SiteSidecar: NSObject, WKNavigationDelegate {
     }
 
     private func evaluate(_ body: String, arguments: [String: Any]) async throws -> Any? {
+        guard let token = lifecycle.begin() else { throw CancellationError() }
         busy += 1
         idleTask?.cancel()
         defer {
             busy -= 1
             scheduleIdleTeardown()
         }
-        try await ensureLoaded()
+        try await ensureLoaded(token: token)
+        // 加载任务是共享的、不随调用方取消：等它结束后再查一次调用方自己有没有被取消，取消了就不执行脚本、不发站点请求。
+        try Task.checkCancellation()
+        guard lifecycle.allows(.beforeRequest, token: token) else { throw CancellationError() }
         guard let webView else { throw SidecarError.unavailable }
-        return try await webView.callAsyncJavaScript(body, arguments: arguments, in: nil, contentWorld: .page)
+        let result: Any?
+        if let scriptRunner {
+            result = try await scriptRunner(webView, body, arguments)
+        } else {
+            result = try await webView.callAsyncJavaScript(body, arguments: arguments, in: nil, contentWorld: .page)
+        }
+        guard lifecycle.allows(.beforeCommit, token: token) else { throw CancellationError() }
+        return result
     }
 
     private func scheduleIdleTeardown(since: Date = Date()) {
@@ -146,16 +188,27 @@ final class SiteSidecar: NSObject, WKNavigationDelegate {
         loading = nil
     }
 
-    private func ensureLoaded() async throws {
+    /// `beforeLoad` 可能等很久（旧登录清理）：等完之后、建网页视图之前、真正 `load` 之前都要再核对生命周期与取消，
+    /// 挂起期间不建视图、不发页面请求。
+    private func ensureLoaded(token: LifecycleEpoch.Token) async throws {
         await beforeLoad()
+        try checkAlive(token)
         if loaded { return }
         if let loading {
             try await loading.value
+            try Task.checkCancellation()
             return
         }
         let view = ensureWebView()
         let task = Task { @MainActor in
-            try await self.load(view)
+            try Task.checkCancellation()
+            try self.checkAlive(token)
+            if let loader = self.pageLoader {
+                try await loader(view)
+                self.loaded = true
+            } else {
+                try await self.load(view)
+            }
         }
         loading = task
         do {
@@ -164,6 +217,14 @@ final class SiteSidecar: NSObject, WKNavigationDelegate {
             loading = nil
             throw error
         }
+        // 只取消这一个调用方：共享的加载已完成，留给其他调用方用。
+        try Task.checkCancellation()
+    }
+
+    /// 挂起（代次已变）或调用方已取消：以取消结束。
+    private func checkAlive(_ token: LifecycleEpoch.Token) throws {
+        try Task.checkCancellation()
+        guard lifecycle.allows(.beforeRequest, token: token) else { throw CancellationError() }
     }
 
     private func load(_ view: WKWebView) async throws {

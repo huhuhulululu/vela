@@ -1,5 +1,9 @@
 import XCTest
+#if SWIFT_PACKAGE
 @testable import VelaCore
+#else
+@testable import VelaPhone
+#endif
 
 /// 竖屏直播自动完整画面：判定、只对当前房间生效、离开恢复、手动撤销不改全局设置。
 final class PortraitFitTests: XCTestCase {

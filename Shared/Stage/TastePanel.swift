@@ -18,6 +18,10 @@ struct TastePanel: View {
 
     /// 关掉滚动容器：只给离屏渲染自查用（ImageRenderer 画不出 ScrollView）。
     var scrolls = true
+    /// macOS 弹层固定宽度；iOS sheet 传 nil：最宽不超过 `preferredWidth`，窄屏随屏宽收窄。
+    var width: CGFloat? = TastePanel.preferredWidth
+
+    static let preferredWidth: CGFloat = 380
 
     @State private var confirm: Confirm?
     @State private var likedExpanded = false
@@ -39,7 +43,8 @@ struct TastePanel: View {
             footer
         }
         .padding(Theme.inset + 4)
-        .frame(width: 380)
+        .frame(width: width)
+        .frame(maxWidth: width == nil ? Self.preferredWidth : nil)
     }
 
     private var content: some View {
@@ -57,7 +62,7 @@ struct TastePanel: View {
         VStack(alignment: .leading, spacing: 3) {
             Text("我的口味")
                 .font(.system(size: 13, weight: .semibold))
-            Text("偏好只保存在这台 Mac 上，不上传。")
+            Text(Self.privacyNote)
                 .font(.system(size: 11))
                 .foregroundStyle(Theme.textSecondary)
                 .lineLimit(1)
@@ -227,4 +232,9 @@ struct TastePanel: View {
         }
         .buttonStyle(QuietButtonStyle())
     }
+}
+
+extension TastePanel {
+    /// 页眉的隐私说明。两端通用，不点名设备。
+    static let privacyNote = "偏好只保存在本机，不上传。"
 }

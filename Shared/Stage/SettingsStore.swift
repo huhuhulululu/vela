@@ -75,6 +75,12 @@ final class SettingsStore {
         set { defaults.set(newValue, forKey: "muted") }
     }
 
+    /// iOS：正在播放时回桌面自动进入画中画（修订 A2 的 7a），默认开。macOS 不读。
+    var pipAutoEnter: Bool {
+        get { defaults.object(forKey: "pipAutoEnter") as? Bool ?? true }
+        set { defaults.set(newValue, forKey: "pipAutoEnter") }
+    }
+
     var hintSeen: Bool {
         get { defaults.bool(forKey: "hintSeen") }
         set { defaults.set(newValue, forKey: "hintSeen") }

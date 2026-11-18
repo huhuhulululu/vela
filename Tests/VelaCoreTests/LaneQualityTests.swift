@@ -1,5 +1,9 @@
 import XCTest
+#if SWIFT_PACKAGE
 @testable import VelaCore
+#else
+@testable import VelaPhone
+#endif
 
 final class LaneQualityTests: XCTestCase {
     let t0 = Date(timeIntervalSince1970: 1_800_000_000)

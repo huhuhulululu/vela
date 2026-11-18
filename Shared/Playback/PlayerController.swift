@@ -95,6 +95,8 @@ final class PlayerController: ObservableObject {
     #endif
 
     var hasItem: Bool { player.currentItem != nil }
+    /// 正在等外面重新解析当前房间（恢复或失败重试）。生命周期快照用。
+    var refreshPending: Bool { refresh.pending }
 
     init() {
         PlaylistRelay.shared.start()
@@ -549,6 +551,13 @@ final class PlayerController: ObservableObject {
         if playingUsername != nil { playingUsername = nil }
         if readyUsername != nil { readyUsername = nil }
         Self.log.info("suspend-now lane=\(self.laneLabel, privacy: .public)")
+    }
+
+    /// 回前台由 Stage 层重新起播（§3.2）：丢掉 `suspendNow` 补写的暂停起点。
+    /// 否则闸门重开时播放器会自己按 `lastPlay` 再走一遍重新解析，与 Stage 的起播撞车。已有播放项时不动。
+    func forgetSuspendedResume() {
+        guard !hasItem else { return }
+        pausedAt = nil
     }
 
     // MARK: 首帧

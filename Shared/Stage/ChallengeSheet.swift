@@ -38,7 +38,7 @@ struct ChallengeContent: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
             }
-            Text("站点要求确认这次访问。完成后回到播放器即可，画面不会在这个窗口里播放。")
+            Text(Self.hint)
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -64,4 +64,9 @@ enum WebKitWarmup {
         self.task = task
         await task.value
     }
+}
+
+extension ChallengeContent {
+    /// 页眉说明。两端通用：macOS 是独立窗口、iOS 是 sheet，都只说「这里」。
+    static let hint = "站点要求确认这次访问。完成后回到播放器即可，画面不会在这里播放。"
 }

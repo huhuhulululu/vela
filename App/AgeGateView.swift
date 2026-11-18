@@ -12,7 +12,7 @@ struct AgeGateView: View {
                 .frame(maxHeight: .infinity, alignment: .top)
             WindowButtons()
                 .padding(Theme.inset)
-            AgeGateContent(enter: enter, quit: quit)
+            AgeGateContent(copy: .mac, enter: enter, quit: quit)
                 .padding(.horizontal, 36)
                 .padding(.vertical, 28)
                 .padding(.top, Theme.gap)
@@ -20,4 +20,12 @@ struct AgeGateView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
     }
+}
+
+extension AgeGateCopy {
+    /// macOS 版文案：保留窗口置顶、变淡的说法。
+    static let mac = AgeGateCopy(
+        headline: "浮在桌面上的\n直播舞台",
+        blurb: "原生播放 Chaturbate。画面由硬件解码，窗口可以置顶、变淡，并像短视频一样上下切换。仅供年满 18 岁的人使用。"
+    )
 }
