@@ -40,3 +40,312 @@ Tests/VelaRelayTests/RelayMultiSourceTests.swift	testRestartBeforeStopCompletesK
 Tests/VelaRelayTests/RelayMultiSourceTests.swift	testRestartDuringStopKeepsNewlyRegisteredSource	replaced-by:vela.app.playback.LaneDataSourceTest#testRestartDuringStopKeepsNewlyRegisteredSource
 Tests/VelaRelayTests/RelayMultiSourceTests.swift	testAllowStartOffRefusesToListen	replaced-by:vela.app.playback.LaneDataSourceTest#testAllowStartOffRefusesToListen
 Tests/VelaRelayTests/RelayMultiSourceTests.swift	testSuspendedAfterBindingRefusesNewSources	replaced-by:vela.app.playback.LaneDataSourceTest#testSuspendedAfterBindingRefusesNewSources
+Tests/VelaCoreTests/AudioTransitionRunnerTests.swift	testUnmuteRunsInOrderAndUnmutesOnlyAfterActivation	不移植：iOS AVAudioSession 驱动（安卓不用）
+Tests/VelaCoreTests/AudioTransitionRunnerTests.swift	testCategoryFailureKeepsEverythingMutedAndSkipsActivation	不移植：iOS AVAudioSession 驱动（安卓不用）
+Tests/VelaCoreTests/AudioTransitionRunnerTests.swift	testActivationFailureNeverUnmutes	不移植：iOS AVAudioSession 驱动（安卓不用）
+Tests/VelaCoreTests/AudioTransitionRunnerTests.swift	testMuteMergesCategoryAndOptionsThenDeactivatesNotifyingOthers	不移植：iOS AVAudioSession 驱动（安卓不用）
+Tests/VelaCoreTests/AudioTransitionRunnerTests.swift	testMuteWithPictureInPictureKeepsSessionActive	不移植：iOS AVAudioSession 驱动（安卓不用）
+Tests/VelaCoreTests/AudioTransitionRunnerTests.swift	testMuteFailureStillReportsMuted	不移植：iOS AVAudioSession 驱动（安卓不用）
+Tests/VelaCoreTests/AudioTransitionRunnerTests.swift	testInterruptionBeganMutesAllWithoutWritingSettings	不移植：iOS AVAudioSession 驱动（安卓不用）
+Tests/VelaCoreTests/AudioTransitionRunnerTests.swift	testSuspendedInterruptionAndInterruptionEndedLeaveStateAlone	不移植：iOS AVAudioSession 驱动（安卓不用）
+Tests/VelaCoreTests/AudioTransitionRunnerTests.swift	testOldDeviceUnavailableMutesWithoutPause	不移植：iOS AVAudioSession 驱动（安卓不用）
+Tests/VelaCoreTests/AudioTransitionRunnerTests.swift	testOldDeviceUnavailableKeepsSessionWhenPictureInPictureActive	不移植：iOS AVAudioSession 驱动（安卓不用）
+Tests/VelaCoreTests/AudioTransitionRunnerTests.swift	testOtherRouteChangeDoesNothing	不移植：iOS AVAudioSession 驱动（安卓不用）
+Tests/VelaCoreTests/AudioTransitionRunnerTests.swift	testPrepareMutedSetsMixedCategoryThenActivates	不移植：iOS AVAudioSession 驱动（安卓不用）
+Tests/VelaCoreTests/AudioTransitionRunnerTests.swift	testPrepareMutedActivationFailureStaysMutedWithoutNotice	不移植：iOS AVAudioSession 驱动（安卓不用）
+Tests/VelaCoreTests/AudioTransitionRunnerTests.swift	testBackgroundDeactivationLeavesRuntimeMuteUnchanged	不移植：iOS AVAudioSession 驱动（安卓不用）
+Tests/VelaCoreTests/AudioTransitionRunnerTests.swift	testDeactivationFailureIsReported	不移植：iOS AVAudioSession 驱动（安卓不用）
+Tests/VelaCoreTests/DiagnosticDigestTests.swift	testMeasurementStringsConvertToSecondsAndBytes	不移植：iOS MetricKit 真机诊断摘要
+Tests/VelaCoreTests/DiagnosticDigestTests.swift	testMetricPayloadBecomesADailySummary	不移植：iOS MetricKit 真机诊断摘要
+Tests/VelaCoreTests/DiagnosticDigestTests.swift	testDiagnosticPayloadCountsAccumulateIntoTheSameDay	不移植：iOS MetricKit 真机诊断摘要
+Tests/VelaCoreTests/DiagnosticDigestTests.swift	testKeepsOnlyTheSevenMostRecentDaysNewestFirst	不移植：iOS MetricKit 真机诊断摘要
+Tests/VelaCoreTests/DiagnosticDigestTests.swift	testMalformedPayloadsAreIgnored	不移植：iOS MetricKit 真机诊断摘要
+Tests/VelaCoreTests/DiagnosticDigestTests.swift	testRawPayloadIsKeptButCapped	不移植：iOS MetricKit 真机诊断摘要
+Tests/VelaCoreTests/DiagnosticDigestTests.swift	testStoreRoundTripsAndRendersText	不移植：iOS MetricKit 真机诊断摘要
+Tests/VelaCoreTests/DwellFocusTests.swift	testFocusedByDefaultSoFocusedSecondsEqualDwell	不移植：iOS 双窗焦点秒（安卓只有单窗）
+Tests/VelaCoreTests/DwellFocusTests.swift	testUnfocusedFromTheStartHasNoFocusedSeconds	不移植：iOS 双窗焦点秒（安卓只有单窗）
+Tests/VelaCoreTests/DwellFocusTests.swift	testFocusTogglingDuringPlaybackSplitsSeconds	不移植：iOS 双窗焦点秒（安卓只有单窗）
+Tests/VelaCoreTests/DwellFocusTests.swift	testFocusChangeWhileInactiveOnlyChangesFlag	不移植：iOS 双窗焦点秒（安卓只有单窗）
+Tests/VelaCoreTests/DwellFocusTests.swift	testPausedSecondsAreNotCountedAsFocused	不移植：iOS 双窗焦点秒（安卓只有单窗）
+Tests/VelaCoreTests/DwellFocusTests.swift	testSwitchRoomResetsSecondsButKeepsFocusFlag	不移植：iOS 双窗焦点秒（安卓只有单窗）
+Tests/VelaCoreTests/DwellFocusTests.swift	testRepeatedSameFocusIsNoOp	不移植：iOS 双窗焦点秒（安卓只有单窗）
+Tests/VelaPhoneTests/AudioFocusControllerTests.swift	testUnmuteSetsCategoryThenActivatesThenUnmutes	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AudioFocusControllerTests.swift	testActivationFailureStaysMutedNotWrittenAndShowsNotice	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AudioFocusControllerTests.swift	testCategoryFailureDoesNotActivate	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AudioFocusControllerTests.swift	testRemuteUsesMixCategoryAndDeactivatesNotifyingOthers	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AudioFocusControllerTests.swift	testRemuteKeepsSessionWhilePictureInPictureIsPlaying	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AudioFocusControllerTests.swift	testInterruptionBeganMutesRuntimeOnlyAndEndedDoesNotResume	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AudioFocusControllerTests.swift	testSuspendedInterruptionBeganIsIgnored	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AudioFocusControllerTests.swift	testOldDeviceUnavailableMutesAndOtherReasonsDoNot	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AudioFocusControllerTests.swift	testOldDeviceUnavailableKeepsSessionDuringPictureInPicture	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AudioFocusControllerTests.swift	testBackgroundDeactivationGoesThroughController	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AudioFocusControllerTests.swift	testSliderToZeroMutesAndRaisingUnmutesThroughController	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AudioFocusControllerTests.swift	testPrepareSessionRunsMutedConfigurationOnce	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AudioFocusControllerTests.swift	testPrepareSessionAudibleUsesUnmixedPlayback	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AudioFocusControllerTests.swift	testFirstStartPlaybackPreparesSessionBeforePlayerGetsItem	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AudioFocusControllerTests.swift	testAudibleBackgroundThenForegroundKeepsIntentAndPreparesAudibleSession	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AudioFocusControllerTests.swift	testColdStartStillFollowsSettings	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AudioFocusControllerTests.swift	testLastLaneStoppingDeactivatesSession	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AudioFocusControllerTests.swift	testLastLaneStoppingKeepsAudibleIntent	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AudioFocusControllerTests.swift	testRemuteDeactivationFailureRetriesOnce	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AudioFocusControllerTests.swift	testRemuteDeactivationStillFailingIsRedoneOnNextTransition	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AudioFocusControllerTests.swift	testAudibleTimeoutThenOriginalItemRecoversRestoresSound	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testEmptyPrimaryDoesNotFallBackToFirstRoom	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testSingleWindowStillFollowsFeedCurrent	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testFocusTargetFollowsFocusLane	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testDualToggleIgnoredWhilePictureInPictureIsUp	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testOpeningDualIgnoredWhilePictureInPictureIsUp	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testNewSecondaryHonoursPipSoloWhenOpenedViaRestore	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testFallbackReleasesPipLockAndSolo	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testLoadingLineFollowsOwnLaneGate	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testDirectSearchHitOnSecondaryRoomRevealsInsteadOfSqueezing	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testDirectSearchHitOnNewRoomGoesToPrimaryAndStaysDistinct	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testPausingLearningExcludesLedgerOnBothLanes	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testClearAllPreferencesDiscardsEveryLanesDwell	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testSecondarySameNameSourceChangeSettlesAndUpdatesSource	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testCapSyncNeededWhenThermalChangedAfterPlaybackStarted	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testDisplaySizeChangeInThreeLanesRequestsCapSync	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testDisplaySizeSameValueIsIgnored	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testRelatedPromotionWorksForFocusSecondaryRoom	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testReadyAfterThermalLimitRequestsCapSync	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testReadyWithUpToDateCapDoesNotRequestCapSync	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testClosingDualAfterPrimaryEmptiedInitialisesPrimaryDwell	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testReloadRestoringEmptyPrimaryInitialisesDwell	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testSecondaryLoadingLineSurvivesPrimaryPause	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testFallbackAbortsCoordinatorNotJustStops	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testCoordinatorAbortClearsActiveSoItCanRebind	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualAudioFocusTests.swift	testFocusSwitchWhenUnmutedMutesOldFirstThenSessionThenUnmutesNew	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualAudioFocusTests.swift	testFocusSwitchBackAndForthNeverHasTwoAudibleLanes	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualAudioFocusTests.swift	testFocusSwitchWhileMutedDoesNotTouchSession	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualAudioFocusTests.swift	testCategoryFailureKeepsAllLanesMutedAndDoesNotWriteSettings	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualAudioFocusTests.swift	testActivationFailureKeepsAllLanesMuted	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualAudioFocusTests.swift	testUnmuteTargetsTheFocusLane	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualAudioFocusTests.swift	testClosingDualWithSecondaryFocusReturnsSoundToPrimary	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualAudioFocusTests.swift	testNonFocusLaneIsMutedWhenNewLaneJoinsWhileUnmuted	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualDwellTests.swift	testSettlementSplitsRawWeightedAndFocusedSeconds	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualDwellTests.swift	testEachLaneKeepsItsOwnSource	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualDwellTests.swift	testSingleWindowSecondsAllEqual	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualDwellTests.swift	testBackgroundAndDualOffShortStaysAreNotMisses	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualDwellTests.swift	testDailyHitRateUsesFocusedSecondsOnly	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualDwellTests.swift	testLedgerRecordsWeightedSeconds	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualDwellTests.swift	testSingleWindowLedgerEqualsRawSeconds	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualDwellTests.swift	testFocusedLaneHitCountsDailyAndNeverFocusedDoesNot	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualDwellTests.swift	testQuickSwipeOnFocusLaneStillCountsDailyMiss	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualDwellTests.swift	testBackgroundShortStayRecordsNoMiss	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualDwellTests.swift	testDwellFocusFlagsFollowFocusLane	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualDwellTests.swift	testRelatedPromotionOnlyOnFocusLane	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualDwellTests.swift	testSettleDwellOnBackgroundPassesReasonAndSkipsMiss	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualDwellTests.swift	testFavoriteSuggestFollowsFocusLane	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualPictureInPictureTests.swift	testOnlyFocusLaneCarriesThePictureInPictureController	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualPictureInPictureTests.swift	testBackgroundKeepsFocusPrimaryAndReleasesSecondary	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualPictureInPictureTests.swift	testBackgroundKeepsFocusSecondaryAndReleasesPrimary	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualPictureInPictureTests.swift	testReturningToAppRestoresBothLanes	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualPictureInPictureTests.swift	testNotEnteringWithinTimeoutStopsBothLanes	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualPictureInPictureTests.swift	testStartFailureFallsBackImmediatelyWithoutLeavingPlayback	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualPictureInPictureTests.swift	testStuckStartingClosesSmallWindowAndStopsAll	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualPictureInPictureTests.swift	testEnteringInTimeKeepsFocusLaneAlive	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualPictureInPictureTests.swift	testClosingSmallWindowInBackgroundStopsBothLanes	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualPictureInPictureTests.swift	testForegroundEntryReleasesOtherLaneAndExitRestoresIt	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualPictureInPictureTests.swift	testForegroundStartFailureRestoresOtherLane	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualPictureInPictureTests.swift	testFocusCannotChangeWhileSmallWindowIsUp	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualPictureInPictureTests.swift	testSingleWindowForegroundEntryDoesNotTouchVisibility	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualQualityTests.swift	testBothLanesUseTopTierWhenCool	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualQualityTests.swift	testSeriousStepsBothLanesDownOneTierFromTop	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualQualityTests.swift	testCriticalStepsDownTwoTiersEvenWithoutPicture	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualQualityTests.swift	testRecoversOnlyAfterSixtySecondsOfFairOrBelow	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualQualityTests.swift	testReheatRestartsTheSixtySeconds	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualQualityTests.swift	testRetargetCapTellsLanesToChangeTierOnBothTransitions	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualQualityTests.swift	testStartPlaybackCarriesThermalCap	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualQualityTests.swift	testSystemThermalStateMapping	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualQualityTests.swift	testRetierSkipsLanesWithoutPlaybackItem	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualWindowTests.swift	testPhoneDualDefaultsOffAndIsRemembered	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualWindowTests.swift	testRememberedDualOpensSecondaryAtLaunch	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualWindowTests.swift	testSetDualOnCreatesSecondaryAfterPrimary	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualWindowTests.swift	testSetDualIsIdempotent	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualWindowTests.swift	testSetDualOffReleasesSecondary	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualWindowTests.swift	testSetDualOffWithSecondaryFocusKeepsFocusedRoomOnPrimary	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualWindowTests.swift	testSingleRoomListLeavesSecondaryEmpty	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualWindowTests.swift	testPhonePlatformSupportsDual	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualWindowTests.swift	testBlockPrimaryKeepsSecondaryAndStaysDistinct	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualWindowTests.swift	testBlockSecondaryFindsNextRoom	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualWindowTests.swift	testUnfavoriteSecondaryRoomInFavoritesSource	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualWindowTests.swift	testUnfavoritePrimaryRoomInFavoritesSource	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualWindowTests.swift	testLocalSearchNarrowingStaysDistinct	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualWindowTests.swift	testSiteSearchInstallAndExitStayDistinct	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualWindowTests.swift	testSwitchingSourceStaysDistinct	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualWindowTests.swift	testEmptyListThenPageResumeReselectsBothLanes	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualWindowTests.swift	testRevealTargetPlayingOnOtherLaneOnlySwitchesFocus	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualWindowTests.swift	testRevealOtherRoomMovesPrimaryAndFocusesIt	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualWindowTests.swift	testSwipeSecondarySkipsPrimaryRoom	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualWindowTests.swift	testPrimaryForwardSkipsRoomsTheSecondaryJustLeft	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualWindowTests.swift	testSecondaryForwardSkipsRoomsThePrimaryJustLeft	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualWindowTests.swift	testBackSwipeToOwnPreviousRoomIsAllowed	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualWindowTests.swift	testRecentSkipExpiresAndDirectRevealIgnoresIt	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualWindowTests.swift	testSingleWindowSwipesAreNotRecorded	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualWindowTests.swift	testRecentSkipsSurviveListReload	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualWindowTests.swift	testFavoriteOnSecondaryTargetsSecondaryRoomOnly	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualWindowTests.swift	testBlockOnSecondaryLeavesPrimaryUntouched	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualWindowTests.swift	testNotInterestedOnSecondaryMovesOnlySecondary	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualWindowTests.swift	testPauseOnSecondaryDoesNotPausePrimary	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualWindowTests.swift	testRetryOnSecondaryRestartsOnlySecondary	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualWindowTests.swift	testStaleTargetIsIgnoredAfterRoomChange	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualWindowTests.swift	testSetFocusUpdatesFocusAndDwellFlags	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualWindowTests.swift	testSetFocusInSingleWindowIsIgnored	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualWindowTests.swift	testSwipingNonFocusPaneTakesFocusViaMove	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualWindowTests.swift	testIndexOfLaneFollowsItsRoom	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualWindowTests.swift	testLandscapeReleasesNonFocusLane	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualWindowTests.swift	testLandscapeReleasesPrimaryWhenSecondaryHasFocus	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualWindowTests.swift	testBackToPortraitRequestsPlayForReleasedLane	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualWindowTests.swift	testRoomChangeWhileHiddenDoesNotStartPlayback	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualWindowTests.swift	testSetLandscapeIsIdempotentAndIgnoredInSingleWindow	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualWindowTests.swift	testClosingDualInLandscapeRestoresVisibility	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/DualWindowTests.swift	testLanesDistinctFollowsRooms	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/FailureSampleTests.swift	testGarbageMovieFileIsRoomFailureOnSecondary	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/FailureSampleTests.swift	testTruncatedMovieHeaderIsRoomFailureOnSecondary	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/FailureSampleTests.swift	testGarbageQuickTimeFileIsRoomFailureOnSecondary	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/FailureSampleTests.swift	testDecodeFailureAndMissingDecoderCodesStayRoomFailureInDualWindow	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/FailureSampleTests.swift	testOnlyWhitelistedDecoderCodeOnSecondaryDegradesAndPrimaryNever	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/FailureSampleTests.swift	testDegradeIsOnlyReachedThroughTheWhitelistHook	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/LifecycleWiringTests.swift	testBackgroundRejectsSharedAndLaneTokensAtAllFourGates	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/LifecycleWiringTests.swift	testInactiveAloneDoesNotSuspend	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/LifecycleWiringTests.swift	testSuspendCancelsSharedAndLaneTasks	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/LifecycleWiringTests.swift	testThumbnailsAndSidecarRefuseWhileSuspended	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/LifecycleWiringTests.swift	testPictureInPictureAllowsOnlyThatLaneAndRejectsSharedTasks	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/LifecycleWiringTests.swift	testFirstResolveInFlightIsReplayedOnReturn	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/LifecycleWiringTests.swift	testRoomSwitchInFlightIsReplayedOnReturn	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/LifecycleWiringTests.swift	testPlayingLaneIsReplayedOnReturn	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/LifecycleWiringTests.swift	testDegradedLaneIsReleasedBeforeReplayOnReturn	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/LifecycleWiringTests.swift	testFailedLaneKeepsFailureAndDoesNotReplay	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/LifecycleWiringTests.swift	testManuallyPausedLaneStaysPaused	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/LifecycleWiringTests.swift	testHiddenLaneStaysReleasedWhileVisibleLaneReplays	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/LifecycleWiringTests.swift	testLoadingCatalogIsNotedAndRedoneOnReturn	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/LifecycleWiringTests.swift	testNoSuspensionMeansNothingToResume	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/LifecycleWiringTests.swift	testBackgroundCancelsInflightPrefetch	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/LifecycleWiringTests.swift	testPictureInPictureDoesNotPrefetch	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/LifecycleWiringTests.swift	testSidecarSuspendedDuringBeforeLoadDoesNotCreateWebView	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/LifecycleWiringTests.swift	testCancellingCallerDuringPageLoadSkipsScript	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/LifecycleWiringTests.swift	testFailedLaneWithRealLastPlayIsNotRestartedByPlayerOnReturn	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/LifecycleWiringTests.swift	testManuallyPausedLaneResumesThroughStageAfterReturn	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/LifecycleWiringTests.swift	testInactivePausesDwellTimingAndActiveResumesIt	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/LifecycleWiringTests.swift	testPhonePresenceIsAlwaysEngagedAndNotPersisted	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/LifecycleWiringTests.swift	testChromeHidesAfterActivityTimeout	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PhoneHousekeepingTests.swift	testBackupExclusionIsSetAndReadableBack	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PhoneHousekeepingTests.swift	testDataDirectoryMatchesPreferenceStoreDirectory	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PhoneHousekeepingTests.swift	testMemoryWarningClearsPreparedCache	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PhoneHousekeepingTests.swift	testRecordKeepsSevenDaysOnDiskAndSurvivesABadFile	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PhoneHousekeepingTests.swift	testDataDirectoryHoldingDiagnosticsIsExcludedFromBackup	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PhoneHousekeepingTests.swift	testSectionRendersEmptyAndFilledWithoutCrashing	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PhoneViewLogicTests.swift	testShortDragSnapsBack	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PhoneViewLogicTests.swift	testDragPastThresholdTurnsPage	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PhoneViewLogicTests.swift	testFlingTurnsPageEvenWhenShort	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PhoneViewLogicTests.swift	testFlingNeedsMinimumTravel	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PhoneViewLogicTests.swift	testFlingAgainstDragDirectionDoesNotTurn	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PhoneViewLogicTests.swift	testNoNeighbourMeansSnapBack	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PhoneViewLogicTests.swift	testZeroHeightOrNoMovementNeverTurns	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PhoneViewLogicTests.swift	testEdgeDragIsDamped	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PhoneViewLogicTests.swift	testSlotsRenderAtMostThreePages	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PhoneViewLogicTests.swift	testSlotsAtEdges	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PhoneViewLogicTests.swift	testDisplayCheckLineForLetterboxedLandscape	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PhoneViewLogicTests.swift	testDisplayCheckFlagsCroppedRect	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PhoneViewLogicTests.swift	testDisplayCheckFlagsLayerInflatedBeyondPane	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PhoneViewLogicTests.swift	testDisplayCheckRequiresLayerToMatchPane	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PhoneViewLogicTests.swift	testGravityNames	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PhoneViewLogicTests.swift	testDisplaySizeUsesVideoRectOrEstimatesSixteenByNine	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PhoneViewLogicTests.swift	testDimsRoundsAndGuardsNonFinite	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PhoneViewLogicTests.swift	testPlayerLayerEqualsPaneWithWideThumbnail	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PhoneViewLogicTests.swift	testSwapBackdropTakesProposedSizeWithWideThumbnail	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PictureInPictureWiringTests.swift	testAutoEnterSettingDefaultsOnAndPersists	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PictureInPictureWiringTests.swift	testTogglingAutoEnterWritesSettingAndController	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PictureInPictureWiringTests.swift	testFallbackDecisionOnlyActiveCountsAsEntered	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PictureInPictureWiringTests.swift	testBackgroundWithPlayingFocusContinuesThatLaneOnly	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PictureInPictureWiringTests.swift	testBackgroundWithoutPictureInPictureSupportStopsAll	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PictureInPictureWiringTests.swift	testBackgroundWithAutoEnterOffStopsAll	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PictureInPictureWiringTests.swift	testBackgroundWhenFocusNotAdvancingStopsAll	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PictureInPictureWiringTests.swift	testBackgroundWhenFocusManuallyPausedStopsAll	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PictureInPictureWiringTests.swift	testNotEnteringWithinTimeoutFallsBackToStopAll	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PictureInPictureWiringTests.swift	testStuckStartingFallsBackAndClosesPictureInPicture	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PictureInPictureWiringTests.swift	testStartedPictureInPictureCancelsFallback	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PictureInPictureWiringTests.swift	testFailureToStartFallsBackImmediately	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PictureInPictureWiringTests.swift	testLateStartAfterFallbackIsClosed	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PictureInPictureWiringTests.swift	testLateWillStartAfterStopAllDoesNotReactivateSession	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PictureInPictureWiringTests.swift	testUserClosingPictureInPictureInBackgroundStopsAll	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PictureInPictureWiringTests.swift	testRestoreThenForegroundResumesWithoutStopAll	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PictureInPictureWiringTests.swift	testRestoreWithoutReturningStillStopsAllAfterTimeout	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PictureInPictureWiringTests.swift	testReturningToAppClosesActivePictureInPicture	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PictureInPictureWiringTests.swift	testForegroundPictureInPictureSurvivesInactiveBounce	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PictureInPictureWiringTests.swift	testAudioHookFollowsPictureInPictureState	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PictureInPictureWiringTests.swift	testMutedStartKeepsPlaybackMixSessionActive	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PictureInPictureWiringTests.swift	testFinalFailureDuringPictureInPictureReleasesSession	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PictureInPictureWiringTests.swift	testFailedDeactivationInterleavedWithLateStartIsRedone	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/PictureInPictureWiringTests.swift	testLateStartEndingRedoesPendingDeactivation	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/SharedCopyLayoutTests.swift	testCommonAgeGateCopyHasNoDesktopWording	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/SharedCopyLayoutTests.swift	testSharedPanelCopyHasNoMacOnlyWording	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/SharedCopyLayoutTests.swift	testTastePanelFitsNarrowScreen	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/SharedCopyLayoutTests.swift	testTastePanelCapsWidthOnWideScreen	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/SharedCopyLayoutTests.swift	testFavoritesPanelFitsNarrowPaneAndCapsOnWide	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleLaneMediaTests.swift	testEveryDirectedFocusTransitionIsOrderedAndSingleAudible	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleLaneMediaTests.swift	testNewLaneReducedLanesAndRebuiltItemsStayMutedUnlessFocused	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleLaneMediaTests.swift	testSessionFailureMutesAllThreeAndDoesNotWriteSettings	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleLaneMediaTests.swift	testThreeLaneSettlementsKeepWeightsAndSources	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleLaneMediaTests.swift	testLayoutChangeShortStayIsNotAMissAndRemovedLaneSettlesOnce	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleLaneMediaTests.swift	testHotRelatedAndFavoriteSuggestFollowFocusOnly	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleLaneMediaTests.swift	testResourceShortageDegradesNonFocusLaneAndProtectsFocus	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleLaneMediaTests.swift	testFocusShortageReleasesTertiaryThenSecondaryForIt	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleLaneMediaTests.swift	testDegradedLaneRetriesOnFocusOrLaneReduction	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleLaneMediaTests.swift	testDegradedLaneSchedulesOneShotRetry	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleLaneMediaTests.swift	testThreeLanesCapEachLaneByItsGridPicture	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleLaneMediaTests.swift	testLayoutChangesRetargetTheSizeCap	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleLaneMediaTests.swift	testThermalStepsDownFromTheSizeCapAndRecoversToIt	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleLaneMediaTests.swift	testFiniteLaneCapIsNotMistakenForTheRestingTier	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleLaneMediaTests.swift	testStageSizeEstimatesThePaneBeforeLayout	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleLaneMediaTests.swift	testSeriousToCriticalRetiersAgainAndRecoversToSizeCap	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleLaneMediaTests.swift	testPersistentShortageStopsAutomaticRetriesAfterBackoff	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleLaneMediaTests.swift	testRecoveryCancelsThePendingBackoffSoTheBudgetIsNotConsumed	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleLaneMediaTests.swift	testBackoffFiringWhileHiddenDoesNotConsumeAnAttempt	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TriplePictureInPictureTests.swift	testOnlyFocusLaneCarriesTheController	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TriplePictureInPictureTests.swift	testBackgroundWithEachFocusContinuesOnlyThatLane	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TriplePictureInPictureTests.swift	testForegroundEntryWithEachFocusReleasesOthersAndExitRestoresThem	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TriplePictureInPictureTests.swift	testFocusAndLaneCountLockedWhileStartingOrActive	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TriplePictureInPictureTests.swift	testForegroundStartFailureRestoresBothOtherLanes	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TriplePictureInPictureTests.swift	testBackgroundStartFailureStopsAllThree	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TriplePictureInPictureTests.swift	testStuckStartingAndTimeoutStopAllThreeAndCloseSmallWindow	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TriplePictureInPictureTests.swift	testLateStartAfterFallbackIsClosedAndDoesNotResumeLanes	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TriplePictureInPictureTests.swift	testClosingSmallWindowInBackgroundStopsAll	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TriplePictureInPictureTests.swift	testReturningToAppRestoresAllThreeLanes	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TriplePictureInPictureTests.swift	testPictureInPictureOnTopOfLandscapeRestoresOnlyAfterBothEnd	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TriplePictureInPictureTests.swift	testLaneCountLockIsPublishedAndStageFitIsReappliedAfterPictureInPicture	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TriplePictureInPictureTests.swift	testFailedStartAlsoReleasesTheLock	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TriplePictureInPictureTests.swift	testLaneCountStaysLockedWhileStoppingAndIsReappliedAfterDidStop	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TriplePictureInPictureTests.swift	testFailedStartAppliesStageFitBeforeRestoringHiddenLanes	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleWindowTests.swift	testLaneCountMigration	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleWindowTests.swift	testRememberedThreeLanesRestoreAtLaunch	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleWindowTests.swift	testTemporaryLaneCountDoesNotOverwriteChoice	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleWindowTests.swift	testOneToThreeOpensLanesInOrderAndRemembers	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleWindowTests.swift	testTwoToThreeKeepsExistingLanesUntouched	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleWindowTests.swift	testSetLaneCountIsIdempotentAndClamped	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleWindowTests.swift	testNewLaneSkipsRecentlySwipedRoom	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleWindowTests.swift	testThreeToTwoWithFocusOnPrimaryOrSecondaryDropsTertiary	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleWindowTests.swift	testThreeToTwoWithFocusOnTertiaryCompactsItIntoSecondary	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleWindowTests.swift	testThreeToOneKeepsTheFocusedRoomOnPrimary	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleWindowTests.swift	testTwoToOneWithEitherFocus	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleWindowTests.swift	testLandscapeReleasesBothNonFocusLanesAndKeepsTheirRooms	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleWindowTests.swift	testChangingLaneCountWhileInLandscape	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleWindowTests.swift	testBlockingEachLaneKeepsAllThreeDistinct	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleWindowTests.swift	testUnfavoriteInFavoritesSourceStaysDistinct	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleWindowTests.swift	testListShrinkingToOneThenBackKeepsFocusFirst	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleWindowTests.swift	testSiteSearchInstallAndExitStayDistinct	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleWindowTests.swift	testEmptyListThenResumeRefillsAllThree	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleWindowTests.swift	testRevealTargetOnTertiaryOnlySwitchesFocus	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleWindowTests.swift	testSwipeOnTertiaryNeverLandsOnOtherLanes	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleWindowTests.swift	testTargetedActionsOnTertiaryOnlyTouchTertiary	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleWindowTests.swift	testFocusCanMoveToEveryLaneAndNotToMissingOne	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleWindowTests.swift	testLaneRoomsLogConclusionCoversThreeLanes	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleWindowTests.swift	testShortScreenCapsAtTwoLanesWithoutOverwritingChoice	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleWindowTests.swift	testEmptyPrimaryIsNotImpersonatedWhenSwipingForwardInThreeLanes	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleWindowTests.swift	testEmptyPrimaryStaysEmptyWhenSwipingForwardInTwoLanes	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleWindowTests.swift	testExpandingFillsAnExistingEmptyLaneToo	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleWindowTests.swift	testExplicitSameValueChoiceAfterTemporaryReductionIsRemembered	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleWindowTests.swift	testLaunchOnShortScreenNeverOpensTheThirdLane	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleWindowTests.swift	testLandscapeMeasurementsDoNotFlipTheThreeLaneFit	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleWindowTests.swift	testClosingToOneLaneWithPrimaryFocusDoesNotRewriteFocus	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/TripleWindowTests.swift	testFurthestLaneComparesNamesCaseInsensitively	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
