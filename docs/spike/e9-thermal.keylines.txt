@@ -1,0 +1,37 @@
+18:13:32.687 [audio] audio muted category=AVAudioSessionCategoryPlayback mode=AVAudioSessionModeMoviePlayback mixWithOthers=true active=true otherPlaying=false
+18:13:32.729 [pip] pip supported=false slot=1
+18:13:32.731 [pip] pip supported=false slot=0
+18:13:32.768 [spike] scenePhase active
+18:13:33.186 [relay] relay sources=1
+18:13:33.187 [lane] lane-start slot=1 cap=max bw=5128000 res=1920x1080
+18:13:33.209 [relay] relay sources=2
+18:13:33.215 [lane] lane-start slot=0 cap=max bw=3096000 res=1280x720
+18:13:33.474 [display] display-check lane=ROOM gravity=AVLayerVideoGravityResizeAspect presentation=1280x720 bounds=402x328 videoRect=402x226 uncropped=true
+18:13:33.474 [lane] first-frame lane=ROOM slot=0 ms=533
+18:13:33.548 [display] display-check lane=ROOM gravity=AVLayerVideoGravityResizeAspect presentation=1920x1080 bounds=402x328 videoRect=402x226 uncropped=true
+18:13:33.548 [lane] first-frame lane=ROOM slot=1 ms=606
+18:14:12.761 [spike] thermal state=2 source=inject
+18:14:12.762 [spike] thermal degrade slot=0 displayH=226 cap=1696000
+18:14:12.765 [relay] relay sources=1 (deactivate)
+18:14:12.766 [spike] thermal degrade slot=1 displayH=226 cap=1696000
+18:14:12.767 [relay] relay sources=0 (deactivate)
+18:14:13.030 [relay] relay sources=1
+18:14:13.032 [lane] lane-start slot=0 cap=1696000 bw=1696000 res=960x540
+18:14:13.036 [relay] relay sources=2
+18:14:13.037 [lane] lane-start slot=1 cap=1696000 bw=1696000 res=960x540
+18:14:13.262 [display] display-check lane=ROOM gravity=AVLayerVideoGravityResizeAspect presentation=960x540 bounds=402x328 videoRect=402x226 uncropped=true
+18:14:13.262 [lane] first-frame lane=ROOM slot=1 ms=494
+18:14:13.342 [display] display-check lane=ROOM gravity=AVLayerVideoGravityResizeAspect presentation=960x540 bounds=402x328 videoRect=402x226 uncropped=true
+18:14:13.342 [lane] first-frame lane=ROOM slot=0 ms=576
+18:14:42.772 [spike] thermal state=1 source=inject
+18:15:42.786 [spike] thermal recover after=60s
+18:15:42.787 [relay] relay sources=1 (deactivate)
+18:15:42.788 [relay] relay sources=0 (deactivate)
+18:15:43.048 [relay] relay sources=1
+18:15:43.050 [lane] lane-start slot=1 cap=max bw=5128000 res=1920x1080
+18:15:43.092 [relay] relay sources=2
+18:15:43.093 [lane] lane-start slot=0 cap=max bw=3096000 res=1280x720
+18:15:43.180 [lane] first-frame lane=ROOM slot=0 ms=392
+18:15:43.180 [display] display-check lane=ROOM gravity=AVLayerVideoGravityResizeAspect presentation=1280x720 bounds=402x328 videoRect=402x226 uncropped=true
+18:15:43.388 [display] display-check lane=ROOM gravity=AVLayerVideoGravityResizeAspect presentation=1920x1080 bounds=402x328 videoRect=402x226 uncropped=true
+18:15:43.388 [lane] first-frame lane=ROOM slot=1 ms=599

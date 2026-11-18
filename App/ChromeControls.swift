@@ -1,16 +1,6 @@
 import AppKit
 import SwiftUI
 
-struct QuietButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .clickableRegion()
-            .opacity(configuration.isPressed ? 0.62 : 1)
-            .scaleEffect(configuration.isPressed ? 0.96 : 1)
-            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
-    }
-}
-
 /// 来源切换：四项最小等宽、不折行，选中项有底色，点击区域高度不小于 `Theme.tapHeight`。
 struct SourceSwitch: View {
     var selected: FeedSource

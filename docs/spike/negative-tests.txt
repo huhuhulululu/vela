@@ -1,0 +1,6 @@
+PASS bad-scenario rc=2 
+PASS missing-app rc=1 
+PASS no-samples rc=6 {"scenario":"single","log_source":"show","first_frame_s":{"0":0.64},"first_frame_since_launch_s":{"0":1.23},"overlap_rat
+PASS process-exit rc=5 {"error":"app-exited","scenario":"single"}
+PASS play-timeout rc=4 {"error":"play-timeout","scenario":"single"}
+全部负样本按预期失败

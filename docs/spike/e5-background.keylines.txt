@@ -1,0 +1,19 @@
+18:10:32.705 [audio] audio muted category=AVAudioSessionCategoryPlayback mode=AVAudioSessionModeMoviePlayback mixWithOthers=true active=true otherPlaying=false
+18:10:32.746 [pip] pip supported=false slot=0
+18:10:32.868 [spike] scenePhase active
+18:10:33.353 [relay] relay sources=1
+18:10:33.355 [lane] lane-start slot=0 cap=max bw=3096000 res=1280x720
+18:10:33.652 [lane] first-frame lane=ROOM slot=0 ms=579
+18:10:33.652 [display] display-check lane=ROOM gravity=AVLayerVideoGravityResizeAspect presentation=1280x720 bounds=402x658 videoRect=402x226 uncropped=true
+18:11:09.807 [spike] scenePhase inactive
+18:11:11.507 [spike] scenePhase background
+18:11:11.508 [spike] suspend release-lanes
+18:11:11.510 [relay] relay sources=0 (deactivate)
+18:11:11.510 [relay] relay listener stopped
+18:11:11.510 [audio] audio deactivated category=AVAudioSessionCategoryPlayback mode=AVAudioSessionModeMoviePlayback mixWithOthers=true active=false otherPlaying=false
+18:11:45.775 [spike] scenePhase inactive
+18:11:46.195 [spike] scenePhase active
+18:11:46.195 [spike] resume after=34s pipState=none
+18:11:46.480 [relay] relay sources=1
+18:11:46.483 [lane] lane-start slot=0 cap=max bw=3096000 res=1280x720
+18:11:46.777 [lane] first-frame lane=ROOM slot=0 ms=580

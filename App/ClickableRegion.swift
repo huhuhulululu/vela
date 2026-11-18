@@ -28,4 +28,7 @@ final class ClickableRegionView: NSView {
 extension View {
     /// 把这个视图的范围登记为可点区域（不改变布局与命中）。
     func clickableRegion() -> some View { background(ClickableRegion()) }
+
+    /// 共享代码用的平台入口：macOS 上就是 `clickableRegion()`。
+    func platformClickRegion() -> some View { clickableRegion() }
 }

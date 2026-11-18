@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXFileReference section */
+		B7A0C0DE0000000000000001 /* VelaPhoneApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VelaPhoneApp.swift; sourceTree = "<group>"; };
+		B7A0C0DE0000000000000003 /* VelaPhone.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VelaPhone.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A5E7C0DE00000000000000A1 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		9653C9F16ADFAD2C0473D61D /* TasteView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TasteView.swift"; sourceTree = "<group>"; };
 		24E59ED6C2DB401D71A6A691 /* TasteParts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TasteParts.swift"; sourceTree = "<group>"; };
@@ -27,6 +29,7 @@
 		060D66056AF5CB17E24CBF07 /* LoadSlot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LoadSlot.swift"; sourceTree = "<group>"; };
 		D58D9B01FE96A871D43BF155 /* PlaybackPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PlaybackPolicy.swift"; sourceTree = "<group>"; };
 		08207590C42838E351DF1E17 /* StageModel+Quality.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "StageModel+Quality.swift"; sourceTree = "<group>"; };
+		CC8A972A8101B4B06BC687A7 /* PlaybackLane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackLane.swift; sourceTree = "<group>"; };
 		A2F14BB1109403F2F3C26579 /* StageModel+Dwell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "StageModel+Dwell.swift"; sourceTree = "<group>"; };
 		408C6336E8B36C0ED1511721 /* StageModel+Playback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "StageModel+Playback.swift"; sourceTree = "<group>"; };
 		8AD58179CE1D95A346DDE1EC /* StageModel+Curation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "StageModel+Curation.swift"; sourceTree = "<group>"; };
@@ -54,6 +57,7 @@
 		E105A9BBD540FBADA3E55DE6 /* LaneSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneSelection.swift; sourceTree = "<group>"; };
 		8015B67F2FEA4F082C6E96B0 /* RoomTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomTarget.swift; sourceTree = "<group>"; };
 		AAF0875BDC7DECDE9CB2FD72 /* AudioTransition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioTransition.swift; sourceTree = "<group>"; };
+		77CC74339DCDCD80A583929F /* PiPPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PiPPolicy.swift; sourceTree = "<group>"; };
 		02272C5A60C4F4A5D576924F /* LaneQuality.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneQuality.swift; sourceTree = "<group>"; };
 		855F7F46F047F54717D13227 /* LaneSettlement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneSettlement.swift; sourceTree = "<group>"; };
 		C541058AFE0AC80AD146EDBA /* LifecycleEpoch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LifecycleEpoch.swift; sourceTree = "<group>"; };
@@ -102,13 +106,32 @@
 		0E09A0A00000000000000F01 /* AwayRetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AwayRetry.swift; sourceTree = "<group>"; };
 		7C1E5A90D3B24F68A0C4E9F7 /* FavoriteStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FavoriteStatus.swift; sourceTree = "<group>"; };
 		AB11C0DE0100000000000F01 /* ChallengeGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChallengeGate.swift; sourceTree = "<group>"; };
+		AB14C0DE0100000000000F02 /* RelaySourceTable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelaySourceTable.swift; sourceTree = "<group>"; };
+		AB14C0DE0100000000000F01 /* PlaybackFailureClassifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackFailureClassifier.swift; sourceTree = "<group>"; };
 		AB11C0DE0100000000000F02 /* PreferenceQuarantine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferenceQuarantine.swift; sourceTree = "<group>"; };
 		A1WATCH0000000000000001 /* WatchLedger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchLedger.swift; sourceTree = "<group>"; };
 		B1A55E1F00000000000000A1 /* AssignIf.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssignIf.swift; sourceTree = "<group>"; };
+		273A7A1C0A4127872757F4FD /* ButtonStyles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ButtonStyles.swift"; sourceTree = "<group>"; };
+		B81969383A625186A1D10B2F /* AgeGateContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgeGateContent.swift"; sourceTree = "<group>"; };
+		530F0A44EED4FAE366351B2E /* ClickRegion+Phone.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ClickRegion+Phone.swift"; sourceTree = "<group>"; };
+		935884F8DC5DDF529EF71817 /* RoomThumbnailCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RoomThumbnailCache.swift"; sourceTree = "<group>"; };
+		488826C51F96116531219AE0 /* SwapBackdrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SwapBackdrop.swift"; sourceTree = "<group>"; };
+		1A486697B1A22114A9A60C90 /* PlatformHooks+Mac.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PlatformHooks+Mac.swift"; sourceTree = "<group>"; };
+		D096B2FF63E8DAD1F896F278 /* StageModel+Mac.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "StageModel+Mac.swift"; sourceTree = "<group>"; };
+		8FBC1ABAEFD8187434B9DBF0 /* PlatformHooks+Phone.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PlatformHooks+Phone.swift"; sourceTree = "<group>"; };
+		9AC06141FBC0557C71D42E18 /* PulseDot+Mac.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PulseDot+Mac.swift"; sourceTree = "<group>"; };
+		EDDF236238A89A159826934E /* SiteWebView+Mac.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SiteWebView+Mac.swift"; sourceTree = "<group>"; };
+		EAC96C9A604DC39521611610 /* ChallengeSheet+Mac.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChallengeSheet+Mac.swift"; sourceTree = "<group>"; };
+		6D7118E8A3C25F19E34481AA /* SidecarHost+Mac.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SidecarHost+Mac.swift"; sourceTree = "<group>"; };
+		FBA7475CB0EAD2FA6559C3B4 /* PulseDot+Phone.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PulseDot+Phone.swift"; sourceTree = "<group>"; };
+		5706678F94874A09042F3437 /* SiteWebView+Phone.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SiteWebView+Phone.swift"; sourceTree = "<group>"; };
+		BD9C5ECA71F7AC479FB56CF1 /* SidecarHost+Phone.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SidecarHost+Phone.swift"; sourceTree = "<group>"; };
+		BFAB95F3C05BDC2A011A19A4 /* PlayerLayerView+Phone.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PlayerLayerView+Phone.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		7561BFB015D8F536760CB671 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = ( ); runOnlyForDeploymentPostprocessing = 0; };
+		B7A0C0DE0000000000000006 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = ( ); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -117,6 +140,8 @@
 			children = (
 				3C3B0F03DC089F93B8457928 /* App */,
 				B0B8C84E77856132D5681A59 /* VelaCore */,
+				A1F0C0DE00000000000000B1 /* Shared */,
+				B7A0C0DE0000000000000002 /* iOS */,
 				615B463D1028E4E24B674CF7 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -124,44 +149,25 @@
 		3C3B0F03DC089F93B8457928 /* App */ = {
 			isa = PBXGroup;
 			children = (
+				6D7118E8A3C25F19E34481AA /* SidecarHost+Mac.swift */,
+				EAC96C9A604DC39521611610 /* ChallengeSheet+Mac.swift */,
+				EDDF236238A89A159826934E /* SiteWebView+Mac.swift */,
+				9AC06141FBC0557C71D42E18 /* PulseDot+Mac.swift */,
+				D096B2FF63E8DAD1F896F278 /* StageModel+Mac.swift */,
+				1A486697B1A22114A9A60C90 /* PlatformHooks+Mac.swift */,
 				955DBAD7F72B22E16746405C /* AgeGateView.swift */,
 				88113C401678D7FED4097166 /* ChromeView.swift */,
-				63EC482ADC51208FA4BF0BBA /* ChallengeSheet.swift */,
-				7C1E5A90D3B24F68A0C4E9F1 /* LegacyLoginCleanup.swift */,
 				EEB3D6A4344AB3FB046E2F4A /* PagerView.swift */,
-				CCDD17465E271C88F8DBBFF6 /* PlayerController.swift */,
-				A1F0C0DE0000000000000021 /* PlaylistRelay.swift */,
 				7E5C365F757ED6FB588C8BB5 /* RoomCanvas.swift */,
-				533213F0A3E79556DF74A5C5 /* SettingsStore.swift */,
-				B68366DD57558CF66AFF6305 /* SiteSidecar.swift */,
-				4C64DF6E0E270A7ECF8E7082 /* StageModel.swift */,
-				08207590C42838E351DF1E17 /* StageModel+Quality.swift */,
-				A2F14BB1109403F2F3C26579 /* StageModel+Dwell.swift */,
-				408C6336E8B36C0ED1511721 /* StageModel+Playback.swift */,
-				8AD58179CE1D95A346DDE1EC /* StageModel+Curation.swift */,
-				7C1E5A90D3B24F68A0C4E9F5 /* StageModel+Favorites.swift */,
-				675338D3088EB2F9EC6E87AB /* StageModel+Catalog.swift */,
 				60163AF64BA801B22E5A7393 /* StageView.swift */,
-				7953575E987C8F2F60E968AA /* Theme.swift */,
-				BFDB7F5D0DDDD27A18116DC2 /* RoomCaption.swift */,
 				4DEDF38BA75779334875F085 /* ChromeControls.swift */,
-				05BC354C9C5D765DA615A970 /* RoomInfoPrefs.swift */,
-				326A31420C66A2DD6644664D /* URLSessionHTTPClient.swift */,
 				7735524504BC008F6F40497E /* VelaApp.swift */,
 				EE42CBE937AD0E08B79C6D94 /* WindowBridge.swift */,
 				10FF6FC1C8486FB9F87FD37F /* BossKey.swift */,
-				6E46E2782D9B25FD5CED2CCD /* CurationPanel.swift */,
 				AB10C0DE0300000000000F03 /* HeartButton.swift */,
-				AB10C0DE0400000000000F04 /* FavoritesRows.swift */,
 				AB10C0DE0900000000000F09 /* MenuBarFavorites.swift */,
-				AB120348225B6A421E7EC9CF /* PreferenceHealth.swift */,
 				AB12EF41E1B8274ADE013E7B /* ClickableRegion.swift */,
-				7C1E5A90D3B24F68A0C4E9F3 /* FavoritesPanel.swift */,
-				9653C9F16ADFAD2C0473D61D /* TasteView.swift */,
 				A5E7C0DE00000000000000A1 /* Assets.xcassets */,
-				24E59ED6C2DB401D71A6A691 /* TasteParts.swift */,
-				F3892415CF750A499FDE8805 /* TastePanel.swift */,
-				4118C98CD1ACEE3DA63A535B /* StageModel+Taste.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -175,6 +181,7 @@
 				E105A9BBD540FBADA3E55DE6 /* LaneSelection.swift */,
 				8015B67F2FEA4F082C6E96B0 /* RoomTarget.swift */,
 				AAF0875BDC7DECDE9CB2FD72 /* AudioTransition.swift */,
+				77CC74339DCDCD80A583929F /* PiPPolicy.swift */,
 				02272C5A60C4F4A5D576924F /* LaneQuality.swift */,
 				855F7F46F047F54717D13227 /* LaneSettlement.swift */,
 				C541058AFE0AC80AD146EDBA /* LifecycleEpoch.swift */,
@@ -228,17 +235,95 @@
 				AB1257F392515A0C52EC5566 /* WindowDragPolicy.swift */,
 				AB11C0DE0100000000000F02 /* PreferenceQuarantine.swift */,
 				AB11C0DE0100000000000F01 /* ChallengeGate.swift */,
+				AB14C0DE0100000000000F02 /* RelaySourceTable.swift */,
+				AB14C0DE0100000000000F01 /* PlaybackFailureClassifier.swift */,
 			);
 			name = VelaCore;
 			path = Sources/VelaCore;
+			sourceTree = "<group>";
+		};
+		A1F0C0DE00000000000000B1 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				975A89D73816608AEB69F9E0 /* Playback */,
+				CB34A6584F241E6CEF4433EF /* Stage */,
+				A1F0C0DE00000000000000B2 /* Relay */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		A1F0C0DE00000000000000B2 /* Relay */ = {
+			isa = PBXGroup;
+			children = (
+				A1F0C0DE0000000000000021 /* PlaylistRelay.swift */,
+			);
+			path = Relay;
 			sourceTree = "<group>";
 		};
 		615B463D1028E4E24B674CF7 /* Products */ = {
 			isa = PBXGroup;
 			children = (
 				38A007151ABE87CC01A5B6E9 /* Vela.app */,
+				B7A0C0DE0000000000000003 /* VelaPhone.app */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		B7A0C0DE0000000000000002 /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				BFAB95F3C05BDC2A011A19A4 /* PlayerLayerView+Phone.swift */,
+				BD9C5ECA71F7AC479FB56CF1 /* SidecarHost+Phone.swift */,
+				5706678F94874A09042F3437 /* SiteWebView+Phone.swift */,
+				FBA7475CB0EAD2FA6559C3B4 /* PulseDot+Phone.swift */,
+				8FBC1ABAEFD8187434B9DBF0 /* PlatformHooks+Phone.swift */,
+				530F0A44EED4FAE366351B2E /* ClickRegion+Phone.swift */,
+				B7A0C0DE0000000000000001 /* VelaPhoneApp.swift */,
+			);
+			path = iOS;
+			sourceTree = "<group>";
+		};
+		CB34A6584F241E6CEF4433EF /* Stage */ = {
+			isa = PBXGroup;
+			children = (
+				6E46E2782D9B25FD5CED2CCD /* CurationPanel.swift */,
+				AB10C0DE0400000000000F04 /* FavoritesRows.swift */,
+				7C1E5A90D3B24F68A0C4E9F3 /* FavoritesPanel.swift */,
+				9653C9F16ADFAD2C0473D61D /* TasteView.swift */,
+				24E59ED6C2DB401D71A6A691 /* TasteParts.swift */,
+				F3892415CF750A499FDE8805 /* TastePanel.swift */,
+				63EC482ADC51208FA4BF0BBA /* ChallengeSheet.swift */,
+				BFDB7F5D0DDDD27A18116DC2 /* RoomCaption.swift */,
+				7953575E987C8F2F60E968AA /* Theme.swift */,
+				7C1E5A90D3B24F68A0C4E9F1 /* LegacyLoginCleanup.swift */,
+				05BC354C9C5D765DA615A970 /* RoomInfoPrefs.swift */,
+				AB120348225B6A421E7EC9CF /* PreferenceHealth.swift */,
+				533213F0A3E79556DF74A5C5 /* SettingsStore.swift */,
+				4118C98CD1ACEE3DA63A535B /* StageModel+Taste.swift */,
+				08207590C42838E351DF1E17 /* StageModel+Quality.swift */,
+				CC8A972A8101B4B06BC687A7 /* PlaybackLane.swift */,
+				408C6336E8B36C0ED1511721 /* StageModel+Playback.swift */,
+				7C1E5A90D3B24F68A0C4E9F5 /* StageModel+Favorites.swift */,
+				A2F14BB1109403F2F3C26579 /* StageModel+Dwell.swift */,
+				8AD58179CE1D95A346DDE1EC /* StageModel+Curation.swift */,
+				675338D3088EB2F9EC6E87AB /* StageModel+Catalog.swift */,
+				4C64DF6E0E270A7ECF8E7082 /* StageModel.swift */,
+				488826C51F96116531219AE0 /* SwapBackdrop.swift */,
+				935884F8DC5DDF529EF71817 /* RoomThumbnailCache.swift */,
+				B81969383A625186A1D10B2F /* AgeGateContent.swift */,
+				273A7A1C0A4127872757F4FD /* ButtonStyles.swift */,
+			);
+			path = Stage;
+			sourceTree = "<group>";
+		};
+		975A89D73816608AEB69F9E0 /* Playback */ = {
+			isa = PBXGroup;
+			children = (
+				326A31420C66A2DD6644664D /* URLSessionHTTPClient.swift */,
+				B68366DD57558CF66AFF6305 /* SiteSidecar.swift */,
+				CCDD17465E271C88F8DBBFF6 /* PlayerController.swift */,
+			);
+			path = Playback;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -259,6 +344,22 @@
 			name = Vela;
 			productName = Vela;
 			productReference = 38A007151ABE87CC01A5B6E9 /* Vela.app */;
+			productType = "com.apple.product-type.application";
+		};
+		B7A0C0DE0000000000000004 /* VelaPhone */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B7A0C0DE0000000000000007 /* Build configuration list for PBXNativeTarget "VelaPhone" */;
+			buildPhases = (
+				B7A0C0DE0000000000000005 /* Sources */,
+				B7A0C0DE0000000000000006 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = VelaPhone;
+			productName = VelaPhone;
+			productReference = B7A0C0DE0000000000000003 /* VelaPhone.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -285,6 +386,7 @@
 			projectRoot = "";
 			targets = (
 				0E8A3AD980EC179856012B7E /* Vela */,
+				B7A0C0DE0000000000000004 /* VelaPhone */,
 			);
 		};
 /* End PBXProject section */
@@ -300,6 +402,16 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				8E337A72BB6D6883438A22BA /* SidecarHost+Mac.swift in Sources */,
+				BC1E02DA8E9D42EAA2E9F3A2 /* ChallengeSheet+Mac.swift in Sources */,
+				753F3B6D7E0EA0E27B032D13 /* SiteWebView+Mac.swift in Sources */,
+				36604C4F6520484E99DBF568 /* PulseDot+Mac.swift in Sources */,
+				A3512B34C2A1F3200213B590 /* StageModel+Mac.swift in Sources */,
+				233B2E30587FB5106D33024C /* PlatformHooks+Mac.swift in Sources */,
+				5F01D196FC0522F63E4FF56D /* SwapBackdrop.swift in Sources */,
+				2D7DFD0216EDAE1C0351A990 /* RoomThumbnailCache.swift in Sources */,
+				85783787A307E861A831B7AF /* AgeGateContent.swift in Sources */,
+				FDFBDD0CA7ECB48B64CAEB93 /* ButtonStyles.swift in Sources */,
 				07CE08A845318DB2581EB2F6 /* AgeGateView.swift in Sources */,
 				6D90BDCB5C13BA84942F44F3 /* ChromeView.swift in Sources */,
 				855DD1400A54AE65A687DABF /* ChallengeSheet.swift in Sources */,
@@ -312,6 +424,7 @@
 				4CA5F8B2BCC360A6C97AA444 /* SiteSidecar.swift in Sources */,
 				E85C881A23B06A6B8AE77E59 /* StageModel.swift in Sources */,
 				4466F8C896319175AE607015 /* StageModel+Quality.swift in Sources */,
+				930B1583A2AB045584316637 /* PlaybackLane.swift in Sources */,
 				CFDE7D7A17F4597B18A1D524 /* StageModel+Dwell.swift in Sources */,
 				8B76BE9509C4A2190ACF794D /* StageModel+Playback.swift in Sources */,
 				60DB5560410788B91D32251C /* StageModel+Curation.swift in Sources */,
@@ -331,6 +444,7 @@
 				8B8CBB25A5AC23CC2CB1C0A2 /* LaneSelection.swift in Sources */,
 				A3D4C5EBB898E9F4791F286D /* RoomTarget.swift in Sources */,
 				98BB3F8D58DA72871B3878CF /* AudioTransition.swift in Sources */,
+				D21A7DF0782599207F089E4D /* PiPPolicy.swift in Sources */,
 				7A8BAE74CA4FFB7936A1DED5 /* LaneQuality.swift in Sources */,
 				83F890E370544E916D4851D6 /* LaneSettlement.swift in Sources */,
 				A4350CE885603EA7234FABED /* LifecycleEpoch.swift in Sources */,
@@ -396,12 +510,184 @@
 				A1WATCH0000000000000002 /* WatchLedger.swift in Sources */,
 				AB11C0DE0100000000000B02 /* PreferenceQuarantine.swift in Sources */,
 				AB11C0DE0100000000000B01 /* ChallengeGate.swift in Sources */,
+				AB14C0DE0100000000000B02 /* RelaySourceTable.swift in Sources */,
+				AB14C0DE0100000000000B01 /* PlaybackFailureClassifier.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B7A0C0DE0000000000000005 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A639B4CE712CAE3AF5097EDD /* PiPPolicy.swift in Sources (VelaPhone) */,
+				0ADEEA3622D0027A66998077 /* SwapBackdrop.swift in Sources (VelaPhone) */,
+				E24FE516FC3F91EFA83ECFAB /* RoomThumbnailCache.swift in Sources (VelaPhone) */,
+				662AB64AF56BD21979EE7FBD /* AgeGateContent.swift in Sources (VelaPhone) */,
+				B1718EB10FA3893310F8DE2B /* ButtonStyles.swift in Sources (VelaPhone) */,
+				563BCDBF23B4B4BE8EBDAE46 /* CurationPanel.swift in Sources (VelaPhone) */,
+				C77870BB1C15A8CDBE0AC1D5 /* FavoritesRows.swift in Sources (VelaPhone) */,
+				65E1B1E9A61374ECC6D3B298 /* FavoritesPanel.swift in Sources (VelaPhone) */,
+				780B6F93EF5240799547B7F3 /* TasteView.swift in Sources (VelaPhone) */,
+				FFC5683FFE6B3B1B52B7C868 /* TasteParts.swift in Sources (VelaPhone) */,
+				496818AA503E7467914F9729 /* TastePanel.swift in Sources (VelaPhone) */,
+				94B18DE69D223DC80AEDD61F /* ChallengeSheet.swift in Sources (VelaPhone) */,
+				5B91DE142F34F6B1C160D857 /* RoomCaption.swift in Sources (VelaPhone) */,
+				3E9FE454E2253782999B20EB /* Theme.swift in Sources (VelaPhone) */,
+				CAA3FB370CF5C76D7924512C /* LegacyLoginCleanup.swift in Sources (VelaPhone) */,
+				BB7FE83574B1B76B6F1258E6 /* RoomInfoPrefs.swift in Sources (VelaPhone) */,
+				D938D92DA4FC8F04D1F31746 /* PreferenceHealth.swift in Sources (VelaPhone) */,
+				81845D61A8E7EEE8C17292D7 /* SettingsStore.swift in Sources (VelaPhone) */,
+				BE672A31AE6665AD91A0D039 /* StageModel+Taste.swift in Sources (VelaPhone) */,
+				DC0C4FF5D4FA5F83C40A193B /* StageModel+Quality.swift in Sources (VelaPhone) */,
+				FAEFA726D14323A461F813EF /* PlaybackLane.swift in Sources (VelaPhone) */,
+				E5DC8700909E3CE1DD2D4CF3 /* StageModel+Playback.swift in Sources (VelaPhone) */,
+				15B5BFDDFAFE794727EE2E3D /* StageModel+Favorites.swift in Sources (VelaPhone) */,
+				52C5824A3F696F519C9CFF70 /* StageModel+Dwell.swift in Sources (VelaPhone) */,
+				991F9ADA449BA0A40479E099 /* StageModel+Curation.swift in Sources (VelaPhone) */,
+				112DD43F133E95AE33630147 /* StageModel+Catalog.swift in Sources (VelaPhone) */,
+				3645BA6D474499F58C67349F /* StageModel.swift in Sources (VelaPhone) */,
+				41A86DFE1D253F1FDE0C3707 /* URLSessionHTTPClient.swift in Sources (VelaPhone) */,
+				881E9C45A5E4AC2024C7FD21 /* SiteSidecar.swift in Sources (VelaPhone) */,
+				869EE1A206D21CE9F9048054 /* PlayerController.swift in Sources (VelaPhone) */,
+				011B3C99EF9A74E56D8FEA2D /* PlayerLayerView+Phone.swift in Sources (VelaPhone) */,
+				CBBE54074865E41039D840C5 /* SidecarHost+Phone.swift in Sources (VelaPhone) */,
+				FF217E47A7E0309E4B80308B /* SiteWebView+Phone.swift in Sources (VelaPhone) */,
+				F2DC055FFFFD209CD1EC56A3 /* PulseDot+Phone.swift in Sources (VelaPhone) */,
+				0FE1A2291B975A8E1863BD34 /* PlatformHooks+Phone.swift in Sources (VelaPhone) */,
+				EC1323DECFCC9557631A3CCC /* ClickRegion+Phone.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000064 /* CatalogAPI.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000065 /* DisplayFit.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000066 /* LaneCursor.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000067 /* LaneSelection.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000068 /* RoomTarget.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000069 /* AudioTransition.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000006A /* LaneQuality.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000006B /* LaneSettlement.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000006C /* LifecycleEpoch.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000006D /* PhoneLifecycle.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000006E /* FeedStore.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000006F /* HTTP.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000070 /* Models.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000071 /* Pager.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000072 /* InfoVisibility.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000073 /* MenuBarVisibility.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000074 /* AssignIf.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000075 /* PlaylistLadder.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000076 /* QualityGovernor.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000077 /* PlaybackError.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000078 /* Presence.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000079 /* Feedback.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000007A /* StreamerAffinity.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000007B /* TagRarity.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000007C /* HotTags.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000007D /* PortraitFit.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000007E /* LastBroadcast.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000007F /* SiteSearch.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000080 /* TasteTargeting.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000081 /* Recommender.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000082 /* Preferences.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000083 /* StreamAPI.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000084 /* SkipTracker.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000085 /* DeferredSaver.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000086 /* DwellTracker.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000087 /* PlaybackPolicy.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000088 /* LoadSlot.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000089 /* PlaybackRefresh.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000008A /* UpstreamRenewal.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000008B /* RelayFeed.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000008C /* StreamRendition.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000008D /* Curation.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000008E /* FavoritesBoard.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000008F /* StreamSourcing.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000090 /* EndpointBackoff.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000091 /* AwayRetry.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000092 /* FavoriteStatus.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000093 /* TasteStore.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000094 /* TasteSummary.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000095 /* BetaSampler.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000096 /* Taste.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000097 /* WatchLedger.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000098 /* PromptRules.swift in Sources (VelaPhone) */,
+				B7A0C0DE0000000000000099 /* AudioPolicy.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000009A /* ShortcutGate.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000009B /* TimedFanOut.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000009C /* WindowDragPolicy.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000009D /* PreferenceQuarantine.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000009E /* ChallengeGate.swift in Sources (VelaPhone) */,
+				B7A0C0DE000000000000009F /* RelaySourceTable.swift in Sources (VelaPhone) */,
+				B7A0C0DE00000000000000A0 /* PlaybackFailureClassifier.swift in Sources (VelaPhone) */,
+				B7A0C0DE00000000000000A1 /* PlaylistRelay.swift in Sources (VelaPhone) */,
+				B7A0C0DE00000000000000A2 /* VelaPhoneApp.swift in Sources (VelaPhone) */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXBuildFile section */
+		A639B4CE712CAE3AF5097EDD /* PiPPolicy.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 77CC74339DCDCD80A583929F /* PiPPolicy.swift */; };
+		B7A0C0DE0000000000000064 /* CatalogAPI.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = B6C2710BAE15BF34AD8D8064 /* CatalogAPI.swift */; };
+		B7A0C0DE0000000000000065 /* DisplayFit.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 6C6318BDB00A5C5629A5771D /* DisplayFit.swift */; };
+		B7A0C0DE0000000000000066 /* LaneCursor.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 3B5557D6CBCE24FB261DDCF2 /* LaneCursor.swift */; };
+		B7A0C0DE0000000000000067 /* LaneSelection.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = E105A9BBD540FBADA3E55DE6 /* LaneSelection.swift */; };
+		B7A0C0DE0000000000000068 /* RoomTarget.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 8015B67F2FEA4F082C6E96B0 /* RoomTarget.swift */; };
+		B7A0C0DE0000000000000069 /* AudioTransition.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = AAF0875BDC7DECDE9CB2FD72 /* AudioTransition.swift */; };
+		B7A0C0DE000000000000006A /* LaneQuality.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 02272C5A60C4F4A5D576924F /* LaneQuality.swift */; };
+		B7A0C0DE000000000000006B /* LaneSettlement.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 855F7F46F047F54717D13227 /* LaneSettlement.swift */; };
+		B7A0C0DE000000000000006C /* LifecycleEpoch.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = C541058AFE0AC80AD146EDBA /* LifecycleEpoch.swift */; };
+		B7A0C0DE000000000000006D /* PhoneLifecycle.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 777EFF4FBADFF6F05037CA34 /* PhoneLifecycle.swift */; };
+		B7A0C0DE000000000000006E /* FeedStore.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 91C7787D7F9A6CEEF15836DC /* FeedStore.swift */; };
+		B7A0C0DE000000000000006F /* HTTP.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = CAEC71EA4CE7DDD16ED71C33 /* HTTP.swift */; };
+		B7A0C0DE0000000000000070 /* Models.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 1620C4EBECC91E93F7005537 /* Models.swift */; };
+		B7A0C0DE0000000000000071 /* Pager.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 9FE0D685E99DE971D002F9EB /* Pager.swift */; };
+		B7A0C0DE0000000000000072 /* InfoVisibility.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B5C /* InfoVisibility.swift */; };
+		B7A0C0DE0000000000000073 /* MenuBarVisibility.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B6C /* MenuBarVisibility.swift */; };
+		B7A0C0DE0000000000000074 /* AssignIf.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = B1A55E1F00000000000000A1 /* AssignIf.swift */; };
+		B7A0C0DE0000000000000075 /* PlaylistLadder.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 0E0217F1F59C9FADB6815759 /* PlaylistLadder.swift */; };
+		B7A0C0DE0000000000000076 /* QualityGovernor.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B03 /* QualityGovernor.swift */; };
+		B7A0C0DE0000000000000077 /* PlaybackError.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B01 /* PlaybackError.swift */; };
+		B7A0C0DE0000000000000078 /* Presence.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 5564DAE75964EA8083413E1C /* Presence.swift */; };
+		B7A0C0DE0000000000000079 /* Feedback.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = AA10F00DFEED0000000000C1 /* Feedback.swift */; };
+		B7A0C0DE000000000000007A /* StreamerAffinity.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = AA10F00DFEED0000000000C2 /* StreamerAffinity.swift */; };
+		B7A0C0DE000000000000007B /* TagRarity.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = AA10F00DFEED0000000000C3 /* TagRarity.swift */; };
+		B7A0C0DE000000000000007C /* HotTags.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = AC08A0DE00000000000000F4 /* HotTags.swift */; };
+		B7A0C0DE000000000000007D /* PortraitFit.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = AC08A0DE00000000000000F3 /* PortraitFit.swift */; };
+		B7A0C0DE000000000000007E /* LastBroadcast.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = AC08A0DE00000000000000F2 /* LastBroadcast.swift */; };
+		B7A0C0DE000000000000007F /* SiteSearch.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = AC08A0DE00000000000000F1 /* SiteSearch.swift */; };
+		B7A0C0DE0000000000000080 /* TasteTargeting.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = AA10F00DFEED0000000000C4 /* TasteTargeting.swift */; };
+		B7A0C0DE0000000000000081 /* Recommender.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = AA10F00DFEED0000000000A2 /* Recommender.swift */; };
+		B7A0C0DE0000000000000082 /* Preferences.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = AA10F00DFEED0000000000A1 /* Preferences.swift */; };
+		B7A0C0DE0000000000000083 /* StreamAPI.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 168F2029045FEFC53698CFF0 /* StreamAPI.swift */; };
+		B7A0C0DE0000000000000084 /* SkipTracker.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 634BC02D414C020142CE76CB /* SkipTracker.swift */; };
+		B7A0C0DE0000000000000085 /* DeferredSaver.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = A1D0C0DE00000000000000F3 /* DeferredSaver.swift */; };
+		B7A0C0DE0000000000000086 /* DwellTracker.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = A1D0C0DE00000000000000F1 /* DwellTracker.swift */; };
+		B7A0C0DE0000000000000087 /* PlaybackPolicy.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = D58D9B01FE96A871D43BF155 /* PlaybackPolicy.swift */; };
+		B7A0C0DE0000000000000088 /* LoadSlot.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 060D66056AF5CB17E24CBF07 /* LoadSlot.swift */; };
+		B7A0C0DE0000000000000089 /* PlaybackRefresh.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = A1F0C0DE0000000000000001 /* PlaybackRefresh.swift */; };
+		B7A0C0DE000000000000008A /* UpstreamRenewal.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = A1F0C0DE00000000000000A1 /* UpstreamRenewal.swift */; };
+		B7A0C0DE000000000000008B /* RelayFeed.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = A1F0C0DE0000000000000011 /* RelayFeed.swift */; };
+		B7A0C0DE000000000000008C /* StreamRendition.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = A1F0C0DE0000000000000031 /* StreamRendition.swift */; };
+		B7A0C0DE000000000000008D /* Curation.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = CE23B12C71B11DE6435B02DC /* Curation.swift */; };
+		B7A0C0DE000000000000008E /* FavoritesBoard.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = AB10C0DE0100000000000F01 /* FavoritesBoard.swift */; };
+		B7A0C0DE000000000000008F /* StreamSourcing.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 0E09A0A00000000000000F03 /* StreamSourcing.swift */; };
+		B7A0C0DE0000000000000090 /* EndpointBackoff.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 0E09A0A00000000000000F02 /* EndpointBackoff.swift */; };
+		B7A0C0DE0000000000000091 /* AwayRetry.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 0E09A0A00000000000000F01 /* AwayRetry.swift */; };
+		B7A0C0DE0000000000000092 /* FavoriteStatus.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 7C1E5A90D3B24F68A0C4E9F7 /* FavoriteStatus.swift */; };
+		B7A0C0DE0000000000000093 /* TasteStore.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = CEE35AC21C10B14D097FD661 /* TasteStore.swift */; };
+		B7A0C0DE0000000000000094 /* TasteSummary.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 06F0221475B24E4DBEC2C11D /* TasteSummary.swift */; };
+		B7A0C0DE0000000000000095 /* BetaSampler.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 14D089E2F47CE8C234FABAA6 /* BetaSampler.swift */; };
+		B7A0C0DE0000000000000096 /* Taste.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 8220312BA7B03985E12F72D1 /* Taste.swift */; };
+		B7A0C0DE0000000000000097 /* WatchLedger.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = A1WATCH0000000000000001 /* WatchLedger.swift */; };
+		B7A0C0DE0000000000000098 /* PromptRules.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = AB12F73D92204416CFD4E780 /* PromptRules.swift */; };
+		B7A0C0DE0000000000000099 /* AudioPolicy.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = AB1278BACC538F1FDDAA2AF2 /* AudioPolicy.swift */; };
+		B7A0C0DE000000000000009A /* ShortcutGate.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = AB129B7897BC09E3F5627BC4 /* ShortcutGate.swift */; };
+		B7A0C0DE000000000000009B /* TimedFanOut.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = AB12C1EB4B6CA954F19CAE43 /* TimedFanOut.swift */; };
+		B7A0C0DE000000000000009C /* WindowDragPolicy.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = AB1257F392515A0C52EC5566 /* WindowDragPolicy.swift */; };
+		B7A0C0DE000000000000009D /* PreferenceQuarantine.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = AB11C0DE0100000000000F02 /* PreferenceQuarantine.swift */; };
+		B7A0C0DE000000000000009E /* ChallengeGate.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = AB11C0DE0100000000000F01 /* ChallengeGate.swift */; };
+		B7A0C0DE000000000000009F /* RelaySourceTable.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = AB14C0DE0100000000000F02 /* RelaySourceTable.swift */; };
+		B7A0C0DE00000000000000A0 /* PlaybackFailureClassifier.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = AB14C0DE0100000000000F01 /* PlaybackFailureClassifier.swift */; };
+		B7A0C0DE00000000000000A1 /* PlaylistRelay.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = A1F0C0DE0000000000000021 /* PlaylistRelay.swift */; };
+		B7A0C0DE00000000000000A2 /* VelaPhoneApp.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = B7A0C0DE0000000000000001 /* VelaPhoneApp.swift */; };
 		A5E7C0DE00000000000000A2 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5E7C0DE00000000000000A1 /* Assets.xcassets */; };
 		74A5EE0426725FCC9CBD0B47 /* TasteView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9653C9F16ADFAD2C0473D61D /* TasteView.swift */; };
 		5EF5037CBD04595CEC5832D5 /* TasteParts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24E59ED6C2DB401D71A6A691 /* TasteParts.swift */; };
@@ -421,6 +707,7 @@
 		B9BB748BBC48D97D4A3D3D92 /* LoadSlot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 060D66056AF5CB17E24CBF07 /* LoadSlot.swift */; };
 		84E18F6BCC0E604427682EEB /* PlaybackPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D58D9B01FE96A871D43BF155 /* PlaybackPolicy.swift */; };
 		4466F8C896319175AE607015 /* StageModel+Quality.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08207590C42838E351DF1E17 /* StageModel+Quality.swift */; };
+		930B1583A2AB045584316637 /* PlaybackLane.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC8A972A8101B4B06BC687A7 /* PlaybackLane.swift */; };
 		CFDE7D7A17F4597B18A1D524 /* StageModel+Dwell.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2F14BB1109403F2F3C26579 /* StageModel+Dwell.swift */; };
 		8B76BE9509C4A2190ACF794D /* StageModel+Playback.swift in Sources */ = {isa = PBXBuildFile; fileRef = 408C6336E8B36C0ED1511721 /* StageModel+Playback.swift */; };
 		60DB5560410788B91D32251C /* StageModel+Curation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AD58179CE1D95A346DDE1EC /* StageModel+Curation.swift */; };
@@ -448,6 +735,7 @@
 		8B8CBB25A5AC23CC2CB1C0A2 /* LaneSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = E105A9BBD540FBADA3E55DE6 /* LaneSelection.swift */; };
 		A3D4C5EBB898E9F4791F286D /* RoomTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8015B67F2FEA4F082C6E96B0 /* RoomTarget.swift */; };
 		98BB3F8D58DA72871B3878CF /* AudioTransition.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAF0875BDC7DECDE9CB2FD72 /* AudioTransition.swift */; };
+		D21A7DF0782599207F089E4D /* PiPPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77CC74339DCDCD80A583929F /* PiPPolicy.swift */; };
 		7A8BAE74CA4FFB7936A1DED5 /* LaneQuality.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02272C5A60C4F4A5D576924F /* LaneQuality.swift */; };
 		83F890E370544E916D4851D6 /* LaneSettlement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 855F7F46F047F54717D13227 /* LaneSettlement.swift */; };
 		A4350CE885603EA7234FABED /* LifecycleEpoch.swift in Sources */ = {isa = PBXBuildFile; fileRef = C541058AFE0AC80AD146EDBA /* LifecycleEpoch.swift */; };
@@ -497,8 +785,55 @@
 		0E09A0A00000000000000B01 /* AwayRetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E09A0A00000000000000F01 /* AwayRetry.swift */; };
 		7C1E5A90D3B24F68A0C4E9F8 /* FavoriteStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C1E5A90D3B24F68A0C4E9F7 /* FavoriteStatus.swift */; };
 		AB11C0DE0100000000000B01 /* ChallengeGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB11C0DE0100000000000F01 /* ChallengeGate.swift */; };
+		AB14C0DE0100000000000B02 /* RelaySourceTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB14C0DE0100000000000F02 /* RelaySourceTable.swift */; };
+		AB14C0DE0100000000000B01 /* PlaybackFailureClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB14C0DE0100000000000F01 /* PlaybackFailureClassifier.swift */; };
 		AB11C0DE0100000000000B02 /* PreferenceQuarantine.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB11C0DE0100000000000F02 /* PreferenceQuarantine.swift */; };
 		A1WATCH0000000000000002 /* WatchLedger.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1WATCH0000000000000001 /* WatchLedger.swift */; };
+		FDFBDD0CA7ECB48B64CAEB93 /* ButtonStyles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 273A7A1C0A4127872757F4FD /* ButtonStyles.swift */; };
+		85783787A307E861A831B7AF /* AgeGateContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = B81969383A625186A1D10B2F /* AgeGateContent.swift */; };
+		EC1323DECFCC9557631A3CCC /* ClickRegion+Phone.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 530F0A44EED4FAE366351B2E /* ClickRegion+Phone.swift */; };
+		2D7DFD0216EDAE1C0351A990 /* RoomThumbnailCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 935884F8DC5DDF529EF71817 /* RoomThumbnailCache.swift */; };
+		5F01D196FC0522F63E4FF56D /* SwapBackdrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = 488826C51F96116531219AE0 /* SwapBackdrop.swift */; };
+		233B2E30587FB5106D33024C /* PlatformHooks+Mac.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A486697B1A22114A9A60C90 /* PlatformHooks+Mac.swift */; };
+		A3512B34C2A1F3200213B590 /* StageModel+Mac.swift in Sources */ = {isa = PBXBuildFile; fileRef = D096B2FF63E8DAD1F896F278 /* StageModel+Mac.swift */; };
+		0FE1A2291B975A8E1863BD34 /* PlatformHooks+Phone.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 8FBC1ABAEFD8187434B9DBF0 /* PlatformHooks+Phone.swift */; };
+		36604C4F6520484E99DBF568 /* PulseDot+Mac.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AC06141FBC0557C71D42E18 /* PulseDot+Mac.swift */; };
+		753F3B6D7E0EA0E27B032D13 /* SiteWebView+Mac.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDDF236238A89A159826934E /* SiteWebView+Mac.swift */; };
+		BC1E02DA8E9D42EAA2E9F3A2 /* ChallengeSheet+Mac.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAC96C9A604DC39521611610 /* ChallengeSheet+Mac.swift */; };
+		8E337A72BB6D6883438A22BA /* SidecarHost+Mac.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D7118E8A3C25F19E34481AA /* SidecarHost+Mac.swift */; };
+		F2DC055FFFFD209CD1EC56A3 /* PulseDot+Phone.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = FBA7475CB0EAD2FA6559C3B4 /* PulseDot+Phone.swift */; };
+		FF217E47A7E0309E4B80308B /* SiteWebView+Phone.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 5706678F94874A09042F3437 /* SiteWebView+Phone.swift */; };
+		CBBE54074865E41039D840C5 /* SidecarHost+Phone.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = BD9C5ECA71F7AC479FB56CF1 /* SidecarHost+Phone.swift */; };
+		011B3C99EF9A74E56D8FEA2D /* PlayerLayerView+Phone.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = BFAB95F3C05BDC2A011A19A4 /* PlayerLayerView+Phone.swift */; };
+		869EE1A206D21CE9F9048054 /* PlayerController.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = CCDD17465E271C88F8DBBFF6 /* PlayerController.swift */; };
+		881E9C45A5E4AC2024C7FD21 /* SiteSidecar.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = B68366DD57558CF66AFF6305 /* SiteSidecar.swift */; };
+		41A86DFE1D253F1FDE0C3707 /* URLSessionHTTPClient.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 326A31420C66A2DD6644664D /* URLSessionHTTPClient.swift */; };
+		3645BA6D474499F58C67349F /* StageModel.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 4C64DF6E0E270A7ECF8E7082 /* StageModel.swift */; };
+		112DD43F133E95AE33630147 /* StageModel+Catalog.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 675338D3088EB2F9EC6E87AB /* StageModel+Catalog.swift */; };
+		991F9ADA449BA0A40479E099 /* StageModel+Curation.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 8AD58179CE1D95A346DDE1EC /* StageModel+Curation.swift */; };
+		52C5824A3F696F519C9CFF70 /* StageModel+Dwell.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = A2F14BB1109403F2F3C26579 /* StageModel+Dwell.swift */; };
+		15B5BFDDFAFE794727EE2E3D /* StageModel+Favorites.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 7C1E5A90D3B24F68A0C4E9F5 /* StageModel+Favorites.swift */; };
+		E5DC8700909E3CE1DD2D4CF3 /* StageModel+Playback.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 408C6336E8B36C0ED1511721 /* StageModel+Playback.swift */; };
+		DC0C4FF5D4FA5F83C40A193B /* StageModel+Quality.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 08207590C42838E351DF1E17 /* StageModel+Quality.swift */; };
+		FAEFA726D14323A461F813EF /* PlaybackLane.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = CC8A972A8101B4B06BC687A7 /* PlaybackLane.swift */; };
+		BE672A31AE6665AD91A0D039 /* StageModel+Taste.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 4118C98CD1ACEE3DA63A535B /* StageModel+Taste.swift */; };
+		81845D61A8E7EEE8C17292D7 /* SettingsStore.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 533213F0A3E79556DF74A5C5 /* SettingsStore.swift */; };
+		D938D92DA4FC8F04D1F31746 /* PreferenceHealth.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = AB120348225B6A421E7EC9CF /* PreferenceHealth.swift */; };
+		BB7FE83574B1B76B6F1258E6 /* RoomInfoPrefs.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 05BC354C9C5D765DA615A970 /* RoomInfoPrefs.swift */; };
+		CAA3FB370CF5C76D7924512C /* LegacyLoginCleanup.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 7C1E5A90D3B24F68A0C4E9F1 /* LegacyLoginCleanup.swift */; };
+		3E9FE454E2253782999B20EB /* Theme.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 7953575E987C8F2F60E968AA /* Theme.swift */; };
+		5B91DE142F34F6B1C160D857 /* RoomCaption.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = BFDB7F5D0DDDD27A18116DC2 /* RoomCaption.swift */; };
+		94B18DE69D223DC80AEDD61F /* ChallengeSheet.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 63EC482ADC51208FA4BF0BBA /* ChallengeSheet.swift */; };
+		496818AA503E7467914F9729 /* TastePanel.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = F3892415CF750A499FDE8805 /* TastePanel.swift */; };
+		FFC5683FFE6B3B1B52B7C868 /* TasteParts.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 24E59ED6C2DB401D71A6A691 /* TasteParts.swift */; };
+		780B6F93EF5240799547B7F3 /* TasteView.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 9653C9F16ADFAD2C0473D61D /* TasteView.swift */; };
+		65E1B1E9A61374ECC6D3B298 /* FavoritesPanel.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 7C1E5A90D3B24F68A0C4E9F3 /* FavoritesPanel.swift */; };
+		C77870BB1C15A8CDBE0AC1D5 /* FavoritesRows.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = AB10C0DE0400000000000F04 /* FavoritesRows.swift */; };
+		563BCDBF23B4B4BE8EBDAE46 /* CurationPanel.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 6E46E2782D9B25FD5CED2CCD /* CurationPanel.swift */; };
+		B1718EB10FA3893310F8DE2B /* ButtonStyles.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 273A7A1C0A4127872757F4FD /* ButtonStyles.swift */; };
+		662AB64AF56BD21979EE7FBD /* AgeGateContent.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = B81969383A625186A1D10B2F /* AgeGateContent.swift */; };
+		E24FE516FC3F91EFA83ECFAB /* RoomThumbnailCache.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 935884F8DC5DDF529EF71817 /* RoomThumbnailCache.swift */; };
+		0ADEEA3622D0027A66998077 /* SwapBackdrop.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 488826C51F96116531219AE0 /* SwapBackdrop.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin XCBuildConfiguration section */
@@ -608,6 +943,60 @@
 			};
 			name = Release;
 		};
+		B7A0C0DE0000000000000008 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Vela;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.vela.stage.ios;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		B7A0C0DE0000000000000009 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Vela;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.vela.stage.ios;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -625,6 +1014,15 @@
 			buildConfigurations = (
 				FE30E34D2E074F83C0BB8B14 /* Debug */,
 				8DB33D080F2095ABF270D5AF /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B7A0C0DE0000000000000007 /* Build configuration list for PBXNativeTarget "VelaPhone" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B7A0C0DE0000000000000008 /* Debug */,
+				B7A0C0DE0000000000000009 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

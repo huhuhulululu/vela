@@ -361,7 +361,7 @@ final class BridgeView: NSView {
         switch event.keyCode {
         case 125: model.step(1); return true
         case 126: model.step(-1); return true
-        case 49: model.togglePause(); return true
+        case 49: model.togglePause(model.target()); return true
         default: break
         }
         switch event.charactersIgnoringModifiers?.lowercased() {
