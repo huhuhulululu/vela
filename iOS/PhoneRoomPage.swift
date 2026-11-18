@@ -45,6 +45,8 @@ struct PhoneRoomPage: View {
         PerfEntry.pipOnAllLanes || lane == focus
     }
 
+    static func showsLoadingLine(active: Bool, videoReady: Bool, hasNote: Bool, laneAllowed: Bool) -> Bool { false }
+
     private var pipController: PictureInPictureCoordinator? {
         Self.carriesPictureInPicture(lane: lane.id, focus: model.focusLane) ? model.platform.pipCoordinator : nil
     }

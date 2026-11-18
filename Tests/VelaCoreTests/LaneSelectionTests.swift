@@ -600,3 +600,42 @@ final class LaneSelectionRefillTests: XCTestCase {
         XCTAssertNil(out.secondary?.username)
     }
 }
+
+/// 副路房间消失时找替补要排除主路房间，否则主路被挤走（审计 H2）。
+final class LaneSelectionReplacementExcludesPrimaryTests: XCTestCase {
+    private func snapshot(primary: String, secondary: String, direction: Int) -> LaneSelection.Snapshot {
+        LaneSelection.Snapshot(
+            rooms: ["a", "b", "c", "d"], primary: LaneCursor(username: primary),
+            secondary: LaneCursor(username: secondary, direction: direction), focus: .primary
+        )
+    }
+
+    func testSecondaryBeforePrimaryMovingBackwardKeepsPrimaryWhenBlocked() {
+        // 主 b、副 a、方向 -1，屏蔽 a：副路往前没有、往后第一间是主路 b，必须跳过取 c。
+        let out = LaneSelection.resolve(
+            before: snapshot(primary: "b", secondary: "a", direction: -1),
+            afterRooms: ["b", "c", "d"], proposedPrimary: "b", intent: .filter
+        )
+        XCTAssertEqual(out.primary.username, "b")
+        XCTAssertEqual(out.secondary?.username, "c")
+    }
+
+    func testSecondaryAfterPrimaryMovingForwardKeepsPrimaryWhenBlocked() {
+        // 主 c、副 b、方向 +1，屏蔽 b：往后第一间是主路 c，必须跳过取 d。
+        let out = LaneSelection.resolve(
+            before: snapshot(primary: "c", secondary: "b", direction: 1),
+            afterRooms: ["a", "c", "d"], proposedPrimary: "c", intent: .filter
+        )
+        XCTAssertEqual(out.primary.username, "c")
+        XCTAssertEqual(out.secondary?.username, "d")
+    }
+
+    func testMergePathExcludesPrimaryToo() {
+        let out = LaneSelection.resolve(
+            before: snapshot(primary: "b", secondary: "a", direction: -1),
+            afterRooms: ["b", "c", "d"], proposedPrimary: "b", intent: .merge
+        )
+        XCTAssertEqual(out.primary.username, "b")
+        XCTAssertEqual(out.secondary?.username, "c")
+    }
+}

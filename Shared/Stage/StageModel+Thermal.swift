@@ -94,3 +94,8 @@ extension PhoneThermalState {
         }
     }
 }
+
+extension StageModel {
+    func needsCapSync(_ lane: PlaybackLane) -> Bool { false }
+    func noteDisplaySize(_ size: CGSize, on lane: PlaybackLane) {}
+}

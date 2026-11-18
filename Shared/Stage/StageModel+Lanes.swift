@@ -159,3 +159,8 @@ extension StageModel {
 
     static let lanesLog = Logger(subsystem: "com.vela.stage", category: "lanes")
 }
+
+extension StageModel {
+    func focusTarget() -> RoomTarget? { nil }
+    func applyDirectSearchHit(_ room: Room) {}
+}

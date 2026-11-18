@@ -164,6 +164,7 @@
 		C12A00000000000000000002 /* VelaPhoneTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VelaPhoneTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C13A00000000000000000001 /* LifecycleWiring.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LifecycleWiring.swift; sourceTree = "<group>"; };
 		C13A00000000000000000011 /* LifecycleWiringTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LifecycleWiringTests.swift; sourceTree = "<group>"; };
+		5537B2140CDF58663C2179BA /* AuditFixTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AuditFixTests.swift"; sourceTree = "<group>"; };
 		38959941344CC216E6BFF97D /* TestPrefs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TestPrefs.swift"; sourceTree = "<group>"; };
 		81C6CACF5876C02AB9E27066 /* FailureSampleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FailureSampleTests.swift"; sourceTree = "<group>"; };
 		F3FB5EB6BA3C36C3ED004529 /* DualQualityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DualQualityTests.swift"; sourceTree = "<group>"; };
@@ -432,6 +433,7 @@
 			children = (
 				0638102034C5E7A666AF3C0A /* PhoneViewLogicTests.swift */,
 				C13A00000000000000000011 /* LifecycleWiringTests.swift */,
+				5537B2140CDF58663C2179BA /* AuditFixTests.swift */,
 				38959941344CC216E6BFF97D /* TestPrefs.swift */,
 				81C6CACF5876C02AB9E27066 /* FailureSampleTests.swift */,
 				F3FB5EB6BA3C36C3ED004529 /* DualQualityTests.swift */,
@@ -790,6 +792,7 @@
 			files = (
 				036C0C7D6C970966BE45B68E /* PhoneViewLogicTests.swift in Sources (VelaPhoneTests) */,
 				C13A00000000000000000012 /* LifecycleWiringTests.swift in Sources (VelaPhoneTests) */,
+				A6237470E7BD3C79A736DB06 /* AuditFixTests.swift in Sources (VelaPhoneTests) */,
 				B706C4AA5239CD1767DB0BFB /* TestPrefs.swift in Sources (VelaPhoneTests) */,
 				C3F537A22F84FC279CA1173F /* FailureSampleTests.swift in Sources (VelaPhoneTests) */,
 				4C0EB6FB94E743AACA989B50 /* DualQualityTests.swift in Sources (VelaPhoneTests) */,
@@ -1067,6 +1070,7 @@
 		C13A00000000000000000002 /* LifecycleWiring.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13A00000000000000000001 /* LifecycleWiring.swift */; };
 		C13A00000000000000000003 /* LifecycleWiring.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = C13A00000000000000000001 /* LifecycleWiring.swift */; };
 		C13A00000000000000000012 /* LifecycleWiringTests.swift in Sources (VelaPhoneTests) */ = {isa = PBXBuildFile; fileRef = C13A00000000000000000011 /* LifecycleWiringTests.swift */; };
+		A6237470E7BD3C79A736DB06 /* AuditFixTests.swift in Sources (VelaPhoneTests) */ = {isa = PBXBuildFile; fileRef = 5537B2140CDF58663C2179BA /* AuditFixTests.swift */; };
 		B706C4AA5239CD1767DB0BFB /* TestPrefs.swift in Sources (VelaPhoneTests) */ = {isa = PBXBuildFile; fileRef = 38959941344CC216E6BFF97D /* TestPrefs.swift */; };
 		C3F537A22F84FC279CA1173F /* FailureSampleTests.swift in Sources (VelaPhoneTests) */ = {isa = PBXBuildFile; fileRef = 81C6CACF5876C02AB9E27066 /* FailureSampleTests.swift */; };
 		4C0EB6FB94E743AACA989B50 /* DualQualityTests.swift in Sources (VelaPhoneTests) */ = {isa = PBXBuildFile; fileRef = F3FB5EB6BA3C36C3ED004529 /* DualQualityTests.swift */; };
