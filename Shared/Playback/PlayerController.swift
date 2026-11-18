@@ -3,6 +3,17 @@ import Combine
 import Foundation
 import os
 
+/// 一次播放失败的结构化信息：交给失败分类钩子与界面，不含地址。
+struct PlaybackFailureInfo {
+    /// `item-failed`、`start-timeout`、`stuck-giveup`。
+    var stage: String
+    var username: String
+    /// 错误本身与各层 underlying error 的 (domain, code)。
+    var chain: [(domain: String, code: Int)]
+    /// 归类后的中文文案（与 `lastError` 一致）。
+    var message: String
+}
+
 @MainActor
 final class PlayerController: ObservableObject {
     let player = AVPlayer()
@@ -24,6 +35,15 @@ final class PlayerController: ObservableObject {
     /// 中继收到上游 403（子列表地址闲置过期）时，请外面重新解析这个房间并选好档，返回新的子列表地址；
     /// 中继原地换上，播放无感。参数：房间名、起播时的画质上限。拿不到返回 nil。
     var renewRendition: (@MainActor @Sendable (String, Double) async -> StreamRendition?)?
+    /// 播放项失败、进入 `itemFailed` 之前先问一次怎么归类（`PlaybackFailureClassifier`）。
+    /// 没设或单窗时恒为 `.roomRetry`，与原来的重试与失败流程完全一致。
+    var failureFilter: ((PlaybackFailureInfo) -> PlaybackFailureClassifier.Outcome)?
+    /// 判为 `.resourceDegrade` 时调用：不消耗重试预算、不进入失败态，由外面释放这一路。
+    var resourceDegraded: ((PlaybackFailureInfo) -> Void)?
+    /// 日志与 signpost 里的路标识（`first-frame lane=<id>`）。
+    var laneLabel = "primary"
+    /// 最近一次失败的结构化信息；新起播与停止时清空。
+    private(set) var lastFailure: PlaybackFailureInfo?
 
     private var statusObservation: NSKeyValueObservation?
     private var timeObservation: NSKeyValueObservation?
@@ -64,11 +84,14 @@ final class PlayerController: ObservableObject {
     /// 恢复时已请求外面重新解析地址：新项到来前不要接着播旧项的过期画面。
     private var refresh = RefreshTracker()
     private static let log = Logger(subsystem: "com.vela.stage", category: "playback")
-    #if DEBUG
-    private var keepUpObservation: NSKeyValueObservation?
-    private var tickToken: Any?
+    private static let signposter = OSSignposter(subsystem: "com.vela.stage", category: "playback")
+    /// 首帧计时（Release 也保留）：从登记播放项起，到开播后第一次拿到有效画面尺寸为止。
     private var playStarted = Date()
-    private var firstFrameLogged = false
+    private var firstFrameLogged = true
+    private var firstFrameInterval: OSSignpostIntervalState?
+    private var presentationObservation: NSKeyValueObservation?
+    #if DEBUG
+    private var tickToken: Any?
     #endif
 
     var hasItem: Bool { player.currentItem != nil }
@@ -108,6 +131,7 @@ final class PlayerController: ObservableObject {
         let token = generation
         failed = false
         lastError = nil
+        lastFailure = nil
         if !keepReady { readyUsername = nil }
         playingUsername = nil
         itemPlayed = false
@@ -144,10 +168,7 @@ final class PlayerController: ObservableObject {
         cachedAudibleGroup = nil
         syncAudioSuppression()
         syncRelayRefreshing()
-        #if DEBUG
-        playStarted = Date()
-        firstFrameLogged = false
-        #endif
+        beginFirstFrame()
         pausedAt = nil
         refresh.clear()
         observe(item, username: username, token: token)
@@ -375,8 +396,8 @@ final class PlayerController: ObservableObject {
         audibleTask?.cancel()
         audibleTask = nil
         cachedAudibleGroup = nil
+        endFirstFrame()
         #if DEBUG
-        keepUpObservation = nil
         if let tickToken { player.removeTimeObserver(tickToken) }
         tickToken = nil
         #endif
@@ -467,8 +488,8 @@ final class PlayerController: ObservableObject {
         cachedAudibleGroup = nil
         if let relaySource { PlaylistRelay.shared.deactivate(source: relaySource) }
         relaySource = nil
+        endFirstFrame()
         #if DEBUG
-        keepUpObservation = nil
         if let tickToken { player.removeTimeObserver(tickToken) }
         tickToken = nil
         #endif
@@ -480,7 +501,92 @@ final class PlayerController: ObservableObject {
         pausedAt = nil
         refresh.clear()
         lastError = nil
+        lastFailure = nil
         failed = false
+    }
+
+    /// 立刻挂起（后台、双窗降级）：放掉播放项、作废自己的中继源，不等 30 秒释放计时。
+    /// `lastPlay` 留着；`pausedAt` 为空就补上，恢复（`setAllowed(true)`）时按暂停时长重新解析起播。
+    func suspendNow() {
+        allowed = false
+        if pausedAt == nil { pausedAt = Date() }
+        releaseTask?.cancel()
+        releaseTask = nil
+        generation += 1
+        statusObservation = nil
+        timeObservation = nil
+        watchTask?.cancel()
+        watchTask = nil
+        startupTask?.cancel()
+        startupTask = nil
+        cancelStuckWatchdog()
+        audioTask?.cancel()
+        audioTask = nil
+        audibleTask?.cancel()
+        audibleTask = nil
+        cachedAudibleGroup = nil
+        endFirstFrame()
+        #if DEBUG
+        if let tickToken { player.removeTimeObserver(tickToken) }
+        tickToken = nil
+        #endif
+        player.pause()
+        player.replaceCurrentItem(with: nil)
+        if let relaySource { PlaylistRelay.shared.deactivate(source: relaySource) }
+        relaySource = nil
+        refresh.clear()
+        itemPlayed = false
+        if playingUsername != nil { playingUsername = nil }
+        if readyUsername != nil { readyUsername = nil }
+        Self.log.info("suspend-now lane=\(self.laneLabel, privacy: .public)")
+    }
+
+    // MARK: 首帧
+
+    /// 每个新播放项重新计时：结束上一段未完成的 signpost，再开一段。
+    private func beginFirstFrame() {
+        endFirstFrame()
+        playStarted = Date()
+        firstFrameLogged = false
+        firstFrameInterval = Self.signposter.beginInterval("first-frame", id: Self.signposter.makeSignpostID())
+    }
+
+    /// 播放项被拆掉或停止：没出首帧的那段 signpost 也要收尾，不留悬空区间。
+    private func endFirstFrame() {
+        presentationObservation = nil
+        if let state = firstFrameInterval {
+            Self.signposter.endInterval("first-frame", state)
+            firstFrameInterval = nil
+        }
+    }
+
+    /// 首帧以「开播（timeControlStatus 首次为 playing）之后，播放项第一次有有效画面尺寸（presentationSize）」为准。
+    /// 播放层（`AVPlayerLayer.isReadyForDisplay`）在视图里，控制器拿不到，所以用播放项的尺寸；两端口径一致。
+    private func armFirstFrame(_ item: AVPlayerItem?, token: Int) {
+        guard !firstFrameLogged, let item else { return }
+        if Self.hasPicture(item.presentationSize) {
+            logFirstFrame(item)
+            return
+        }
+        presentationObservation = item.observe(\.presentationSize, options: [.new]) { [weak self] item, _ in
+            Task { @MainActor in
+                guard let self, token == self.generation, Self.hasPicture(item.presentationSize) else { return }
+                self.logFirstFrame(item)
+            }
+        }
+    }
+
+    private static func hasPicture(_ size: CGSize) -> Bool {
+        size.width > 0 && size.height > 0
+    }
+
+    private func logFirstFrame(_ item: AVPlayerItem) {
+        guard !firstFrameLogged else { return }
+        firstFrameLogged = true
+        let elapsed = Date().timeIntervalSince(playStarted)
+        let size = item.presentationSize
+        Self.log.info("first-frame lane=\(self.laneLabel, privacy: .public) \(elapsed, format: .fixed(precision: 2))s size=\(Int(size.width))x\(Int(size.height))")
+        endFirstFrame()
     }
 
     private func makeItem(url: URL) -> AVPlayerItem {
@@ -545,13 +651,6 @@ final class PlayerController: ObservableObject {
 
     #if DEBUG
     private func watchDebugSamples(_ item: AVPlayerItem) {
-        keepUpObservation = item.observe(\.isPlaybackLikelyToKeepUp, options: [.new]) { [weak self] item, _ in
-            Task { @MainActor in
-                guard let self, item.isPlaybackLikelyToKeepUp, !self.firstFrameLogged else { return }
-                self.firstFrameLogged = true
-                Self.log.info("first-frame \(Date().timeIntervalSince(self.playStarted), format: .fixed(precision: 2))s")
-            }
-        }
         if let tickToken { player.removeTimeObserver(tickToken) }
         tickToken = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 10, preferredTimescale: 1), queue: .main) { [weak self, weak item] _ in
             MainActor.assumeIsolated {
@@ -626,7 +725,7 @@ final class PlayerController: ObservableObject {
         statusObservation = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
             Task { @MainActor in
                 guard let self, token == self.generation, item.status == .failed else { return }
-                self.itemFailed(item, username: username)
+                self.classifyItemFailure(item, username: username)
             }
         }
         timeObservation = player.observe(\.timeControlStatus, options: [.new]) { [weak self] player, _ in
@@ -637,6 +736,7 @@ final class PlayerController: ObservableObject {
                         // 每个媒体项只打一次：性能探针以它为真实起播时刻（Release 也输出；房间名按隐私标 private）。
                         Self.log.info("playing-started \(username, privacy: .private)")
                         self.logAudioTracks(of: self.player.currentItem, username: username)
+                        self.armFirstFrame(self.player.currentItem, token: token)
                     }
                     self.itemPlayed = true
                     self.startupTask?.cancel()
@@ -654,15 +754,41 @@ final class PlayerController: ObservableObject {
         }
     }
 
-    private func itemFailed(_ item: AVPlayerItem, username: String) {
+    private func failureInfo(_ error: Error?, stage: String, username: String, message: String) -> PlaybackFailureInfo {
+        PlaybackFailureInfo(stage: stage, username: username, chain: Self.errorChain(error), message: message)
+    }
+
+    /// 进入 `itemFailed` 之前先过分类钩子：资源降级不消耗重试预算、不进入失败态；
+    /// 不可恢复直接失败，不做那一次自动重试；其余（单窗恒为此）走原来的流程。
+    private func classifyItemFailure(_ item: AVPlayerItem, username: String) {
+        let chain = Self.errorChain(item.error)
+        let info = PlaybackFailureInfo(
+            stage: "item-failed", username: username, chain: chain,
+            message: PlaybackErrorCopy.failureMessage(chain: chain)
+        )
+        switch failureFilter?(info) ?? .roomRetry {
+        case .roomRetry:
+            itemFailed(item, username: username, allowRetry: true)
+        case .fatal:
+            itemFailed(item, username: username, allowRetry: false)
+        case .resourceDegrade:
+            Self.logFailure(item.error, what: "item-degrade")
+            lastFailure = info
+            resourceDegraded?(info)
+        }
+    }
+
+    private func itemFailed(_ item: AVPlayerItem, username: String, allowRetry: Bool) {
         // One silent retry on a fresh address; a second failure goes to the UI.
-        if !retried, lastPlay?.username == username {
+        if allowRetry, !retried, lastPlay?.username == username {
             Self.log.info("retry after item failure")
             retryWithFreshAddress(username: username)
             return
         }
         Self.logFailure(item.error, what: "item-failed")
-        lastError = PlaybackErrorCopy.failureMessage(chain: Self.errorChain(item.error))
+        let message = PlaybackErrorCopy.failureMessage(chain: Self.errorChain(item.error))
+        lastFailure = failureInfo(item.error, stage: "item-failed", username: username, message: message)
+        lastError = message
         failed = true
     }
 
@@ -742,7 +868,9 @@ final class PlayerController: ObservableObject {
         case .giveUp:
             let error = player.currentItem?.error
             Self.logFailure(error, what: "stuck-giveup")
-            lastError = PlaybackErrorCopy.failureMessage(chain: Self.errorChain(error))
+            let message = PlaybackErrorCopy.failureMessage(chain: Self.errorChain(error))
+            lastFailure = failureInfo(error, stage: "stuck-giveup", username: username, message: message)
+            lastError = message
             failed = true
         }
     }
@@ -764,7 +892,11 @@ final class PlayerController: ObservableObject {
             guard stalled else { return }
             let error = self.player.currentItem?.error
             Self.logFailure(error, what: "start-timeout")
-            self.lastError = PlaybackErrorCopy.startTimeoutMessage(chain: Self.errorChain(error))
+            let message = PlaybackErrorCopy.startTimeoutMessage(chain: Self.errorChain(error))
+            self.lastFailure = self.failureInfo(
+                error, stage: "start-timeout", username: self.lastPlay?.username ?? "", message: message
+            )
+            self.lastError = message
             self.failed = true
         }
     }
