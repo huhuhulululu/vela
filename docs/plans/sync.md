@@ -1,12 +1,13 @@
 # 跨设备同步（同步码 + 端到端加密）设计
 
-> 状态：设计稿 v4（2026-11-18），实现契约。用户已批方案：不做账号，用同步码加端到端加密，服务端只存密文。v2、v3、v4 分别按三轮对抗审查修订，处置见第 20 到 22 节。编排者裁决：v4 起不再在纸面追求严格代数性质，改为「简化加测试证明」；本稿之后直接进入实现，不再做完整设计审查。
+> 状态：设计稿 v5（2026-11-18），实现契约。v5 只把写入签名由 Ed25519 换成 ECDSA P-256（用户裁决，原因见第 24 节），并对齐第 23 节与 S1 金样本修正，其余规则不变。用户已批方案：不做账号，用同步码加端到端加密，服务端只存密文。v2、v3、v4 分别按三轮对抗审查修订，处置见第 20 到 22 节。编排者裁决：v4 起不再在纸面追求严格代数性质，改为「简化加测试证明」；本稿之后直接进入实现，不再做完整设计审查。
 > 本文所有标注「写死」的地方是三端（Swift、Kotlin、服务端 Python）逐字节一致的契约，实现者不得自选。
 
 ## 0. 版本变化摘要
 
-- v2：数据模型与现有代码同形（收藏与屏蔽成对记账、只同步「不想看」）；每项版本改用 HLC；写入改为 Ed25519 签名；同步状态成为开启期间的唯一事实来源；字节级格式写死。
+- v2：数据模型与现有代码同形（收藏与屏蔽成对记账、只同步「不想看」）；每项版本改用 HLC；写入改为 Ed25519 签名（v5 改为 ECDSA P-256）；同步状态成为开启期间的唯一事实来源；字节级格式写死。
 - v3：删除换码与「恢复后继续用原空间」；服务端 `epoch`；容量对齐本机并引入裁剪函数 `E`；口味键加 NFC；离线快钟在发出前重新盖章；按空间计量配额；创建、加入、关闭、清除有持久化步骤；写入用户裁决。
+- v5：写入签名改为 ECDSA P-256；安卓平台门槛降为 minSdk 26；详见第 24 节。
 - v4：
   - 删除空间后服务端保留不可复用的删除墓碑，删除后的任何写请求（包括重放的旧首写）一律 410（第 10.2 节）。
   - 删除「未知字段保留」：只接受本 schema 版本的文档，遇到更高版本只读并提示升级（第 3、7.3 节）。
@@ -20,7 +21,7 @@
 - 同步：收藏、屏蔽、口味里的「不想看」标签与性别、两个设置（`publicOnly`、`infoAlwaysOn`）。
 - 不同步：命中与落空证据（hit/miss）、停留、最近看过（seen）、每日命中率、学习暂停开关、「不感兴趣」产生的落空、收藏带来的命中加权、手动加强的权重、观看账本、缩略图缓存、窗口与透明度类设置、音量、`muted`、`phoneDual`、`pipAutoEnter`。理由：量大、与设备相关，或远端改动会在本机产生意外后果（远端 `muted=false` 会让当前设备突然出声）。
 - 不做：账号、找回、分享给他人、服务端可读的任何字段、实时推送、轮询、常驻连接、第三方依赖、自动换码。
-- 平台门槛：macOS 14 与 iOS 17（与现有最低版本相同）；安卓 Android 13（API 33）及以上，且须通过 S0 探针的对应能力级别（第 18 节），才显示同步入口。更低的安卓版本照常使用 App，只是没有同步入口，也不为此引入第三方库。
+- 平台门槛：macOS 14 与 iOS 17（与现有最低版本相同）；安卓 Android 8.0（minSdk 26）及以上，且须通过 S0 探针的对应能力级别（第 18 节），才显示同步入口。更低的安卓版本照常使用 App，只是没有同步入口，也不为此引入第三方库。
 - 可见延迟承诺：远端改动在本机「下次启动或回到前台、打开收藏或口味面板、点立即同步」时出现；两台设备都停在前台且没有上述动作时，不保证看到对方改动。这是「无轮询」的直接代价，写进隐私与帮助文案。
 - 服务端地址不进公开仓：Apple 端经本地、不入库的 xcconfig 注入，安卓经本地 gradle 属性注入，同步码里也带地址。构建分两种情况：
   - 构建未启用同步功能（编译开关关）：完全没有同步入口。
@@ -36,11 +37,12 @@
 | Apache Cassandra 的 tombstone 与 `gc_grace_seconds` 文档 | 墓碑被回收后，离线副本可能把已删项带回，这是有界元数据的已知代价，必须写明 | 按时间回收；改为按数量与体积回收 |
 | Jepsen 与 Hypothesis 等基于性质的随机测试实践 | 用随机操作与随机交付顺序的多副本模拟来证明收敛，而不是只靠手写用例 | 第三方测试框架；三端各写一个按金样本脚本回放的小模拟器 |
 | Tahoe-LAFS 可变文件（SDMF/MDMF）设计文档 | 存储节点不持有读密钥，只用登记的验证公钥校验写入签名；带单调序号，读者以序号检测回滚 | RSA、纠删码、多存储节点、恢复后续用原文件 |
-| RFC 8032（EdDSA）、RFC 5869（HKDF）、NIST SP 800-38D（GCM）、RFC 4648 §5（base64url）、RFC 1951（DEFLATE）、RFC 8259（JSON）、Unicode UAX #15（NFC）与 Unicode 13.0 字符数据库 | 字节级定义与测试向量；GCM 随机 96 位 nonce 的使用上限；严格 JSON 子集；冻结的码点年龄（Age）属性 | Ed25519ph、Ed25519ctx 变体；GCM 非 96 位 nonce；宽松 JSON 扩展；依赖平台当前 Unicode 版本的字形簇切分 |
+| FIPS 186-5（ECDSA）、SEC 1 v2（X9.63 点编码、OS2IP）、RFC 5869（HKDF）、NIST SP 800-38D（GCM）、RFC 4648 §5（base64url）、RFC 1951（DEFLATE）、RFC 8259（JSON）、Unicode UAX #15（NFC）与 Unicode 13.0 字符数据库 | 字节级定义与测试向量；GCM 随机 96 位 nonce 的使用上限；严格 JSON 子集；冻结的码点年龄（Age）属性 | RFC 6979 确定性 k（各平台不都提供，改为三端都接受随机 k）、压缩点编码、强制 low-S；GCM 非 96 位 nonce；宽松 JSON 扩展；依赖平台当前 Unicode 版本的字形簇切分 |
 | Firefox Sync（storage 与 crypto 文档） | 客户端持主密钥、服务端只存密文记录；版本条件写入做乐观并发 | 账号体系、多集合多记录存储、BSO 格式 |
 | Apple「Keychain item accessibility」文档、Android「Keystore system」与「Back up user data（dataExtractionRules）」文档 | `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`、不可同步项；Keystore 包裹密钥、排除自动备份 | iCloud 钥匙串、需要用户认证的 Keystore 密钥 |
 | Cloudflare 文档「HTTP request headers」 | 以 `CF-Connecting-IP` 取真实客户端地址（边缘会覆盖客户端自带的同名头） | `X-Forwarded-For` |
-| pyca/cryptography（Ubuntu 系统包 `python3-cryptography`）的 Ed25519 文档 | `Ed25519PublicKey.from_public_bytes(...).verify(...)`，底层为 OpenSSL | 自带纯 Python 实现、调用 `openssl` 子进程 |
+| pyca/cryptography（Ubuntu 系统包 `python3-cryptography`）的 EC 文档 | `EllipticCurvePublicKey.from_encoded_point(SECP256R1(), …)`、`encode_dss_signature`、`verify(…, ECDSA(SHA256()))`，底层为 OpenSSL | 自带纯 Python 实现、调用 `openssl` 子进程 |
+| S0 安卓探针实测（Android 14 模拟器） | 平台不支持导入 Ed25519 种子（首次导入即失败），所以改用三端平台都自带的 P-256 | 第三方 Ed25519 库 |
 | nspasteboard.org 的 `org.nspasteboard.ConcealedType` 约定、iOS `UIPasteboard` 的 `localOnly` 与 `expirationDate`、Android `ClipDescription.EXTRA_IS_SENSITIVE` | 复制同步码时标记敏感、限本机、限时 | 自建剪贴板加密 |
 
 ## 3. 版本号体系（四个互相独立）
@@ -63,11 +65,18 @@
 - HKDF-SHA256（RFC 5869），三次独立调用，参数相同：IKM = `K`；salt = 32 个 `0x00` 字节（显式传入，不传空 salt）；L = 32。
   - `blobID` = 小写 hex(HKDF(info = ASCII `vela-sync/v2/id`))，64 个字符。
   - `encKey` = HKDF(info = ASCII `vela-sync/v2/enc`)，AES-256-GCM 密钥。
-  - `signSeed` = HKDF(info = ASCII `vela-sync/v2/sign`)，RFC 8032 Ed25519 私钥种子。
+  - 签名私钥 `d`（P-256 私钥标量，见下）。
 - 安卓手写 HKDF：PRK = HMAC-SHA256(key = salt, data = K)；OKM = HMAC-SHA256(key = PRK, data = info ‖ `0x01`)。L = 32 只需一个块。
 - Apple：`HKDF<SHA256>.deriveKey(inputKeyMaterial: SymmetricKey(data: K), salt: Data(count: 32), info: Data(info.utf8), outputByteCount: 32)`。
-- 公钥 `pub` = RFC 8032 编码的 32 字节 Ed25519 公钥。Apple：`Curve25519.Signing.PrivateKey(rawRepresentation: signSeed).publicKey.rawRepresentation`。安卓：私钥用 PKCS#8 DER 前缀 `302e020100300506032b657004220420` 加种子，经 `KeyFactory.getInstance("Ed25519")` 导入；公钥的取得方式由 S0 探针确定。
-- 公钥核对消息（安卓取不到公钥时用来代替直接比较，写死）：ASCII `vela-sync/v2/pubcheck` + `0x0A` + blobID。用 `signSeed` 签名，再用服务端返回的 `pub` 验签；通过即视为一致。
+- 签名私钥 `d`（写死）：
+  - 曲线 P-256（secp256r1），阶 `n` = `0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551`。
+  - 对计数器 `c` = 0, 1, 2, …, 255：`t` = HKDF(IKM = `K`，salt = 32 个 `0x00`，info = ASCII `vela-sync/v2/sign` 后接 1 字节 `c`（共 18 字节），L = 32)；`d` = OS2IP(`t`)（32 字节按大端解释为整数）。第一个满足 `1 ≤ d < n` 的 `c` 即采用，记 `d` 的 32 字节大端定长编码为 `d32`。
+  - 256 个计数器全部失败（概率约 2^−8192，实际不会发生）则中止开启并报错。`c > 0` 的概率约 2^−32，自然样本找不到，用注入 HKDF 输出的单元测试覆盖重试路径。
+- 公钥 `pub` = 未压缩 X9.63 编码（`0x04` ‖ X ‖ Y，各 32 字节大端，共 65 字节）。
+  - Apple：`P256.Signing.PrivateKey(rawRepresentation: d32)`，`publicKey.x963Representation`。
+  - 安卓：签名私钥用 `KeyFactory.getInstance("EC")` 加 `ECPrivateKeySpec(BigInteger(1, d32), secp256r1 参数)`（参数取自 `AlgorithmParameters.getInstance("EC")` 以 `ECGenParameterSpec("secp256r1")` 初始化）。平台不提供由私钥求公钥，公钥由 Kotlin `BigInteger` 实现的标量乘 `d·G` 算出（Jacobian 坐标、按位 Montgomery 阶梯，处理每一位的步骤相同），只在创建或加入时本机运行一次；结果必须在曲线上、不是无穷远点，并与金样本逐字节相同。
+  - 服务端测试与 Go 生成器：`derive_private_key(d, SECP256R1())` 与 `crypto/ecdsa` 用同一 `d`，公钥必须与上面逐字节相同。
+- 公钥核对消息（作为直接比较公钥之外的第二道核对，写死）：ASCII `vela-sync/v2/pubcheck` + `0x0A` + blobID。用 `d` 签名（第 9 节的 ECDSA 规则），再用服务端返回的 `pub` 验签；通过即视为一致。
 - 短指纹 = `blobID` 前 8 个 hex 转大写，按 4-4 用 `-` 连接（例 `3F9A-0C21`）。两台设备对码用；它不是秘密，日志也只记这一段。
 
 ### 4.2 编码规则
@@ -106,7 +115,8 @@
    - 同步状态持久化 `maxSentL`：本机曾经发出过的任何 PUT（包括结果未知的）所含寄存器的最大 `l`。
    - 每次准备 PUT 时，以本周期 GET 得到的服务端时间 `N` 为准，找出候选集 `R` = 本机设备号写的、`l > N + 3,600,000` 的寄存器。
    - 若 `R` 非空且 `R` 中每个寄存器都满足 `l > maxSentL`（即从未离开本机）：把本机时钟重置为「文档中不属于 `R` 的寄存器的最大 HLC」与 `(N, 0)` 两者中较大的一个，然后按原 HLC 升序逐组重新 tick（原 HLC 相同的寄存器属于同一次操作，共用一个新 tick），载荷不变。
-   - 若 `R` 中有寄存器已发出过（`l ≤ maxSentL`），这些寄存器不得改写。其余照常推进，诊断页记一条。
+   - 若 `R` 中有任何一个寄存器已发出过（`l ≤ maxSentL`），整组都不重新盖章，照常推送，诊断页记一条（第 23 节第 3 条）。
+   - 「已发出」：寄存器一旦离开本设备（推送到服务端；模拟里写给另一个副本）即视为已发出并更新 `maxSentL`（第 23 节第 5 条）。
 3. **结果**：诚实客户端传播出去的寄存器的 `l` 不超过推送时服务端时间加 1 小时，毒化的上限是约 1 小时的领先，而且只作用于与它并发、尚未看见它的操作。
 - 不采纳「接收超前值时只推进计数、不推进物理部分」：HLC 按 `(l, c)` 字典序比较，只推进计数的话，看见远端未来时间戳之后的本地操作仍然小于它，「先看见、后操作」的删除就会输给它。
 - 重新盖章只改写从未离开本机的寄存器，效果等同于用户在那一刻才做这些操作；合并本身是文档的确定性函数，与时钟无关。S1 的模拟测试包含快钟设备（第 7.2 节）。
@@ -123,8 +133,8 @@
 {
   "schema": 2,
   "rooms": {
-    "alice":   { "f": "0193b2c4d5e60000a1b2c3d4+", "b": "0193b2c4d5e60000a1b2c3d4-", "n": "0193b2c4d5e60000a1b2c3d4Alice" },
-    "bob_x":   { "b": "0193b2c4d5e70001a1b2c3d4+" }
+    "cb:alice": { "f": "0193b2c4d5e60000a1b2c3d4+", "b": "0193b2c4d5e60000a1b2c3d4-", "n": "0193b2c4d5e60000a1b2c3d4Alice" },
+    "cb:bob_x": { "b": "0193b2c4d5e70001a1b2c3d4+" }
   },
   "veto": {
     "t:asian": "0193b2c4d5e80000a1b2c3d4+",
@@ -285,7 +295,14 @@
 
 ## 9. 写入认证（写死）
 
-- 每次写操作都用 `signSeed` 签名（RFC 8032 纯 Ed25519，无预哈希、无上下文）。签名 64 字节，传输时用 base64url（86 个字符）；公钥用 base64url（43 个字符）。
+- 算法：ECDSA，曲线 P-256，哈希 SHA-256（FIPS 186-5），私钥 `d`（第 4.1 节）。被签的是下面消息的原始字节，由各平台 API 自行做 SHA-256（Apple `signature(for:)`，安卓 `Signature.getInstance("SHA256withECDSA")`，服务端 `ECDSA(SHA256())`），调用方不得预先哈希。
+- 线上编码：签名 = `r` ‖ `s`，各 32 字节大端定长（不足左补 `0x00`），共 64 字节，传输时用 base64url（86 个字符）。公钥 65 字节 X9.63，base64url（87 个字符）。
+  - Apple：`signature.rawRepresentation` 即 `r` ‖ `s`；验签用 `P256.Signing.ECDSASignature(rawRepresentation:)`。
+  - 安卓：`SHA256withECDSA` 输出 DER，转为 `r` ‖ `s`；验签前把 `r` ‖ `s` 转回 DER。
+  - 服务端：`r`、`s` 经 `encode_dss_signature` 转为 DER 后调用 `verify`。
+- `k` 可以是随机的（CryptoKit 与安卓平台都用随机 `k`），同一消息的签名字节每次不同，三端验签都必须接受。`k` 由平台 CSPRNG 提供，各端不得自己实现签名。
+- 验签前的格式检查（三端与服务端一致，任一不满足直接判失败）：签名解码后恰为 64 字节；`1 ≤ r < n` 且 `1 ≤ s < n`；公钥恰为 65 字节、首字节 `0x04`、点在曲线上且不是无穷远点。
+- 不强制 low-S：low-S 只用来防止「同一消息的签名被改写成另一个合法签名」。本协议从不把签名当标识，重放与 ABA 已由版本 CAS、epoch 与删除墓碑排除（见下），改写后的签名不能带来任何新的写入。
 - 被签消息 = 以下 6 行 ASCII，用 `0x0A` 连接，末尾不加换行：
   1. `vela-sync/v2/` + op，op ∈ `put` | `delete`
   2. blobID
@@ -293,7 +310,7 @@
   4. base（请求所基于的当前版本，十进制；创建时为 `0`）
   5. next = base + 1（十进制；base 最大为 2^53−2）
   6. put 时为小写 hex(SHA-256(信封的 ASCII 字节))；delete 时为单个 `-`
-- 服务端用该行登记的 `pub` 验签。创建（base = 0）时请求体带 `pub`，服务端用它验签并登记。之后 `pub` 不再改变。
+- 服务端用该行登记的 `pub` 验签（P-256）。创建（base = 0）时请求体带 `pub`，服务端用它验签并登记。之后 `pub` 不再改变。
 - 防重放：
   - 同一空间内：版本只增不减，同一签名只在版本恰为 base 时有效，成功一次后再次提交得到 409。
   - 删除之后：服务端保留该 blobID 的删除墓碑，任何写请求（包括重放的旧首写、旧 PUT、旧 delete）一律 410，空间不可重建（第 10.2 节）。所以同一 blobID 的版本号永远不会从 0 重新开始，同一 `(blobID, next)` 至多被接受一次。
@@ -320,7 +337,7 @@
 ### 10.2 存储与原子性
 
 - SQLite（WAL，`synchronous=FULL`，`busy_timeout` 5 秒）：
-  - `blobs(id TEXT PRIMARY KEY CHECK(length(id)=64), ver INTEGER NOT NULL, pub BLOB NOT NULL CHECK(length(pub)=32), data TEXT NOT NULL, size INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`；
+  - `blobs(id TEXT PRIMARY KEY CHECK(length(id)=64), ver INTEGER NOT NULL, pub BLOB NOT NULL CHECK(length(pub)=65), data TEXT NOT NULL, size INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`；
   - `deleted(id TEXT PRIMARY KEY CHECK(length(id)=64), deleted_at INTEGER NOT NULL, last_epoch TEXT NOT NULL, last_ver INTEGER NOT NULL)`：删除墓碑，永久保留，不可复用；
   - `creations(ts INTEGER NOT NULL, ip_bucket TEXT NOT NULL)`：创建计数（第 10.3 节），按 `ts` 建索引，只保留最近 2 天；
   - `meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)`：存 `epoch`（数据库初始化时由 `secrets.token_hex(16)` 生成）。
@@ -363,7 +380,7 @@
 
 ### 10.5 实现约束
 
-- Python 3 标准库（`http.server.ThreadingHTTPServer`、`sqlite3`、`hashlib`、`hmac`、`json`、`secrets`）加 Ubuntu 系统包 `python3-cryptography`（apt 安装，不用 pip）。验签：`Ed25519PublicKey.from_public_bytes(pub).verify(sig, msg)`，捕获 `InvalidSignature` 返回 403。
+- Python 3 标准库（`http.server.ThreadingHTTPServer`、`sqlite3`、`hashlib`、`hmac`、`json`、`secrets`）加 Ubuntu 系统包 `python3-cryptography`（apt 安装，不用 pip）。验签：先按第 9 节做格式检查；创建时 `EllipticCurvePublicKey.from_encoded_point(SECP256R1(), pub)`，抛 `ValueError`（点不合法）返回 400；然后 `pub.verify(encode_dss_signature(r, s), msg, ECDSA(SHA256()))`，捕获 `InvalidSignature` 返回 403。
 - systemd：`NoNewPrivileges`、`ProtectSystem=strict`、`ReadWritePaths` 只到数据目录、`MemoryMax=128M`、专用用户。
 
 ## 11. 客户端同步流程
@@ -493,6 +510,7 @@
    - 本机屏蔽 x：远端 x 已是屏蔽 → 不盖章；其余 → 盖 `b+`（屏蔽优先）。
    - 本机「不想看」k（同步域内）：远端为 `+` → 不盖章；其余 → 盖 `+`。
    - 本机显式设置：远端没有该键才盖章；远端有值就以远端为准（一个设置无法两边都保留）。
+   - 盖章之前先按第 5.1 节的接收规则读入 `R` 的时钟（第 23 节；即「先看见远端再盖章」），所以本机盖章的 HLC 必然大于 `R` 中所有寄存器。
    - 盖章顺序与第 14.1 节相同，然后 `merge(本机盖章结果, R)`，写同步状态（`phase = active`，清空 `joinPlan`），立即推送。
 7. 恢复（启动时 `joining` 且钥匙串有条目）：`joinPlan` 存在说明用户已确认。重新 GET 并重算第 5 步的计数：
    - 远端 `ver` 与信封哈希都等于 `joinPlan` 记录的值：计数必然相同，直接执行第 6 步的盖章与合并。
@@ -565,6 +583,7 @@
 | 备份泄露（iCloud、安卓备份、服务端快照） | 服务端快照：密文与元数据 | 无 | 解密（`K` 不进任何备份） | 钥匙串与 Keystore 属性、备份排除规则 |
 | 滥用存储的匿名者 | 无 | 创建大量空间、灌请求 | 突破单空间与全局配额、绕过创建频率 | 第 10.3 节；占满全局配额是残余，靠运维告警 |
 
+- 签名随机数 `k`：ECDSA 的 `k` 若重复或可预测会泄露私钥 `d`（等同泄露写权限，读权限仍需 `K`）。三端只用平台签名 API（CryptoKit、安卓 `Signature`），`k` 由平台 CSPRNG 生成，禁止自写签名实现；安卓 Kotlin 只实现公钥求取（只用公开输出，不参与签名）。
 - 元数据泄露：密文体积大致反映收藏与屏蔽的数量，访问时间反映使用时段。接受。
 - 前 8 位 id 是可关联标识，不是匿名化；只用于排错，保留 14 天。
 
@@ -581,23 +600,26 @@
 
 ## 17. 金样本 `Tests/Fixtures/sync/vectors.json`
 
-由独立实现生成：S0 用 Go 标准库（`crypto/hkdf`、`crypto/aes`、`crypto/cipher`、`crypto/ed25519`、`crypto/sha256`、`compress/flate`）写生成器 `scripts/sync/vectors/`，含严格 JSON、HLC、`U`、`E`、体积处理、投影、操作映射、标签规范化（Unicode 13.0 年龄表与大小写、NFC 数据以生成器内嵌的数据文件提供）的参考实现，不依赖三端任何代码。Go 的 Ed25519 签名是确定性的；CryptoKit 的签名带随机性，所以签名一律只做「验证对方的签名」与「自己签的能被验证」，不比字节。
+由独立实现生成：S0 用 Go 标准库（`crypto/hkdf`、`crypto/aes`、`crypto/cipher`、`crypto/ecdsa`、`crypto/elliptic`、`crypto/sha256`、`compress/flate`）写生成器 `scripts/sync/vectors/`，含严格 JSON、HLC、`U`、`E`、体积处理、投影、操作映射、标签规范化（Unicode 13.0 年龄表与大小写、NFC 数据以生成器内嵌的数据文件提供）的参考实现，不依赖三端任何代码。ECDSA 签名用随机 `k`，三端都不比对签名字节，签名样本只做「给定公钥、消息、签名，期望验签通过或失败」。
 
 各段字段：
-- `kdf[]`：`K_hex`、`salt_hex`、`info`（三条）、`blobID`、`encKey_hex`、`signSeed_hex`、`pub_b64url`、`fingerprint`、`pubcheck_message_hex`。
+- `kdf[]`：`K_hex`、`salt_hex`、`info`（三条）、`blobID`、`encKey_hex`、`signCounter`、`d_hex`、`pub_b64url`（65 字节 X9.63）、`fingerprint`、`pubcheck_message_hex`。
 - `base64url[]` 与 `base64urlInvalid[]`；`decimal[]` 与 `decimalInvalid[]`。
 - `code[]` 与 `codeInvalid[]`（第 4.3 节各条）。
 - `json[]`：`text`、`valid`、`reason`；覆盖重复键、BOM、`\u` 转义、非法 UTF-8、未知键、缺顶层键、数字出现在 `schema` 之外、`schema` 为 1 或 3、嵌套过深、超过 `P`。
 - `tagKey[]`：`raw`、`key`（或 `local_only: true`），覆盖第 6.3 节列出的情形。
 - `payload[]`：`json_utf8`、`flag`、`body_b64url`；`payloadInvalid[]`：超过 `P` 的解压炸弹、截断流、末块之后有尾随数据、未知标记字节。
 - `envelope[]`：`encKey_hex`、`blobID`、`ver`、`nonce_hex`、`payload_hex`、`aad_hex`、`envelope`（三端必须逐字节相同）；`envelopeInvalid[]`：改 tag、改 AAD 中的版本、截断、错误前缀、填充的 base64、nonce 长度不对。
-- `sign[]`：`signSeed_hex`、`pub_b64url`、`op`、`blobID`、`epoch`、`base`、`next`、`envelope_sha256_hex`、`message_hex`、`sig_b64url`；`signInvalid[]`：S ≥ L、非规范 R、错消息、错公钥、错 epoch。
-- `hlc[]`：`state`、`events[]`（`local` 加 `pt`；`receive` 加远端最大值；`presend` 加 `N`、`maxSentL` 与文档）、每步 `expected`；覆盖回拨、同毫秒、计数溢出、重新盖章（全部未发出、部分已发出）、静态界限。
-- `merge[]`：`a`、`b`、`expected`；覆盖同 HLC 不同载荷、缺项、各类别超上限及其平局规则。
+- `pubkey[]`（给定 `d` → 期望公钥）：`d_hex`、`pub_b64url`；含 `d = 1`、`d = n−1`、随机若干，供安卓 Kotlin 标量乘逐字节比对。
+- `sign[]`（给定公钥、消息、签名 → 期望结果）：`pub_b64url`、`op`、`blobID`、`epoch`、`base`、`next`、`envelope_sha256_hex`、`message_hex`、`sig_b64url`、`valid: true`；Go 用随机 `k` 生成，另收一组 CryptoKit 生成的签名（S2 回填）。
+- `signInvalid[]`：同上字段加 `valid: false` 与 `reason`；覆盖签名长度 63 与 65 字节、`r = 0`、`s = 0`、`r = n`、`s = n`、签名篡改一位、消息篡改一位、错 epoch、错公钥、公钥首字节为 `0x02`、公钥不在曲线上。
+- `pubcheck[]`：`blobID`、`message_hex`、`pub_b64url`、`sig_b64url`、`valid`。
+- `hlc[]`：`state`、`events[]`（`local` 加 `pt`；`receive` 加远端最大值；`presend` 加 `N`、`maxSentL` 与文档）、每步 `expected`；覆盖回拨、同毫秒、计数溢出、重新盖章（全部未发出则整组重盖；有一个已发出则整组不动）、静态界限。
+- `merge[]`：`a`、`b`、`expected`；两份输入都必须是合法文档（各类别不超上限），覆盖同 HLC 不同载荷、缺项、并集超上限后的裁剪及其平局规则。
 - `size[]`：接近 `P` 的文档、按第 6.7 节裁掉最旧墓碑后的期望文档、裁完仍超的情形（期望「拒绝」）。
 - `projection[]`：`doc`、`expected.favorites`（有序）、`expected.blocked`（有序）、`expected.vetoed`、`expected.settings`。
 - `ops[]`：初始 `doc`、HLC 状态、操作序列（第 6.4 节的函数名与参数，含前置条件不满足的无操作、导入窗口与重复导入）、期望 `doc`。
-- `migration[]`：本地 `Curation`、vetoed 键、显式设置、可选的远端 `doc`、固定时钟、期望 `doc` 与预览计数 N、M、V、X、Y、Z。
+- `migration[]`（本地输入不超过 `Curation` 上限；加入样本先读入远端时钟再盖章）：本地 `Curation`、vetoed 键、显式设置、可选的远端 `doc`、固定时钟、期望 `doc` 与预览计数 N、M、V、X、Y、Z。
 - `simulation[]`：种子、副本数、物化的步骤脚本（每步为「副本 i 做操作 o」或「副本 i 与 j 合并，结果写回 i 或双方」）、每步之后各副本的期望文档、收尾后的最终文档。
 
 ## 18. 任务拆分（可立即派工）
@@ -606,23 +628,23 @@
 
 | 任务 | 执行 | 文件归属（只写这些） | 通过标准（全部满足才算 pass） |
 |---|---|---|---|
-| S0 金样本生成器与安卓探针（先行） | 编排者 | `scripts/sync/vectors/**`（Go 标准库）、`Tests/Fixtures/sync/vectors.json`、`scripts/sync/probe-android/**`（探针工程）、本文件（只回填实测数值与探针结论） | ① `go run` 两次输出逐字节相同；② `vectors.json` 含第 17 节全部段落，每段至少 1 个正例，标「Invalid」的段每条理由至少 1 例；③ `simulation[]` 至少 50 组、`size[]` 含「裁完仍超」；④ 安卓探针在 API 33 模拟器上逐项给出 PASS/FAIL 日志：种子 PKCS#8 导入、签名、取得公钥、与 Go 签名互相验签、核对消息验签；⑤ 按下面的分级把探针结论写进第 1、12.7 节 |
+| S0 金样本生成器与安卓探针（先行） | 编排者 | `scripts/sync/vectors/**`（Go 标准库）、`Tests/Fixtures/sync/vectors.json`、`scripts/sync/probe-android/**`（探针工程）、本文件（只回填实测数值与探针结论） | ① `go run` 两次输出逐字节相同；② `vectors.json` 含第 17 节全部段落，每段至少 1 个正例，标「Invalid」的段每条理由至少 1 例；③ `simulation[]` 至少 50 组、`size[]` 含「裁完仍超」；④ 安卓探针在 minSdk 26 与 Android 14 两个模拟器上逐项给出 PASS/FAIL 日志（P-256 五项）：私钥 `d` 经 `ECPrivateKeySpec` 导入、`SHA256withECDSA` 签名、Kotlin 标量乘求得的公钥与 Go 和 CryptoKit 一致（`pubkey[]`）、与 Go 签名互相验签（`sign[]`、`signInvalid[]`）、核对消息验签（`pubcheck[]`）；⑤ 按下面的分级把探针结论写进第 1、12.7 节 |
 | S1 Swift 同步核心（无加密） | 本机 agent | `Sources/VelaCore/Sync/**`（严格 JSON、HLC 与重新盖章、`U`、`E`、体积处理、合法性、投影、操作映射、迁移与加入盖章、同步码结构解析（校验和由调用方注入）、协调器状态机与第 12.1 节启动检查、投影落盘屏障（存储与传输注入））、`Sources/VelaCore/Taste.swift`（`settingSyncedVeto`、`trimmed` 平局规则）、`Sources/VelaCore/Curation.swift` 与 `Sources/VelaCore/TasteStore.swift`（`lastLoadOutcome`）、`Tests/VelaCoreTests/Sync*Tests.swift` | ① Linux 与 macOS `swift test` 全绿，原有测试无回归；② `vectors.json` 的 `json`、`decimal`、`base64url`、`code`（结构部分）、`tagKey`、`hlc`、`merge`、`size`、`projection`、`ops`、`migration`、`simulation` 全部逐项相等；③ 本端随机模拟（第 7.2 节）1,000 组通过；④ 协调器测试覆盖：请求期间本地编辑、PUT 已提交但响应丢失、连续 409、无改动 GET 推进水位、回滚、epoch 变化、410、404 且 `lastSeenVer > 0`、404 且 `inflight` 非空、只读与隔离不参与、离线快钟重新盖章、体积超限的两种情形；⑤ 故障注入覆盖第 12.1 节表格每一行与屏障失败（save 返回 false 时状态与钥匙串不变）；⑥ 加入恢复的三种分支（第 12.4 节第 7 步） |
-| S3 服务端 | 云端（Linux） | `server/sync/**`（`app.py`、`schema.sql`、systemd 单元模板、cloudflared 配置模板（占位主机名）、可选冷备份脚本、epoch 轮换脚本、测试） | 在装有 `python3-cryptography` 的 Ubuntu 上 `python3 -m unittest` 全绿，覆盖：404、创建带 `pub`、坏签名 403、错 epoch 403、409 带体、两线程同时 base=0（一个 200、一个 409）、同签名重放 409、delete 后 GET 410、**delete 后重放原首写请求 410**、delete 后任何 PUT 与 delete 410、单空间超限 413、全局空间数与总字节 507（创建 80% 与更新 100%，并发下不超额）、每 IP 每小时 3 次与每日 10 次创建（进程重启后仍生效）、全局每日 50 次、缺 `Content-Length` 411、超长 413 且不读体、拒绝 `Transfer-Encoding`、慢速发送在 10 秒总时限内断开、各类 429 带 `Retry-After`、缺失或重复 `CF-Connecting-IP` 400、日志无完整 id（grep 断言）、RFC 8032 与 Wycheproof 验签向量；S0 产出后加跑 `vectors.json` 的 `sign` 段 |
-| S2 Apple 加密与接线 | 本机 agent | 新 SwiftPM 目标 `Shared/Sync/**`（CryptoKit、Compression、Security）、`Tests/VelaSyncTests/**`、`Shared/Stage/StageModel+Sync.swift`、`Shared/Stage/SettingsStore.swift`（`hasExplicitValue`）、设置页同步入口、`Package.swift` 与 `Vela.xcodeproj` 的目标接线、本地 xcconfig 注入（模板入库，真实值不入库） | ① `vectors.json` 的 `kdf`、`code`、`payload`、`envelope`、`sign` 全部通过；② 钥匙串属性与三类失败的单测；③ macOS 与 iOS 两个目标构建通过；④ 对本机起的 S3 实测创建、加入（含 X、Y、Z 预览）、两台互通、清除后另一台出现 410 提示、泄露处置三步；⑤ Release 静音实跑门（CPU、RSS、运行时问题）在同步开启前后无回归；⑥ 前台空闲 10 分钟零请求 |
+| S3 服务端 | 云端（Linux） | `server/sync/**`（`app.py`、`schema.sql`、systemd 单元模板、cloudflared 配置模板（占位主机名）、可选冷备份脚本、epoch 轮换脚本、测试） | 在装有 `python3-cryptography` 的 Ubuntu 上 `python3 -m unittest` 全绿，覆盖：404、创建带 `pub`、坏签名 403、错 epoch 403、409 带体、两线程同时 base=0（一个 200、一个 409）、同签名重放 409、delete 后 GET 410、**delete 后重放原首写请求 410**、delete 后任何 PUT 与 delete 410、单空间超限 413、全局空间数与总字节 507（创建 80% 与更新 100%，并发下不超额）、每 IP 每小时 3 次与每日 10 次创建（进程重启后仍生效）、全局每日 50 次、缺 `Content-Length` 411、超长 413 且不读体、拒绝 `Transfer-Encoding`、慢速发送在 10 秒总时限内断开、各类 429 带 `Retry-After`、缺失或重复 `CF-Connecting-IP` 400、日志无完整 id（grep 断言）、Wycheproof 的 ECDSA P-256 SHA-256 验签向量（含 `r`、`s` 越界与长度错误）；S0 产出后加跑 `vectors.json` 的 `sign` 段 |
+| S2 Apple 加密与接线 | 本机 agent | 新 SwiftPM 目标 `Shared/Sync/**`（CryptoKit、Compression、Security）、`Tests/VelaSyncTests/**`、`Shared/Stage/StageModel+Sync.swift`、`Shared/Stage/SettingsStore.swift`（`hasExplicitValue`）、设置页同步入口、`Package.swift` 与 `Vela.xcodeproj` 的目标接线、本地 xcconfig 注入（模板入库，真实值不入库） | ① `vectors.json` 的 `kdf`、`pubkey`、`code`、`payload`、`envelope`、`sign`、`signInvalid`、`pubcheck` 全部通过，并把 CryptoKit 生成的一组签名回填进 `sign[]`；② 钥匙串属性与三类失败的单测；③ macOS 与 iOS 两个目标构建通过；④ 对本机起的 S3 实测创建、加入（含 X、Y、Z 预览）、两台互通、清除后另一台出现 410 提示、泄露处置三步；⑤ Release 静音实跑门（CPU、RSS、运行时问题）在同步开启前后无回归；⑥ 前台空闲 10 分钟零请求 |
 | S4 安卓核心 | 云端（Linux） | `android/core/src/{main,test}/kotlin/vela/core/sync/**` | ① JVM 上 `vectors.json` 全部段落通过（严格 JSON 自带实现，不依赖 `org.json`）；② 本端随机模拟 1,000 组通过；③ 标签规范化用 `android.icu` 的部分以接口隔离，JVM 测试用与 S0 相同的内嵌数据文件实现，真机行为留给 S6 复验 |
 | S5 部署 | 编排者 | 服务器上的服务、隧道、可选冷备份定时器；RUNBOOK 增补（不含真实地址） | 公网实测 GET 404、创建、409、403、410、507、429；绕过缓存已生效；恢复演练：恢复快照并轮换 epoch 后，已加入的客户端停写并提示关闭再重开 |
-| S6 安卓接线 | 安卓里程碑 A 之后 | `android/app/.../sync/**`、备份排除规则 | API 33 以下与探针「禁用」级别不显示入口；Keystore 三类失败处理；备份排除生效；第 12.1 节启动检查与屏障；模拟器上 `tagKey` 金样本通过；与 Apple 端真机互通 |
+| S6 安卓接线 | 安卓里程碑 A 之后 | `android/app/.../sync/**`、备份排除规则 | minSdk 26 以下不安装同步模块、探针「禁用」级别不显示入口；Keystore 三类失败处理；备份排除生效；第 12.1 节启动检查与屏障；模拟器上 `tagKey` 金样本通过；与 Apple 端真机互通 |
 
 S0 探针分级（写死）：
 
 | 级别 | 条件 | 安卓能力 |
 |---|---|---|
 | 完整 | 五项全部 PASS | 创建、加入、全部流程 |
-| 只能加入 | 只有「取得公钥」FAIL，其余四项（含核对消息验签）全部 PASS | 可加入、推送、清除；隐藏「创建」与加入时的「仍用此码创建」；泄露处置第 2 步须在 Apple 设备上完成 |
-| 禁用 | 种子导入、签名、与 Go 互相验签、核对消息验签任一 FAIL | 安卓不显示同步入口，直到问题解决 |
+| 只能加入 | 只有「公钥派生与金样本一致」FAIL，其余四项（含核对消息验签）全部 PASS | 可加入、推送、清除；隐藏「创建」与加入时的「仍用此码创建」；泄露处置第 2 步须在 Apple 设备上完成 |
+| 禁用 | 私钥导入、签名、与 Go 互相验签、核对消息验签任一 FAIL | 安卓不显示同步入口，直到问题解决 |
 
-API 33 只是平台门槛，不能代替探针的实测证据。
+minSdk 26 只是平台门槛，不能代替探针的实测证据。「公钥派生」是本仓 Kotlin 代码，FAIL 首先当作实现缺陷修复；修复前才按「只能加入」处理。
 
 ## 19. 待用户裁决
 
@@ -749,3 +771,17 @@ API 33 只是平台门槛，不能代替探针的实测证据。
 6. 加入预览计数：N/M/V 按实际盖章的数量；X/Y 按合并后被裁掉的收藏与屏蔽总数（不只本机）。
 7. 口味投影：本机已标「不想看」、属于同步域、但同步文档里没有的键要撤销；本机专用键不动。
 8. 其他：在线时钟偏差只暂停推送，本地操作照常记录；origin 的 IP 字面量判定为「顶级标签全为数字」；`schema` 检查先于形状检查，`2.0` 非法；房间墓碑的「最旧」按条目内 f、b、n 三个寄存器 HLC 的最大值排序。
+
+## 24. v5 变更记录（2026-11-18）
+
+- 触发：S0 安卓探针在 Android 14 模拟器上实测，平台加密不支持导入 Ed25519 种子（首次导入即失败），按 v4 分级安卓只能「禁用」。用户裁决：写入签名改为 ECDSA P-256，三端平台都自带，不引第三方库。
+- 改动（字节级）：
+  1. 派生：`signSeed` 删除，改为 P-256 私钥标量 `d` = OS2IP(HKDF(K, info = `vela-sync/v2/sign` ‖ 1 字节计数器))，`d` 为 0 或不小于 `n` 时计数器加一，上限 255（第 4.1 节）。info 因此比 v4 多 1 字节，v4 的 `signSeed` 金样本作废。
+  2. 公钥：65 字节未压缩 X9.63，base64url 87 个字符；安卓用 Kotlin 标量乘求公钥（第 4.1 节）。服务端表约束改为 `length(pub)=65`（第 10.2 节）。
+  3. 签名：ECDSA P-256 SHA-256，线上为 64 字节 `r` ‖ `s`；接受随机 `k`；验签前拒绝长度不为 64、`r` 或 `s` 不在 `[1, n−1]` 的签名与不合法公钥；不强制 low-S，理由见第 9 节。
+  4. 被签消息与核对消息原文不变，只换算法。
+  5. 金样本：新增 `pubkey[]`、`pubcheck[]`；`sign[]` 改为验签样本，不比签名字节；`signInvalid[]` 加长度错、`r=0`、`s=n`、篡改一位等（第 17 节）。
+  6. 安卓门槛：minSdk 26（Android 8.0）；探针五项改为 P-256 能力（第 18 节）。v4 第 19 节没有单列 API 33 待决项，平台门槛只在第 1、18 节，已一并改写。
+  7. 服务端验签改为 P-256（第 10.5 节），Wycheproof 向量换成 ECDSA P-256；威胁模型补一条随机 `k` 的依赖（第 15 节）。
+- 与第 23 节及 S1 金样本修正对齐（规则以第 23 节为准）：第 5.2 节改为「有一个已发出则整组不重新盖章」并写明「离开设备即已发出」；第 12.4 节第 6 步写明加入时先读入远端时钟再盖章；第 17 节写明 `merge[]` 输入必须合法、`migration[]` 本地输入不超过 `Curation` 上限；第 6.1 节示例的房间键补上 `cb:` 前缀。
+- 不变：同步码格式与 `vela2` 派生代、`blobID` 与 `encKey` 的派生、封装、服务端接口与配额、合并与裁剪规则、第 20 到 23 节。
