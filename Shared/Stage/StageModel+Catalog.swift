@@ -185,9 +185,7 @@ extension StageModel {
         case .abandon:
             return
         case .direct(let room):
-            updateFeed { $0.insertDirect(room) }
-            showFilters = false
-            requestPlay()
+            applyDirectSearchHit(room)
         case .notify(let message):
             showToast(message)
         }

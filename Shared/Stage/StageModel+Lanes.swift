@@ -165,5 +165,12 @@ extension StageModel {
 extension StageModel {
     /// 界面「当前房间」对应的目标：焦点路（收藏夹弹窗与重试菜单用；单窗恒为主路）。
     func focusTarget() -> RoomTarget? { target(focusLane) }
-    func applyDirectSearchHit(_ room: Room) {}
+    /// 全站搜索直达：房间插进列表并播放。按 `.reveal` 走联合选房：目标正在副路播放时只切焦点，
+    /// 不会把它挤成主路与副路同房；其余情况主路改到它。
+    func applyDirectSearchHit(_ room: Room) {
+        let before = feed.currentUsername
+        updateFeed(intent: .reveal(room.username)) { $0.insertDirect(room) }
+        showFilters = false
+        if secondary == nil || feed.currentUsername != before { requestPlay() }
+    }
 }
