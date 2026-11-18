@@ -766,13 +766,13 @@ final class StageModel: ObservableObject {
     /// 主路的播放门控（菜单、提示文案等只看主路的地方用）。
     var playbackAllowed: Bool { laneAllowed(primary) }
 
-    /// 每路的播放门控 = 全局闸门 ∧ !本路手动暂停 ∧ 本路可见（§4.2）。
+    /// 每路的播放门控 = 全局闸门 ∧ !本路手动暂停 ∧ 本路可见（§4.2）∧ 未被资源降级扣住（§4.4）。
     /// 起播、重试、换档、恢复都经过该路 PlayerController 里的这一个开关。
     func laneAllowed(_ lane: PlaybackLane) -> Bool {
-        PlaybackPolicy.allowed(
+        lane.degradedHold.gate(PlaybackPolicy.allowed(
             windowVisible: pointVisible && lane.visible, manuallyPaused: lane.manuallyPaused,
             bossHidden: bossHidden, systemInactive: systemInactive
-        )
+        ))
     }
 
     /// 把「窗口对用户不可见」同步给各路播放器，决定停播后要不要释放播放项。

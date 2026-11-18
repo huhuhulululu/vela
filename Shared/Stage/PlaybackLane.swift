@@ -66,6 +66,8 @@ final class PlaybackLane: ObservableObject {
     /// 本路窗格对用户可见。macOS 恒为 true；闸门 = 全局闸门 ∧ !manuallyPaused ∧ visible。
     var visible = true
     var state: LaneState = .idle
+    /// 资源降级的独立门控：`laneAllowed` 读它，普通 `applyPower` 不清除（§4.4）。
+    var degradedHold = DegradedHold()
 
     // 尺寸
     var paneSize: CGSize = .zero
@@ -121,10 +123,11 @@ extension StageModel {
     }
 
     /// 资源降级（§4.4）：释放这一路的播放项和中继源，提示「双窗暂不可用」。
-    /// 不记停留失败、不自动跳过；用户点重试或回前台时再起播。
+    /// 不记停留失败、不自动跳过；本路闸门由 `degradedHold` 扣住，用户点重试、切房或回前台恢复时才清除再起播。
     func degrade(_ lane: PlaybackLane) {
         lane.playTask?.cancel()
         lane.skipTask?.cancel()
+        lane.degradedHold.degrade()
         lane.player.suspendNow()
         lane.state = .degraded
         lane.playbackNote = "双窗暂不可用"
@@ -263,6 +266,7 @@ extension StageModel {
         let before = lane.username
         lane.username = outcome.secondary?.username
         guard before?.lowercased() != lane.username?.lowercased() else { return }
+        lane.degradedHold.release(.roomSwitch)
         currentRoomChanged(on: lane)
         if lane.username == nil { lane.state = .empty }
         requestPlay(on: lane)

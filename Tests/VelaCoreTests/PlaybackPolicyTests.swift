@@ -145,3 +145,27 @@ final class RelayRefreshPolicyTests: XCTestCase {
         XCTAssertFalse(PlaybackPolicy.relayShouldRefresh(allowed: false, failed: true))
     }
 }
+
+/// 资源降级的独立门控（§4.4）：普通闸门重算不放行，只有显式重试、切房、回前台恢复入口才清除。
+final class DegradedHoldTests: XCTestCase {
+    func testDegradedLaneStaysClosedAcrossRepeatedGateRecomputes() {
+        var hold = DegradedHold()
+        XCTAssertTrue(hold.gate(true), "未降级时与原闸门一致")
+        XCTAssertFalse(hold.gate(false))
+        hold.degrade()
+        // 模拟多次 applyPower：每次全局闸门都是开的，降级路仍不起播。
+        for _ in 0..<5 { XCTAssertFalse(hold.gate(true)) }
+        XCTAssertTrue(hold.held)
+    }
+
+    func testExplicitReleaseReopensLane() {
+        for reason in [DegradedHold.Release.retry, .roomSwitch, .foregroundResume] {
+            var hold = DegradedHold()
+            hold.degrade()
+            hold.release(reason)
+            XCTAssertFalse(hold.held, "\(reason)")
+            XCTAssertTrue(hold.gate(true), "\(reason) 之后起播")
+            XCTAssertFalse(hold.gate(false), "清除后仍服从全局闸门")
+        }
+    }
+}
