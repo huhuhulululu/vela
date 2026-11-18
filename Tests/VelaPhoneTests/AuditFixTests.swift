@@ -108,9 +108,9 @@ final class AuditFixTests: XCTestCase {
     func testNewSecondaryHonoursPipSoloWhenOpenedViaRestore() {
         let stage = makeStage(plain(["alice", "bob"]), dual: false)
         stage.setPipSolo(true)
-        stage.restoreDualIfRemembered()
+        stage.restoreLanesIfRemembered()
         stage.settings.phoneDual = true
-        stage.restoreDualIfRemembered()
+        stage.restoreLanesIfRemembered()
         if let secondary = stage.secondary { XCTAssertFalse(secondary.visible, "新副路不能在画中画期间起播") }
     }
 

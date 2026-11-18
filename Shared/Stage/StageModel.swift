@@ -81,16 +81,22 @@ final class StageModel: ObservableObject {
     /// 站点确认页完成后要接着做的事：被确认打断的目录加载或收藏查询。nil 表示只恢复播放。
     var challengeResume: ChallengeResume?
 
-    /// 每路播放的状态（§4.2）。macOS 恒为只有主路；iOS 双窗时再加副路。
+    /// 每路播放的状态（§4.2）。macOS 恒为只有主路；iOS 竖屏按路数再加副路、第三路（最多 3 路）。
     let primary = PlaybackLane(id: .primary)
     var secondary: PlaybackLane?
-    /// 双窗共享的「最近划走」（只在内存里，列表重载与来源切换不清）。
+    var tertiary: PlaybackLane?
+    /// 多路共享的「最近划走」（只在内存里，列表重载与来源切换不清）。
     var recentSkips = RecentSkips()
-    var lanes: [PlaybackLane] { secondary.map { [primary, $0] } ?? [primary] }
+    /// 逻辑路，按 P → S → T。横屏与画中画只临时释放播放资源，不改这里。
+    var lanes: [PlaybackLane] { [primary] + [secondary, tertiary].compactMap { $0 } }
     /// 焦点路：声音、收藏提示、热门关联、画中画都跟随它（§4.2、§4.3）。单窗恒为主路。
     @Published var focusLane: LaneID = .primary
-    /// 双窗开着（`secondary != nil` 的可观察镜像）。
-    @Published var dualWindow = false
+    /// 逻辑路数（`lanes.count` 的可观察镜像，只在 `StageModel+Lanes` 里写）。用户的选择另存在 `settings.laneCount`，临时少开不覆盖它。
+    @Published var laneCount = 1
+    /// 多于一路（原「双窗开着」）。
+    var dualWindow: Bool { laneCount > 1 }
+    /// 竖屏放得下三格（每格不低于 160 点，修订 v2 M12）。由界面量到舞台高度后更新。
+    @Published var threeLanesFit = true
     /// 手机横屏：双窗只显示焦点路，非焦点路释放（§4.2）。
     @Published var landscape = false
     /// 画中画正在显示（或启动）：双窗只留焦点路，另一路释放，退出后恢复（修订 A2 的 T18b）。
@@ -207,7 +213,7 @@ final class StageModel: ObservableObject {
         platform.attachAudio(to: self)
         for lane in lanes { attach(lane) }
         installObservers()
-        restoreDualIfRemembered()
+        restoreLanesIfRemembered()
         startThermalObserving()
         kickoffCatalogIfConfirmed()
     }
@@ -385,7 +391,7 @@ final class StageModel: ObservableObject {
         move(delta, userInitiated: true, on: lane)
     }
 
-    /// 移动一路。主路的落点由 FeedStore 选，副路由 `LaneSelection` 选（两路不重复）。
+    /// 移动一路。主路的落点由 FeedStore 选，其余各路由 `LaneSelection` 选（各路不重复）。
     @discardableResult
     func move(_ delta: Int, userInitiated: Bool = false, on given: PlaybackLane? = nil) -> Bool {
         let lane = given ?? primary
@@ -394,13 +400,13 @@ final class StageModel: ObservableObject {
             if lane.id == .primary { $0.step(delta) }
         }
         guard name(of: lane) != before else { return false }
-        if secondary != nil, let before {
+        if lanes.count > 1, let before {
             recentSkips.record(before, at: Date())
             lane.previousRoom = before
         }
         lane.manuallyPaused = MoveRules.pausedAfterMove(manuallyPaused: lane.manuallyPaused, userInitiated: userInitiated)
         if hintVisible { dismissHint() }
-        // 副路换房由 `settleSecondary` 在 `updateFeed` 里已经请求起播。
+        // 非主路换房由 `settleLane` 在 `updateFeed` 里已经请求起播。
         if lane.id == .primary { requestPlay(on: lane) }
         Task { await loadMoreIfNeeded() }
         return true
@@ -817,12 +823,14 @@ final class StageModel: ObservableObject {
         if DwellTracker.shouldSettle(before: before, after: feed.current?.username, sourceChanged: sourceChanged) {
             currentRoomChanged(on: primary, reason: reason)
         }
-        if let secondary { settleSecondary(secondary, outcome: outcome, reason: reason, sourceChanged: sourceChanged) }
+        for lane in lanes where lane.id != .primary {
+            settleLane(lane, outcome: outcome, reason: reason, sourceChanged: sourceChanged)
+        }
         // 空主路（另一路占着唯一的房间）恢复成某个房间时，前后的 `feed.current` 都回落到同一间，变更检测看不到换房：
         // 主路停留还没有房间就补初始化，否则这段观看永远不计时。
         if primary.dwell.room == nil, room(of: primary) != nil { currentRoomChanged(on: primary, reason: reason) }
         // 目标在另一路播放时 `LaneSelection` 只切焦点（§4.1）。
-        if secondary != nil, outcome.focus != focusLane { setFocus(outcome.focus) }
+        if lanes.count > 1, outcome.focus != focusLane { setFocus(outcome.focus) }
         logLaneRooms()
     }
 

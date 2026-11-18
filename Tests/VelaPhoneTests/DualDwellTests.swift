@@ -2,7 +2,7 @@ import XCTest
 @testable import VelaPhone
 
 /// 双窗的停留口径（§4.3，T19）：原始秒、加权秒（焦点 1.0、非焦点 0.5）、焦点秒，每路带自己的来源，
-/// `.background` 与 `.dualOff` 不产生落空，热门关联只看焦点路。单窗焦点恒在，口径与原来一致。
+/// `.background` 与 `.layoutChange` 不产生落空，热门关联只看焦点路。单窗焦点恒在，口径与原来一致。
 /// 口味文件在测试进程的沙盒里，各用例会累加：命中与落空只比较前后增量。
 @MainActor
 final class DualDwellTests: XCTestCase {
@@ -74,7 +74,7 @@ final class DualDwellTests: XCTestCase {
         let short = settled("alice", raw: 1, focused: 1)
         XCTAssertTrue(stage.settlement(for: short, lane: stage.primary, reason: .swipe).learnsTaste, "划走的 1 秒是弱落空")
         XCTAssertFalse(stage.settlement(for: short, lane: stage.primary, reason: .background).learnsTaste)
-        XCTAssertFalse(stage.settlement(for: short, lane: stage.primary, reason: .dualOff).learnsTaste)
+        XCTAssertFalse(stage.settlement(for: short, lane: stage.primary, reason: .layoutChange).learnsTaste)
         XCTAssertFalse(stage.settlement(for: short, lane: stage.primary, reason: .sourceChange).learnsTaste)
     }
 

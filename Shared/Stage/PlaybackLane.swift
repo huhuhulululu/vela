@@ -19,7 +19,8 @@ enum LaneState: Equatable {
 /// `StageModel` 把本路的 `objectWillChange` 转发出去，界面失效的时机与原来一致。其余字段与原来一样不发布。
 @MainActor
 final class PlaybackLane: ObservableObject {
-    let id: LaneID
+    /// 路身份。减少路数压紧时（保留 P、T，移除 S）第三路整体迁成副路，只在 `reassign(to:)` 里改。
+    private(set) var id: LaneID
 
     // 播放与画面
     let player = PlayerController()
@@ -76,6 +77,8 @@ final class PlaybackLane: ObservableObject {
     var state: LaneState = .idle
     /// 资源降级的独立门控：`laneAllowed` 读它，普通 `applyPower` 不清除（§4.4）。
     var degradedHold = DegradedHold()
+    /// 资源降级后的一次性重试检查（60 秒，§H3）；恢复或释放时取消。
+    var degradedRetryTask: Task<Void, Never>?
 
     // 尺寸
     var paneSize: CGSize = .zero
@@ -85,6 +88,12 @@ final class PlaybackLane: ObservableObject {
     init(id: LaneID) {
         self.id = id
         player.laneLabel = id.label
+    }
+
+    /// 压紧时换身份：状态、播放器与在途任务都跟着这一路走，日志标签随之改。
+    func reassign(to next: LaneID) {
+        id = next
+        player.laneLabel = next.label
     }
 }
 
@@ -122,23 +131,51 @@ extension StageModel {
 
     /// 播放失败交给 `PlaybackFailureClassifier`：单窗恒为房间重试，行为与原来一致。
     func classifyFailure(_ info: PlaybackFailureInfo, on lane: PlaybackLane) -> PlaybackFailureClassifier.Outcome {
-        let other = lanes.first { $0 !== lane }
         let context = PlaybackFailureClassifier.Context(
-            isDualWindow: secondary != nil, isSecondary: lane.id == .secondary,
-            otherIsPlaying: other?.playingName != nil, hasPlayed: lane.readyName != nil
+            isDualWindow: lanes.count > 1, isSecondary: lane.id != .primary,
+            otherIsPlaying: lanes.contains { $0 !== lane && $0.playingName != nil }, hasPlayed: lane.readyName != nil,
+            isFocus: lane.id == focusLane
         )
-        return PlaybackFailureClassifier.classify(chain: info.chain, context: context)
+        let outcome = PlaybackFailureClassifier.classify(chain: info.chain, context: context)
+        // 焦点路受保护（修订 v2 H3）：它缺解码器时按 T → S 让出一路非焦点路，自己照常按房间重试。
+        if outcome == .roomRetry, context.isDualWindow, context.isFocus == true,
+           PlaybackFailureClassifier.isResourceShortage(info.chain),
+           let victim = PlaybackFailureClassifier.yieldOrder(lanes.map(\.id), focus: focusLane)
+               .compactMap({ findLane($0) }).first(where: { $0.state != .degraded && $0.username != nil }) {
+            degrade(victim)
+        }
+        return outcome
     }
 
-    /// 资源降级（§4.4）：释放这一路的播放项和中继源，提示「双窗暂不可用」。
-    /// 不记停留失败、不自动跳过；本路闸门由 `degradedHold` 扣住，用户点重试、切房或回前台恢复时才清除再起播。
+    /// 资源降级（§4.4，修订 v2 H3）：释放这一路的播放项和中继源，显示「资源不足」占位。
+    /// 不记停留失败、不消耗重试预算、不自动跳过；本路闸门由 `degradedHold` 扣住。
+    /// 恢复入口：用户点重试、切房、回前台、焦点切到这一路、减少路数，或 60 秒后的一次性检查（各重试一次）。
     func degrade(_ lane: PlaybackLane) {
         lane.playTask?.cancel()
         lane.skipTask?.cancel()
         lane.degradedHold.degrade()
         lane.player.suspendNow()
         lane.state = .degraded
-        lane.playbackNote = "双窗暂不可用"
+        lane.playbackNote = "资源不足"
+        lane.degradedRetryTask?.cancel()
+        lane.degradedRetryTask = Task { [weak self, weak lane] in
+            try? await Task.sleep(nanoseconds: UInt64(PlaybackFailureClassifier.degradedRetryDelay * 1_000_000_000))
+            guard !Task.isCancelled, let self, let lane else { return }
+            lane.degradedRetryTask = nil
+            self.retryDegraded(lane, reason: .retry)
+        }
+    }
+
+    /// 被资源降级扣住的一路重试一次：放开扣住、清掉占位、重新起播。没被扣住什么都不做。
+    func retryDegraded(_ lane: PlaybackLane, reason: DegradedHold.Release) {
+        lane.degradedRetryTask?.cancel()
+        lane.degradedRetryTask = nil
+        guard lane.degradedHold.held else { return }
+        lane.degradedHold.release(reason)
+        if lane.playbackNote == "资源不足" { lane.playbackNote = nil }
+        if lane.state == .degraded { lane.state = .idle }
+        applyPower()
+        requestPlay(on: lane)
     }
 
     // MARK: 转发到主路（macOS 只有主路；尽量不改原有调用处）
@@ -220,7 +257,7 @@ extension StageModel {
     func room(of lane: PlaybackLane) -> Room? {
         // 单窗主路就是列表当前房间；双窗里主路可能被置空（另一路占着唯一的房间），
         // 此时 `feed.current` 会回落到首间，必须看这一路自己的游标。
-        if lane.id == .primary, secondary == nil { return feed.current }
+        if lane.id == .primary, lanes.count == 1 { return feed.current }
         guard let name = lane.username?.lowercased() else { return nil }
         return feed.rooms.first { $0.username.lowercased() == name }
     }
@@ -256,12 +293,15 @@ extension StageModel {
             primary: LaneCursor(
                 username: store.current?.username, direction: primary.skips.direction, previous: primary.previousRoom
             ),
-            secondary: secondary.map {
-                LaneCursor(username: $0.username, direction: $0.skips.direction, previous: $0.previousRoom)
-            },
+            secondary: secondary.map(cursor(of:)),
+            tertiary: tertiary.map(cursor(of:)),
             focus: focusLane,
-            recent: secondary == nil ? [] : recentSkips.active(at: Date())
+            recent: lanes.count == 1 ? [] : recentSkips.active(at: Date())
         )
+    }
+
+    private func cursor(of lane: PlaybackLane) -> LaneCursor {
+        LaneCursor(username: lane.username, direction: lane.skips.direction, previous: lane.previousRoom)
     }
 
     /// 把 `LaneSelection` 的结果写回。单窗时它与 FeedStore 的选择必须一致：不一致只记日志、保留 FeedStore 的选择，
@@ -269,20 +309,20 @@ extension StageModel {
     func applySelection(_ outcome: LaneSelection.Outcome, to store: inout FeedStore) {
         let chosen = store.current?.username
         guard outcome.primary.username?.lowercased() != chosen?.lowercased() else { return }
-        guard secondary != nil else {
+        guard lanes.count > 1 else {
             log.error("lane-selection mismatch single-window")
             return
         }
         store.select(outcome.primary.username)
     }
 
-    /// 双窗副路：写回游标，房间变了就结算并起播。
-    func settleSecondary(
+    /// 非主路（副路、第三路）：写回游标，房间变了就结算并起播。
+    func settleLane(
         _ lane: PlaybackLane, outcome: LaneSelection.Outcome, reason: LaneSettlement.EndReason = .swipe,
         sourceChanged: Bool = false
     ) {
         let before = lane.username
-        lane.username = outcome.secondary?.username
+        lane.username = outcome.cursor(lane.id)?.username
         let roomChanged = before?.lowercased() != lane.username?.lowercased()
         // 同名换来源：房间没变不重新起播，但旧来源下的停留要结算、来源要更新（与主路的 `shouldSettle` 同一判定）。
         guard DwellTracker.shouldSettle(before: before, after: lane.username, sourceChanged: sourceChanged) else { return }

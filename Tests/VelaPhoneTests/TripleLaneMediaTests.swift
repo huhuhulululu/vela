@@ -1,0 +1,220 @@
+import AVFoundation
+import XCTest
+@testable import VelaPhone
+
+/// 三路的声音、停留与解码资源（ios-triple 修订 v2 的 M8、M10、H3）。会话用桩，时间由测试给。
+@MainActor
+final class TripleLaneMediaTests: XCTestCase {
+    private final class FakeDriver: AudioSessionDriving {
+        struct Failure: Error {}
+        var calls: [String] = []
+        var failCategory = false
+        var onCategory: () -> Void = {}
+        var onActive: () -> Void = {}
+
+        func setCategory(_ category: AudioSessionCategory, mode: AudioSessionMode?, options: AudioSessionOptions) throws {
+            onCategory()
+            calls.append("category \(category) mix=\(options.contains(.mixWithOthers))")
+            if failCategory { throw Failure() }
+        }
+
+        func setActive(_ active: Bool, notifyOthers: Bool) throws {
+            onActive()
+            calls.append("active \(active) notify=\(notifyOthers)")
+        }
+    }
+
+    private var suites: [String] = []
+    private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
+
+    override func setUp() {
+        super.setUp()
+        TestPrefs.reset()
+    }
+
+    override func tearDown() {
+        TestPrefs.reset()
+        for name in suites { UserDefaults().removePersistentDomain(forName: name) }
+        suites = []
+        PlaylistRelay.shared.allowStart = true
+        super.tearDown()
+    }
+
+    private func makeStage(lanes: Int = 3) -> StageModel {
+        let name = "vela-phone-triple-media-\(UUID().uuidString)"
+        suites.append(name)
+        let stage = TestPrefs.stage(settings: SettingsStore(defaults: UserDefaults(suiteName: name)!))
+        stage.updateFeed(intent: .reload) {
+            $0.replace(with: CatalogPage(rooms: ["alice", "bob", "carol", "dave"].map { Room.direct(username: $0)! }, total: 4, nextOffset: 4))
+        }
+        stage.setLaneCount(lanes)
+        return stage
+    }
+
+    private func withAudio(muted: Bool) -> (StageModel, FakeDriver) {
+        let stage = makeStage(lanes: 1)
+        let driver = FakeDriver()
+        stage.audioFocus = AudioFocusController(stage: stage, driver: driver)
+        stage.setLaneCount(3)
+        if !muted {
+            stage.toggleMute()
+            XCTAssertFalse(stage.muted)
+        }
+        driver.calls = []
+        return (stage, driver)
+    }
+
+    private func audible(_ stage: StageModel) -> [LaneID] {
+        stage.lanes.filter { !$0.player.player.isMuted && !stage.muted }.map(\.id)
+    }
+
+    // MARK: M8 出声
+
+    func testEveryDirectedFocusTransitionIsOrderedAndSingleAudible() {
+        let (stage, driver) = withAudio(muted: false)
+        XCTAssertEqual(audible(stage), [.primary])
+        let path: [LaneID] = [.secondary, .primary, .tertiary, .secondary, .tertiary, .primary]
+        for target in path {
+            let from = stage.focusLane
+            var atCategory: [LaneID] = [.primary, .secondary]
+            var atActive: [LaneID] = [.primary, .secondary]
+            driver.onCategory = { atCategory = self.audible(stage) }
+            driver.onActive = { atActive = self.audible(stage) }
+            driver.calls = []
+            stage.setFocus(target)
+            XCTAssertEqual(atCategory, [], "\(from) → \(target)：改类别时没有路出声")
+            XCTAssertEqual(atActive, [], "\(from) → \(target)：激活会话时没有路出声")
+            XCTAssertEqual(driver.calls, ["category playback mix=false", "active true notify=false"])
+            XCTAssertEqual(audible(stage), [target], "\(from) → \(target)")
+        }
+    }
+
+    func testNewLaneReducedLanesAndRebuiltItemsStayMutedUnlessFocused() {
+        let (stage, _) = withAudio(muted: false)
+        XCTAssertEqual(audible(stage), [.primary], "新开的两路都不出声")
+        stage.setFocus(.tertiary)
+        stage.setLaneCount(2)
+        XCTAssertEqual(stage.focusLane, .secondary)
+        XCTAssertEqual(audible(stage), [.secondary], "压紧后仍只有焦点路出声")
+        stage.setLaneCount(3)
+        XCTAssertEqual(audible(stage), [.secondary], "再开的第三路不出声")
+        for lane in stage.lanes { stage.pushVolume(to: lane) }
+        XCTAssertEqual(audible(stage), [.secondary], "播放项重建后重推音量也只有焦点出声")
+        stage.setLaneCount(1)
+        XCTAssertEqual(audible(stage), [.primary])
+    }
+
+    func testSessionFailureMutesAllThreeAndDoesNotWriteSettings() {
+        let (stage, driver) = withAudio(muted: false)
+        driver.failCategory = true
+        stage.settings.muted = false
+        stage.setFocus(.tertiary)
+        XCTAssertTrue(stage.muted)
+        XCTAssertFalse(stage.settings.muted, "不写偏好")
+        XCTAssertEqual(audible(stage), [])
+        XCTAssertEqual(stage.focusLane, .tertiary)
+    }
+
+    // MARK: M10 停留
+
+    private func settled(_ name: String, raw: TimeInterval, focused: TimeInterval) -> DwellTracker.Settled {
+        var tracker = DwellTracker()
+        _ = tracker.switchTo(Room.direct(username: name), now: t0)
+        tracker.setActive(true, now: t0)
+        if focused < raw { tracker.setFocused(false, now: t0.addingTimeInterval(focused)) }
+        return tracker.finish(now: t0.addingTimeInterval(raw))!
+    }
+
+    func testThreeLaneSettlementsKeepWeightsAndSources() {
+        let stage = makeStage()
+        stage.primary.dwellSource = .guess
+        stage.secondary!.dwellSource = .popular
+        stage.tertiary!.dwellSource = .favorites
+        let cases: [(PlaybackLane, String, TimeInterval, TimeInterval, Double)] = [
+            (stage.primary, "alice", 40, 40, 40),
+            (stage.secondary!, "bob", 40, 0, 20),
+            (stage.tertiary!, "carol", 40, 10, 25)
+        ]
+        for (lane, name, raw, focused, weighted) in cases {
+            let result = stage.settlement(for: settled(name, raw: raw, focused: focused), lane: lane, reason: .swipe)
+            XCTAssertEqual(result.lane, lane.id.role)
+            XCTAssertEqual(result.rawSeconds, raw, accuracy: 0.001)
+            XCTAssertEqual(result.focusedSeconds, focused, accuracy: 0.001)
+            XCTAssertEqual(result.weightedSeconds, weighted, accuracy: 0.001, "非焦点 0.5 权重")
+            XCTAssertEqual(result.source, lane.dwellSource, "每路带自己的来源")
+        }
+    }
+
+    func testLayoutChangeShortStayIsNotAMissAndRemovedLaneSettlesOnce() {
+        let stage = makeStage()
+        let short = settled("carol", raw: 1, focused: 0)
+        XCTAssertFalse(stage.settlement(for: short, lane: stage.tertiary!, reason: .layoutChange).learnsTaste)
+        let tertiary = stage.tertiary!
+        _ = tertiary.dwell.switchTo(Room.direct(username: "carol"), now: Date())
+        stage.setLaneCount(2)
+        XCTAssertNil(tertiary.dwell.room, "移除时结算一次")
+        XCTAssertNil(tertiary.dwell.finish(now: Date()), "不会再结算第二次")
+    }
+
+    func testHotRelatedAndFavoriteSuggestFollowFocusOnly() {
+        let stage = makeStage()
+        stage.setFocus(.tertiary)
+        XCTAssertNil(stage.primary.relatedTask, "非焦点路不排热门关联")
+        XCTAssertNil(stage.secondary!.relatedTask)
+        XCTAssertTrue(stage.focusPlaybackLane === stage.tertiary)
+        XCTAssertEqual(stage.focusRoom?.username, "carol", "收藏提示看焦点路的房间")
+    }
+
+    // MARK: H3 解码资源不足
+
+    private let shortage = [(domain: PlaybackFailureClassifier.avFoundationErrorDomain, code: PlaybackFailureClassifier.decoderTemporarilyUnavailableCode)]
+
+    private func info(_ name: String) -> PlaybackFailureInfo {
+        PlaybackFailureInfo(stage: "item-failed", username: name, chain: shortage, message: "")
+    }
+
+    func testResourceShortageDegradesNonFocusLaneAndProtectsFocus() {
+        let stage = makeStage()
+        stage.setFocus(.secondary)
+        XCTAssertEqual(stage.classifyFailure(info("carol"), on: stage.tertiary!), .resourceDegrade)
+        XCTAssertEqual(stage.classifyFailure(info("alice"), on: stage.primary), .resourceDegrade, "主路不是焦点时同样可以降级")
+        XCTAssertEqual(stage.classifyFailure(info("bob"), on: stage.secondary!), .roomRetry, "焦点路受保护，不降级")
+        stage.tertiary!.player.resourceDegraded?(info("carol"))
+        XCTAssertEqual(stage.tertiary!.state, .degraded)
+        XCTAssertEqual(stage.tertiary!.playbackNote, "资源不足")
+        XCTAssertTrue(stage.tertiary!.degradedHold.held)
+        XCTAssertFalse(stage.laneAllowed(stage.tertiary!))
+        XCTAssertFalse(stage.tertiary!.state == .failed, "不计入房间失败")
+    }
+
+    func testFocusShortageReleasesTertiaryThenSecondaryForIt() {
+        let stage = makeStage()
+        XCTAssertEqual(stage.classifyFailure(info("alice"), on: stage.primary), .roomRetry)
+        XCTAssertEqual(stage.tertiary!.state, .degraded, "焦点路缺解码器：先让出第三路")
+        XCTAssertNotEqual(stage.secondary!.state, .degraded)
+        _ = stage.classifyFailure(info("alice"), on: stage.primary)
+        XCTAssertEqual(stage.secondary!.state, .degraded, "第三路已让出，再让副路")
+    }
+
+    func testDegradedLaneRetriesOnFocusOrLaneReduction() {
+        let stage = makeStage()
+        stage.tertiary!.player.resourceDegraded?(info("carol"))
+        stage.setFocus(.tertiary)
+        XCTAssertFalse(stage.tertiary!.degradedHold.held, "焦点切到该路时重试一次")
+        XCTAssertNotNil(stage.tertiary!.playTask)
+
+        let other = makeStage()
+        other.secondary!.player.resourceDegraded?(info("bob"))
+        other.setLaneCount(2)
+        XCTAssertFalse(other.secondary!.degradedHold.held, "路数减少时重试")
+        XCTAssertNotNil(other.secondary!.playTask)
+    }
+
+    func testDegradedLaneSchedulesOneShotRetry() {
+        let stage = makeStage()
+        stage.tertiary!.player.resourceDegraded?(info("carol"))
+        XCTAssertNotNil(stage.tertiary!.degradedRetryTask, "60 秒一次性检查")
+        stage.setFocus(.tertiary)
+        XCTAssertNil(stage.tertiary!.degradedRetryTask, "已恢复就取消检查")
+    }
+}

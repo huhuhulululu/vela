@@ -81,11 +81,33 @@ final class SettingsStore {
         set { defaults.set(newValue, forKey: "pipAutoEnter") }
     }
 
-    /// iOS 竖屏双窗开关，默认关（裁决 1）；开关状态要记住。macOS 不读。
-    var phoneDual: Bool {
-        get { defaults.object(forKey: "phoneDual") as? Bool ?? false }
-        set { defaults.set(newValue, forKey: "phoneDual") }
+    /// iOS 竖屏路数 1 / 2 / 3，默认 1（裁决 1），选择要记住。macOS 不读。
+    /// 迁移（修订 v2 M9）：新键存在且合法（1 到 3）就用它；新键存在但非法按 1；
+    /// 只有新键不存在时读旧键 `phoneDual`（true → 2，false → 1），迁移结果立即落盘。
+    var laneCount: Int {
+        get {
+            if let stored = defaults.object(forKey: Self.laneCountKey) {
+                guard let value = stored as? Int, (1...LaneID.maxCount).contains(value) else { return 1 }
+                return value
+            }
+            guard let old = defaults.object(forKey: Self.legacyDualKey) as? Bool else { return 1 }
+            let migrated = old ? 2 : 1
+            defaults.set(migrated, forKey: Self.laneCountKey)
+            return migrated
+        }
+        set { defaults.set(min(max(newValue, 1), LaneID.maxCount), forKey: Self.laneCountKey) }
     }
+
+    /// 旧的双窗开关，只作兼容入口：读写都落到 `laneCount`（开 = 至少 2 路，关 = 1 路）。
+    var phoneDual: Bool {
+        get { laneCount > 1 }
+        set {
+            if !newValue { laneCount = 1 } else if laneCount < 2 { laneCount = 2 }
+        }
+    }
+
+    private static let laneCountKey = "laneCount"
+    private static let legacyDualKey = "phoneDual"
 
     var hintSeen: Bool {
         get { defaults.bool(forKey: "hintSeen") }
