@@ -264,4 +264,19 @@ final class TripleLaneMediaTests: XCTestCase {
         XCTAssertEqual(stage.playbackCap(on: stage.primary), 1_696_000, "回升到尺寸上限，不是不限")
         XCTAssertNil(stage.thermalRecoveryTask)
     }
+    /// 回归（三窗实跑发现）：起播带的尺寸或热上限是有限值，不能被当成「离开后降画质」的低档，
+    /// 否则 8 秒后画质状态机会「升回 full」并无谓地重建播放项。
+    func testFiniteLaneCapIsNotMistakenForTheRestingTier() {
+        let stage = sizedTriple()
+        let lane = stage.tertiary!
+        let url = URL(string: "http://127.0.0.1:9/master.m3u8")!
+        let cap = stage.playbackCap(on: lane)
+        XCTAssertEqual(cap, 1_696_000)
+        stage.startPlayback(
+            room: stage.room(of: lane)!, target: StageModel.PlayTarget(master: url, playable: StreamRendition.unselected(url)),
+            cap: cap, isRetry: false, lane: lane
+        )
+        XCTAssertEqual(lane.quality.tier, .full, "尺寸上限不是离开降画质")
+        XCTAssertNil(lane.quality.delay(now: Date()), "不排定档换档")
+    }
 }
