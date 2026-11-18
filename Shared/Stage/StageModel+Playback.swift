@@ -47,6 +47,8 @@ extension StageModel {
     /// 取消按取消处理，不当网络故障。
     func requestPlay(on given: PlaybackLane? = nil) {
         let lane = given ?? primary
+        // 横屏时被释放的路不起播；回竖屏由 `setLandscape` 重新请求。
+        guard lane.visible else { return }
         lane.playTask?.cancel()
         lane.playTask = Task { await playCurrent(on: lane) }
     }
@@ -54,6 +56,7 @@ extension StageModel {
     /// 同 `requestPlay`，并等这一轮结束（目录加载与刷新要在起播结束后继续收尾）。
     func requestPlayAndWait(isRetry: Bool = false, on given: PlaybackLane? = nil) async {
         let lane = given ?? primary
+        guard lane.visible else { return }
         lane.playTask?.cancel()
         let task = Task { await playCurrent(isRetry: isRetry, on: lane) }
         lane.playTask = task
@@ -320,7 +323,8 @@ extension StageModel {
     func startPrefetch(on lane: PlaybackLane) {
         lane.prefetchTask?.cancel()
         lane.prefetchTask = nil
-        guard sharedToken() != nil else { return }
+        // 预取只跟主路：双窗时两路各预取同一间「下一个房间」只会多花一份请求。
+        guard lane.id == .primary, sharedToken() != nil else { return }
         lane.prefetchTask = Task { [weak self, weak lane] in
             guard let self, let lane else { return }
             await self.prefetchAhead(on: lane)

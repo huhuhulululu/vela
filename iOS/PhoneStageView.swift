@@ -13,7 +13,7 @@ struct PhoneStageView: View {
             if model.ageConfirmed {
                 stage
                     .ignoresSafeArea()
-                PhoneChrome(model: model, playback: model.primary.playback, visible: chromeOn)
+                PhoneChrome(model: model, playback: model.focusPlaybackLane.playback, visible: chromeOn)
                     .opacity(chromeOn ? 1 : 0)
                     .allowsHitTesting(chromeOn)
                 if model.hintVisible {
@@ -30,6 +30,10 @@ struct PhoneStageView: View {
             }
         }
         .background(SceneWindowReader { model.sidecar.hold(window: $0) })
+        // 每一路各订阅自己的播放事件；双窗的副路随 `dualWindow` 出现与消失。
+        .background { ForEach(model.lanes, id: \.id) { LaneEvents(model: model, lane: $0) } }
+        // 横屏只显示焦点路，非焦点路由模型释放（§4.2）。
+        .onGeometryChange(for: Bool.self) { $0.size.width > $0.size.height } action: { model.setLandscape($0) }
         // 减弱动态效果：控制栏与横幅的淡入淡出也不做动画。
         .animation(reduceMotion ? nil : .easeOut(duration: 0.22), value: chromeOn)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: model.toast)
@@ -42,10 +46,6 @@ struct PhoneStageView: View {
             model.syncPlaybackFace()
         }
         .onChange(of: displayScale) { _, scale in model.screenScale = Double(scale) }
-        // @Published 在 willSet 发出：回调里一律用收到的新值。单窗只有主路。
-        .onReceive(model.primary.player.$failed) { model.notePlaybackFailed($0, on: model.primary) }
-        .onReceive(model.primary.player.$readyUsername) { model.noteReady($0, on: model.primary) }
-        .onReceive(model.primary.player.$playingUsername) { model.notePlaying($0, on: model.primary) }
         .sheet(isPresented: $model.showChallenge, onDismiss: { model.webSheetDismissed() }) {
             ChallengeSheet(model: model)
         }
@@ -60,25 +60,32 @@ struct PhoneStageView: View {
             PhoneStatusPane(model: model)
                 .contentShape(Rectangle())
                 .onTapGesture { model.noteActivity() }
+        } else if model.dualWindow && !model.landscape {
+            PhoneDualStage(model: model, chromeOn: chromeOn)
         } else {
-            GeometryReader { geo in
-                LanePager(
-                    rooms: model.feed.rooms, index: model.feed.index,
-                    step: { delta in
-                        let before = model.feed.currentUsername
-                        model.step(delta, on: model.primary)
-                        return model.feed.currentUsername != before
-                    },
-                    tap: { model.noteActivity() }
-                ) { room, active in
-                    PhoneRoomPage(
-                        room: room, active: active, model: model,
-                        lane: model.primary, playback: model.primary.playback
-                    )
-                }
-                .onAppear { model.notePointHeight(geo.size.height) }
-                .onChange(of: geo.size.height) { _, height in model.notePointHeight(height) }
+            singleStage(model.focusPlaybackLane)
+        }
+    }
+
+    /// 单窗（横屏的双窗也是它：只显示焦点路）。
+    private func singleStage(_ lane: PlaybackLane) -> some View {
+        GeometryReader { geo in
+            LanePager(
+                rooms: model.feed.rooms, index: model.index(of: lane),
+                step: { delta in
+                    let before = model.name(of: lane)
+                    model.step(delta, on: lane)
+                    return model.name(of: lane) != before
+                },
+                tap: { model.noteActivity() }
+            ) { room, active in
+                PhoneRoomPage(
+                    room: room, active: active, model: model,
+                    lane: lane, playback: lane.playback
+                )
             }
+            .onAppear { model.notePointHeight(geo.size.height) }
+            .onChange(of: geo.size.height) { _, height in model.notePointHeight(height) }
         }
     }
 

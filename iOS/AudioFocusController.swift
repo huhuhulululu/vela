@@ -32,7 +32,7 @@ final class AudioFocusController: AudioFocusing, AudioLaneControlling {
 
     /// 画中画是否正在播放（再静音时据此保持会话）。画中画接入时由 `PhonePlayerLayer` 一侧改写。
     var pictureInPictureActive: () -> Bool = { false }
-    /// 焦点路。双窗（PR3）接入前恒为主路。
+    /// 焦点路：读模型的 `focusLane`（单窗恒为主路）。测试可替换。
     var focus: () -> PlaybackLaneRole = { .primary }
 
     var focusRole: PlaybackLaneRole { focus() }
@@ -53,6 +53,7 @@ final class AudioFocusController: AudioFocusing, AudioLaneControlling {
         self.stage = stage
         self.driver = driver
         self.center = center
+        focus = { [weak stage] in stage?.focusLane.role ?? .primary }
     }
 
     deinit {
@@ -145,6 +146,28 @@ final class AudioFocusController: AudioFocusing, AudioLaneControlling {
             return false
         }
     }
+
+    /// 双窗切焦点（§3.3）：静音旧的出声路 → `setCategory` → `setActive` → 取消静音新焦点路，两路永不同时出声。
+    /// 第 2、3 步失败时所有路保持静音（运行时静音、不写设置）。静音时没有路在出声，不动会话，由调用方同步各路音量。
+    /// 必须在模型改焦点之前调用：此刻 `focus()` 还是旧焦点路。
+    func switchFocus(to role: PlaybackLaneRole) -> AudioOutcome? {
+        guard let stage else { return nil }
+        let old = focus()
+        guard old != role, !stage.muted else { return nil }
+        let roles = stage.lanes.map { $0.id.role }
+        let plan = AudioTransition.plan(
+            intent: .unmute(role), focus: role, currentlyAudible: old, lanes: roles,
+            pictureInPictureActive: pictureInPictureActive()
+        )
+        Self.log.info("audio focus switch \(Self.name(old), privacy: .public) -> \(Self.name(role), privacy: .public)")
+        let outcome = AudioTransitionRunner.run(plan, lanes: roles, driver: driver, sink: self) { line in
+            Self.log.info("\(line, privacy: .public)")
+        }
+        noteSession(outcome)
+        return outcome
+    }
+
+    private static func name(_ role: PlaybackLaneRole) -> String { role == .primary ? "primary" : "secondary" }
 
     func syncVolume(to lane: PlaybackLane) {
         guard let stage else { return }

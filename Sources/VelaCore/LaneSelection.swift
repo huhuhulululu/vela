@@ -212,6 +212,7 @@ public enum LaneSelection {
         var primary = before.primary
         primary.username = proposedPrimary.flatMap { canonical($0, in: afterRooms) }
         primary = yield(primary, to: secondary.username, rooms: afterRooms)
+        secondary = refilled(secondary, besides: primary, rooms: afterRooms)
         return outcome(before, primary: primary, secondary: secondary, placed: .filter)
     }
 
@@ -245,6 +246,7 @@ public enum LaneSelection {
             }
         }
         primary = yield(primary, to: secondary.username, rooms: afterRooms)
+        secondary = refilled(secondary, besides: primary, rooms: afterRooms)
         return outcome(before, primary: primary, secondary: secondary, placed: .merge)
     }
 
@@ -322,6 +324,14 @@ public enum LaneSelection {
         let landed = LanePaging.landingIndex(from: origin, delta: delta, names: rooms, skipping: skipping)
         cursor.username = rooms[landed]
         return cursor
+    }
+
+    /// 副路原本空着（列表曾只剩一间）而现在有了别的房间：沿副路自己的方向补上一间，不能一直空着。
+    private static func refilled(_ secondary: LaneCursor, besides primary: LaneCursor, rooms: [String]) -> LaneCursor {
+        guard secondary.username == nil, let anchor = primary.username else { return secondary }
+        var filled = secondary
+        filled.username = neighbor(of: anchor, in: rooms, direction: secondary.direction, excluding: [anchor])
+        return filled
     }
 
     /// 主路与副路同房时，主路从副路这间出发，沿自己的方向另找，找不到再反向。

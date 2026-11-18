@@ -16,6 +16,8 @@ protocol AudioFocusing: AnyObject {
     func prepareSession(muted: Bool) -> AudioOutcome?
     /// 最后一路停播后停用会话、通知他人恢复；会话本来没激活（或画中画还在播）返回 nil。
     func releaseAfterLastLaneStopped() -> AudioOutcome?
+    /// 双窗切焦点：出声时先静音旧的出声路，再确认会话，最后才让新焦点路出声；静音时不动会话，返回 nil。
+    func switchFocus(to role: PlaybackLaneRole) -> AudioOutcome?
 }
 
 @MainActor
@@ -83,6 +85,12 @@ final class StageModel: ObservableObject {
     let primary = PlaybackLane(id: .primary)
     var secondary: PlaybackLane?
     var lanes: [PlaybackLane] { secondary.map { [primary, $0] } ?? [primary] }
+    /// 焦点路：声音、收藏提示、热门关联、画中画都跟随它（§4.2、§4.3）。单窗恒为主路。
+    @Published var focusLane: LaneID = .primary
+    /// 双窗开着（`secondary != nil` 的可观察镜像）。
+    @Published var dualWindow = false
+    /// 手机横屏：双窗只显示焦点路，非焦点路释放（§4.2）。
+    @Published var landscape = false
     /// 每路 `objectWillChange` 转发到模型：原来模型上的 `@Published` 字段搬进路之后，界面失效时机不变。
     var laneForwarders: [LaneID: AnyCancellable] = [:]
     let sidecar = SiteSidecar()
@@ -190,6 +198,7 @@ final class StageModel: ObservableObject {
         platform.attachAudio(to: self)
         for lane in lanes { attach(lane) }
         installObservers()
+        restoreDualIfRemembered()
         kickoffCatalogIfConfirmed()
     }
 
@@ -367,11 +376,14 @@ final class StageModel: ObservableObject {
     func move(_ delta: Int, userInitiated: Bool = false, on given: PlaybackLane? = nil) -> Bool {
         let lane = given ?? primary
         let before = name(of: lane)
-        updateFeed(intent: .move(lane.id, delta)) { if lane.id == .primary { $0.step(delta) } }
+        updateFeed(intent: .move(lane.id, delta), endReason: userInitiated ? .swipe : .autoSkip) {
+            if lane.id == .primary { $0.step(delta) }
+        }
         guard name(of: lane) != before else { return false }
         lane.manuallyPaused = MoveRules.pausedAfterMove(manuallyPaused: lane.manuallyPaused, userInitiated: userInitiated)
         if hintVisible { dismissHint() }
-        requestPlay(on: lane)
+        // 副路换房由 `settleSecondary` 在 `updateFeed` 里已经请求起播。
+        if lane.id == .primary { requestPlay(on: lane) }
         Task { await loadMoreIfNeeded() }
         return true
     }
@@ -765,6 +777,7 @@ final class StageModel: ObservableObject {
     func updateFeed(
         installing: Source? = nil,
         intent: LaneSelection.Intent = .filter,
+        endReason: LaneSettlement.EndReason? = nil,
         _ body: (inout FeedStore) -> Void
     ) {
         var copy = feed
@@ -780,10 +793,13 @@ final class StageModel: ObservableObject {
         primary.username = feed.currentUsername
         let sourceChanged = installing.map { $0 != loadedSource } ?? false
         loadedSource = ListOrigin.dwell(loaded: loadedSource, installing: installing)
+        let reason = endReason ?? (sourceChanged ? .sourceChange : .swipe)
         if DwellTracker.shouldSettle(before: before, after: feed.current?.username, sourceChanged: sourceChanged) {
-            currentRoomChanged(on: primary)
+            currentRoomChanged(on: primary, reason: reason)
         }
-        if let secondary { settleSecondary(secondary, outcome: outcome) }
+        if let secondary { settleSecondary(secondary, outcome: outcome, reason: reason) }
+        // 目标在另一路播放时 `LaneSelection` 只切焦点（§4.1）。
+        if secondary != nil, outcome.focus != focusLane { setFocus(outcome.focus) }
     }
 
     func updatePresence(_ body: (inout Presence) -> Void) {

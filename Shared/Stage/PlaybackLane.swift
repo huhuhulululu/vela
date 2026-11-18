@@ -247,7 +247,7 @@ extension StageModel {
             rooms: store.rooms.map(\.username),
             primary: LaneCursor(username: store.current?.username, direction: primary.skips.direction),
             secondary: secondary.map { LaneCursor(username: $0.username, direction: $0.skips.direction) },
-            focus: .primary
+            focus: focusLane
         )
     }
 
@@ -264,12 +264,14 @@ extension StageModel {
     }
 
     /// 双窗副路：写回游标，房间变了就结算并起播。
-    func settleSecondary(_ lane: PlaybackLane, outcome: LaneSelection.Outcome) {
+    func settleSecondary(
+        _ lane: PlaybackLane, outcome: LaneSelection.Outcome, reason: LaneSettlement.EndReason = .swipe
+    ) {
         let before = lane.username
         lane.username = outcome.secondary?.username
         guard before?.lowercased() != lane.username?.lowercased() else { return }
         lane.degradedHold.release(.roomSwitch)
-        currentRoomChanged(on: lane)
+        currentRoomChanged(on: lane, reason: reason)
         if lane.username == nil { lane.state = .empty }
         requestPlay(on: lane)
     }

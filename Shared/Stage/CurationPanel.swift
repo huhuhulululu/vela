@@ -17,7 +17,7 @@ struct CurationPanel: View {
 
     var body: some View {
         FavoritesPanel(
-            current: model.feed.current.map { ($0.displayName, model.currentIsFavorite) },
+            current: model.focusRoom.map { ($0.displayName, model.currentIsFavorite) },
             board: board,
             blocked: model.curation.blocked,
             checking: model.favoritesChecking,

@@ -42,7 +42,7 @@ struct PhoneRoomPage: View {
 
     /// 只有焦点路挂画中画（单窗恒为主路）。
     private var pipController: PictureInPictureCoordinator? {
-        lane.id.role == (model.platform.audioFocus?.focusRole ?? .primary) ? model.platform.pipCoordinator : nil
+        lane.id == model.focusLane ? model.platform.pipCoordinator : nil
     }
 
     private var videoReady: Bool { active && playback.readyUsername == room.username }

@@ -57,7 +57,9 @@ extension StageModel {
         guard previous.vetoedKeys != taste.vetoedKeys, source == .guess, loadedSource == .guess else { return }
         let before = feed.current?.username
         // 当前房间因被过滤而换走：不记正向停留信号。
-        if let room = feed.current, taste.isVetoed(room) { dwell.discard() }
+        for lane in lanes {
+            if let room = room(of: lane), taste.isVetoed(room) { lane.dwell.discard() }
+        }
         let blocked = curation.blockedSet
         let only = allowedNames(for: curation)
         let hidden = taste.vetoedKeys

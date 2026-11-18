@@ -16,18 +16,27 @@ struct PhoneChrome: View {
             VStack(spacing: 0) {
                 top
                 Spacer(minLength: 0)
-                bottom
+                if !paneBars { bottom }
             }
         }
+        // 收藏夹由单窗的心形与双窗窗格里的心形共用同一个 sheet。
+        .sheet(isPresented: $model.showCuration, onDismiss: { model.noteActivity() }) {
+            PhoneFavoritesSheet(model: model)
+        }
     }
+
+    /// 竖屏双窗：每个窗格自己带房间信息与心形，这里不再画底栏。
+    private var paneBars: Bool { model.dualWindow && !model.landscape }
 
     private var scrims: some View {
         VStack(spacing: 0) {
             LinearGradient(colors: [.black.opacity(0.6), .clear], startPoint: .top, endPoint: .bottom)
                 .frame(height: 200)
             Spacer(minLength: 0)
-            LinearGradient(colors: [.clear, .black.opacity(0.72)], startPoint: .top, endPoint: .bottom)
-                .frame(height: 260)
+            if !paneBars {
+                LinearGradient(colors: [.clear, .black.opacity(0.72)], startPoint: .top, endPoint: .bottom)
+                    .frame(height: 260)
+            }
         }
         .ignoresSafeArea()
         .allowsHitTesting(false)
@@ -52,6 +61,12 @@ struct PhoneChrome: View {
                 if let pip = model.platform.pipCoordinator {
                     PhonePiPPill(pip: pip) { model.platform.setPictureInPictureAutoEnter($0, stage: model) }
                 }
+                if model.platform.supportsDual {
+                    PhonePill(title: model.dualWindow ? "单窗" : "双窗", active: model.dualWindow) {
+                        model.setDual(!model.dualWindow)
+                    }
+                    .accessibilityLabel(model.dualWindow ? "已开双窗，点按改回单窗" : "单窗，点按开启双窗")
+                }
                 PhonePill(title: model.muted ? "静音" : "出声", active: !model.muted) { model.toggleMute() }
                     .accessibilityLabel(model.muted ? "已静音，点按出声" : "正在出声，点按静音")
             }
@@ -62,17 +77,14 @@ struct PhoneChrome: View {
 
     private var bottom: some View {
         HStack(alignment: .bottom, spacing: Theme.gap) {
-            if let room = model.feed.current {
+            if let room = model.focusRoom {
                 PhoneCaption(room: room, pulse: visible && playback.playingUsername == room.username)
             }
             Spacer(minLength: 0)
             PhoneHeart(
-                isFavorite: model.currentIsFavorite, canToggle: model.feed.current != nil,
-                toggle: { model.toggleFavorite(model.target()) }, openList: { model.showCuration = true }
+                isFavorite: model.currentIsFavorite, canToggle: model.focusRoom != nil,
+                toggle: { model.toggleFavorite(model.target(model.focusLane)) }, openList: { model.showCuration = true }
             )
-            .sheet(isPresented: $model.showCuration, onDismiss: { model.noteActivity() }) {
-                PhoneFavoritesSheet(model: model)
-            }
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 12)

@@ -7,6 +7,8 @@ import Carbon.HIToolbox
 final class PlatformHooks {
     /// macOS 支持「铺满」：`effectiveFill` 照旧由 `fitFill` 与竖屏自动完整画面决定。
     let allowsCrop = true
+    /// macOS 不做双窗。
+    let supportsDual = false
 
     private let bossKey = GlobalHotKey()
     private var activity: SystemActivity?

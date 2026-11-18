@@ -8,6 +8,8 @@ import SwiftUI
 @MainActor
 final class PlatformHooks {
     let allowsCrop = false
+    /// iOS 竖屏有双窗。
+    let supportsDual = true
     /// 上一次收到的场景阶段。
     private(set) var scenePhase: PhoneScenePhase = .active
     private static let log = Logger(subsystem: "com.vela.stage", category: "lifecycle")

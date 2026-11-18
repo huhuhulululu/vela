@@ -81,6 +81,12 @@ final class SettingsStore {
         set { defaults.set(newValue, forKey: "pipAutoEnter") }
     }
 
+    /// iOS 竖屏双窗开关，默认关（裁决 1）；开关状态要记住。macOS 不读。
+    var phoneDual: Bool {
+        get { defaults.object(forKey: "phoneDual") as? Bool ?? false }
+        set { defaults.set(newValue, forKey: "phoneDual") }
+    }
+
     var hintSeen: Bool {
         get { defaults.bool(forKey: "hintSeen") }
         set { defaults.set(newValue, forKey: "hintSeen") }

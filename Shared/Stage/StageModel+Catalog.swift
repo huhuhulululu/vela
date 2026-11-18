@@ -239,7 +239,7 @@ extension StageModel {
 
     @discardableResult
     func loadPage() async -> PageOutcome {
-        guard ageConfirmed, feed.shouldLoadMore(), !loading, let life = sharedToken() else { return .skipped }
+        guard ageConfirmed, feed.shouldLoadMore(at: furthestLaneUsername), !loading, let life = sharedToken() else { return .skipped }
         let token = loadGeneration
         // 按列表代次占位：旧来源残留的请求不会挡住新来源的补拉。
         guard loadSlot.acquire(generation: token) else { return .busy }
