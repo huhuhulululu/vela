@@ -124,7 +124,7 @@ final class PlatformHooks {
 
     /// 后台释放音频会话，让被打断的其他 App 恢复（§3.3）。交给 `AudioFocusController` 按计划执行。
     private func deactivateAudio(on stage: StageModel) {
-        guard let audioFocus else { return }
+        guard let audioFocus = stage.audioFocus else { return }
         let outcome = audioFocus.perform(.deactivate(.background))
         stage.applyAudioOutcome(outcome)
         Self.log.info("audio deactivated")
