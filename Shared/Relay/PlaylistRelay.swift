@@ -648,7 +648,7 @@ private extension RelayTrack {
 }
 #endif
 
-#if DEBUG
+#if DEBUG && canImport(Network)
 /// 音频清单拉取次数（自测用；Debug 专有）。
 let selftestAudioFetchCount = OSAllocatedUnfairLock(initialState: 0)
 
