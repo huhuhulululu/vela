@@ -158,6 +158,8 @@ extension StageModel {
         lane.relatedTask = nil
         lane.qualityTask?.cancel()
         lane.qualityTask = nil
+        lane.capTask?.cancel()
+        lane.capTask = nil
         lane.playGeneration += 1
     }
 
@@ -177,7 +179,7 @@ extension StageModel {
 
     /// 停留结算（进后台）：每路结算到此刻，学习与账本照常记。
     func settleDwell(_ reason: LaneSettlement.EndReason) {
-        endView()
+        endView(reason: reason)
         let text = String(describing: reason)
         Self.lifecycleLog.info("dwell settled reason=\(text, privacy: .public)")
     }

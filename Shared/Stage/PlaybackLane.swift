@@ -60,6 +60,10 @@ final class PlaybackLane: ObservableObject {
     var currentMaster: URL?
     var currentPlayable: StreamRendition?
     var currentCap = Double.infinity
+    /// 热状态升降档引起的换档任务；切房、释放时取消。
+    var capTask: Task<Void, Never>?
+    /// 换档请求次数（含因播放项未就绪而没能应用的），测试与日志用。
+    var capSyncRequests = 0
 
     // 身份与状态
     /// 本路当前房间。主路与 `feed.currentUsername` 同步（`updateFeed` 写入）。
@@ -212,7 +216,9 @@ extension StageModel {
 
     /// 这一路此刻的房间。主路就是列表的当前房间；副路按用户名在可见列表里找。
     func room(of lane: PlaybackLane) -> Room? {
-        if lane.id == .primary { return feed.current }
+        // 单窗主路就是列表当前房间；双窗里主路可能被置空（另一路占着唯一的房间），
+        // 此时 `feed.current` 会回落到首间，必须看这一路自己的游标。
+        if lane.id == .primary, secondary == nil { return feed.current }
         guard let name = lane.username?.lowercased() else { return nil }
         return feed.rooms.first { $0.username.lowercased() == name }
     }
@@ -247,7 +253,7 @@ extension StageModel {
             rooms: store.rooms.map(\.username),
             primary: LaneCursor(username: store.current?.username, direction: primary.skips.direction),
             secondary: secondary.map { LaneCursor(username: $0.username, direction: $0.skips.direction) },
-            focus: .primary
+            focus: focusLane
         )
     }
 
@@ -264,12 +270,21 @@ extension StageModel {
     }
 
     /// 双窗副路：写回游标，房间变了就结算并起播。
-    func settleSecondary(_ lane: PlaybackLane, outcome: LaneSelection.Outcome) {
+    func settleSecondary(
+        _ lane: PlaybackLane, outcome: LaneSelection.Outcome, reason: LaneSettlement.EndReason = .swipe,
+        sourceChanged: Bool = false
+    ) {
         let before = lane.username
         lane.username = outcome.secondary?.username
-        guard before?.lowercased() != lane.username?.lowercased() else { return }
+        let roomChanged = before?.lowercased() != lane.username?.lowercased()
+        // 同名换来源：房间没变不重新起播，但旧来源下的停留要结算、来源要更新（与主路的 `shouldSettle` 同一判定）。
+        guard DwellTracker.shouldSettle(before: before, after: lane.username, sourceChanged: sourceChanged) else { return }
+        guard roomChanged else {
+            currentRoomChanged(on: lane, reason: reason)
+            return
+        }
         lane.degradedHold.release(.roomSwitch)
-        currentRoomChanged(on: lane)
+        currentRoomChanged(on: lane, reason: reason)
         if lane.username == nil { lane.state = .empty }
         requestPlay(on: lane)
     }

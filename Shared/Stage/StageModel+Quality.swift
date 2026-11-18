@@ -50,7 +50,7 @@ extension StageModel {
         guard token == lane.playGeneration, !Task.isCancelled else { return }
         let target = lane.quality.desired(now: now)
         guard target != lane.quality.tier else { return }
-        let cap = target == .low ? PowerPolicy.peakBitrate(pixelHeight: pixelHeight, resting: true) : .infinity
+        let cap = min(target == .low ? PowerPolicy.peakBitrate(pixelHeight: pixelHeight, resting: true) : .infinity, thermalCap(for: lane))
         let playable = await selectRendition(master: master, cap: cap)
         // 取档期间切房、暂停、隐藏或指针状态变了：放弃本次，按最新状态重新排。
         let after = Date()

@@ -161,6 +161,9 @@ res["uncropped_all"] = bool(dc) and res["layer_matches_all"] and all(
 res["display_samples"] = sorted(set(re.sub(r"lane=\S+ ", "", m) for m in dc))[:6]
 src = [int(re.search(r"sources=(\d+)", m).group(1)) for _, c, m in logs if m.startswith("relay sources=")]
 res["relay_sources_max"] = max(src) if src else 0
+lr = [m for _, c, m in logs if m.startswith("lane-rooms")]  # 双窗两路房间是否重复（日志只记结论，不记房间名）
+res["lane_rooms_checks"] = len(lr)
+res["lane_rooms_dup"] = len([1 for m in lr if "distinct=false" in m])
 res["item_failed"] = [m for _, c, m in logs if m.startswith("item-failed")][:5]
 res["resolve_failed"] = sum(1 for _, c, m in logs if m.startswith("resolve-failed"))
 if res["resolve_failed"] and not err and not ff_abs: err = "play-failed"

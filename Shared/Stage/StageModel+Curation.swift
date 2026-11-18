@@ -4,7 +4,7 @@ import os
 @MainActor
 extension StageModel {
     var currentIsFavorite: Bool {
-        feed.current.map { curation.isFavorite($0.username) } ?? false
+        focusRoom.map { curation.isFavorite($0.username) } ?? false
     }
 
     /// 收藏或取消收藏当前房间。收藏时再给它的标签与性别一次「关注」级加权。
@@ -45,8 +45,10 @@ extension StageModel {
         curationSaver.schedule(next)
         if next.favorites != previous.favorites { refreshReasons() }
         let before = feed.current?.username
-        // 屏蔽当前房间导致的换房不记正向信号：停留作废，免得给它的标签加分。
-        if let before, next.isBlocked(before) { dwell.discard() }
+        // 屏蔽当前房间导致的换房不记正向信号：停留作废，免得给它的标签加分。双窗时两路各查各的。
+        for lane in lanes {
+            if let username = name(of: lane), next.isBlocked(username) { lane.dwell.discard() }
+        }
         updateFeed { $0.setFilters(blocked: next.blockedSet, only: self.allowedNames(for: next)) }
         if feed.current?.username != before {
             // 名单变化换了（或清空了、或恢复了）当前房间：同步播放，playCurrent 会让旧的跳过任务与请求失效。

@@ -42,6 +42,13 @@ public struct LaneQuality: Equatable, Sendable {
         }
     }
 
+    /// 回升还要等多久：降档中且已回到 fair 及以下才有值（满 60 秒为 0）；还在发热或没降档为 nil。
+    /// 调用方据此只排一次性的回升检查，不用空转定时器。
+    public func recoveryRemaining(now: Date) -> TimeInterval? {
+        guard isLimited, let fairSince else { return nil }
+        return max(0, Self.recoveryDelay - now.timeIntervalSince(fairSince))
+    }
+
     /// 未降档时返回 `.infinity`。降档时用 `displayHeight × screenScale`（videoRect 高度乘显示倍率）
     /// 查 `PowerPolicy`，再保证不低于 `minimumBitrate`。
     /// 竖屏双窗里约 221pt × 3 的 16:9 画面是 663px，对应 1.696M 档。

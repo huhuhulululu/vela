@@ -340,3 +340,64 @@ T16 按计划修订 A1 改在模拟器上做（2026-11-17，分支 `feat/ios-pr2
 ### 哪些不代表真机
 
 同「iOS Spike（模拟器）」一节：解码在 Mac 上，cpu 与功耗绝对值不能外推；网络是本机到直播 CDN。
+
+## iOS 双窗（模拟器，PR3）
+
+T18、T18b、T19 的实跑（2026-11-18，分支 `feat/ios-pr3`）。全程静音、只 `simctl boot`、不截屏不点击，结论来自日志、宿主进程指标与固定流服务端的响应字节。**用固定测试流，不访问真实站点**：`scripts/make-test-stream.sh` 生成合成 HLS（1080p，平均 3.10 Mbps，视频档加独立音轨），`scripts/serve-test-stream.py <目录> --port-file F --stats-file S` 在 127.0.0.1 提供并逐响应记录「时间 字节 文件名」；App 用 `--perf-stream <回环主列表> --perf-dual`（Perf 构建，两个测试房间 `perf-stream`、`perf-stream-2` 共用一个流，两路都走正常的中继与 `PlayerController`）。
+
+### 方法与环境
+
+- 构建：`VelaPhone` 的 Perf 配置，`-sdk iphonesimulator CODE_SIGNING_ALLOWED=NO`；设备为本次新建的 iPhone 17 与 iPad Pro 11 英寸（M5）模拟器（iOS 26.2），跑完删除；探针 `scripts/perf-probe-ios.sh --profile vela`，经 `ssh localhost` 回环运行。
+- **联网按服务端统计，不按 nettop**：模拟器里 App 的回环流量不进 `nettop -p`，探针的 `net_in`、`net_loopback` 在这些运行里恒为 0，不能当「没联网」的证据（这是空成功的典型）。前台有流量、回桌面后归零，才说明服务端统计有效；下表的前台行就是正对照。
+- 两路所选档位带宽之和（固定流平均 3.10 Mbps × 2）约 44.4 MB/min；流量比 = 实测 ÷ 44.4。分析器的 `overlap_ratio` 依赖 Spike 的健康日志，正式 App 没有这类日志，读数 0.0 不代表重叠为 0，不引用；两路同时在播由两路首帧都出现、服务端流量约为单路两倍佐证。
+
+### 结果
+
+| 项 | iPhone 17（`--scenario background`，前台 40 秒，后台 20 秒） | iPad Pro 11（M5）（`--scenario pip`，前台 30 秒，后台 20 秒） | 结论 |
+|---|---|---|---|
+| 两路首帧 | 两路都 0.58 秒（`first-frame lane=primary` 与 `lane=secondary`） | 0.25、0.28 秒 | 通过 |
+| 两路房间不重复 | `lane-rooms distinct=true` 2 条，`distinct=false` 0 条（`lane_rooms_dup=0`） | 同左 | 通过（选房逻辑另有 `DualWindowTests` 的八类场景） |
+| 画面比例 | 每格窗格 402x436，播放层 `layer=402x436`，`videoRect=402x226`，`gravity=resizeAspect`，`display-check` 4 条全部 `uncropped=true`（`layer_matches_all=true`） | 窗格 834x604，`videoRect=834x469`，4 条全部 `uncropped=true` | 通过：横屏流在半屏里上下留边、完整显示，没有裁切 |
+| 起播档位 | 两路 `lane-start cap=-1`（不封顶） | 同左，回前台恢复的两路同样 `cap=-1` | 通过（裁决 3，S12） |
+| 前台资源（服务端字节） | 45.2 MB/min，流量比 1.02；cpu 27.7%，footprint 115.4 MB（峰值 118），线程 36 | 45.7 MB/min，流量比 1.03；cpu 27.5%，footprint 115.8 MB | 通过：流量比 ≤ 1.15。cpu 是模拟器进程里两路 1080p 软件路径的开销，不外推真机 |
+| 回桌面 | 无画中画（iPhone 模拟器不支持）：服务端字节切走后第 1 秒起恒为 0（20 秒窗口 0 请求），bg cpu 0.2%，线程 8，`bg_order_ok=true`（`lane suspend` → 音频停用 → `relay listener stopped`） | 画中画 `pip started`，只留焦点路：服务端 21.5 MB/min（前台的 47%，约一路），bg cpu 15.9%，`pip continue lane=primary state=active`；另一路 `suspend-now lane=secondary` | 通过（S15：只有一路联网） |
+| 回前台 | `epoch resume`，两路 `lane resume`，首帧距切回 1.0 秒 | `pip stopped restore=true`，两路恢复，首帧距切回 1.3 秒 | 通过：回 App 恢复双窗 |
+
+另一轮 iPad `--scenario background`（前台 30 秒，后台 20 秒）同样进画中画：服务端 19.4 MB/min（前台 45.9），`pip started`，`lane-rooms` 与 `display-check` 同上；iPad 上没有「无画中画」的全停实跑（关掉自动进入的启动参数不生效，见上节），全停路径由 iPhone 这轮和 `DualPictureInPictureTests` 覆盖。
+
+### 热降档与回升（iPhone，`--perf-thermal serious@40,fair@70`，150 秒）
+
+模拟器没有真实热状态，用启动参数注入；回升等待是真实的 60 秒。
+
+| 时刻 | 日志 | 说明 |
+|---|---|---|
+| 起播 | `lane-start lane=secondary cap=-1`、`lane-start lane=primary cap=-1` | 两路最高档 |
+| +40 秒 | `thermal limit state=2`，`thermal-cap lane=primary cap=1696000`，`thermal-cap lane=secondary cap=1696000`，随后两路 `thermal-retier cap=1696000` | 降档：每路画面 221 点 × 3 = 663 像素，查到 1.696M 档 |
+| +70 秒注入 fair | 无 | 回落不立刻升 |
+| +130 秒 | `thermal recover state=1`，两路 `thermal-cap cap=-1`，随后 `thermal-retier cap=-1` | 满 60 秒才回升（04:37:02 注入 fair，04:38:02 回升） |
+
+固定流只有一个档位（约 3.5 Mbps），换档后选到的子列表不变，不能在带宽上看到降档效果；这里验证的是逻辑与时序（上限、换档请求、60 秒迟滞），带宽效果由 `LaneQualityTests`（`PowerPolicy` 查档）与 PERF「iOS Spike」的 E9 覆盖。
+
+### 画中画对照实验（ADR-007）
+
+| 组 | 配置 | 结果 |
+|---|---|---|
+| A（两轮）| 只给焦点路挂一个控制器，回桌面 | `pip started`；后台服务端 21.6、21.5 MB/min |
+| B | 同 A，进入时不先释放另一路 | `pip started`；后台前 5 秒 40.6 MB/min（两路），随后 23.0 |
+| C | 每一路都挂控制器 | `willStart` 后无 `didStart`、无 `failed`；全停并关小窗，之后 0 请求、cpu 0.3% |
+| D1 / D2 | 前台手动启动：单控制器 / 每路一个 | D1 `pip started`；D2 `pip attach` 两次，调用后没有任何回调 |
+
+### G-mac（macOS 主体不退化，固定流，Release，静音）
+
+`scripts/perf-probe.sh --build --fixed-stream --duration 60`（首轮构建）与同参数各轮，`ssh localhost` 回环；idle 为 `--scenario idle --duration 60`。判定 `python3 -I scripts/perf_gate.py docs/perf-baseline-fixed.json <结果> [--scenario idle]`。开跑时本机没有别的 perf-probe、xcodebuild、Vela 与模拟器实验，只有一台别处启动、空闲的模拟器在 Booted 状态（CPU 0%，不是本次所建，未动）。
+
+| 轮 | cpu_avg | footprint 均值 | 起播 | wakeups | runtime_issues | 门 |
+|---|---|---|---|---|---|---|
+| 1（构建后第一轮，冷启动） | 1.89% | 36.9 MB | 2.34 秒 | 0.0 | 0 | **FAIL**（只有起播一项：2.34 > 基线中位数 1.22 + 1.0；其余项通过） |
+| 2 | 1.82% | 35.9 MB | 1.74 秒 | 0.0 | 0 | PASS |
+| 3 | 1.82% | 36.3 MB | 1.72 秒 | 0.0 | 0 | PASS |
+| 4（补一轮） | 1.77% | 36.1 MB | 1.74 秒 | 0.0 | 0 | PASS |
+| 前三轮中位数 | 1.82% | 36.3 MB | 1.74 秒 | | 0 | 全部满足（基线 cpu 2.71%、footprint 36.3 MB、起播 1.22 秒） |
+| idle（60 秒） | 0.0% | 31.4 MB | | 0.0 | 0 | PASS（cpu ≤ 0.1%、wakeups ≤ 2/s、流量 0） |
+
+首轮冷启动偏慢与 ADR-005 记过的现象一致，按约定以三轮中位数为准并如实列出。本轮 cpu 低于基线的 2.71%，基线是另一时段、另一机器负载下的 5 轮中位数，这里只说明没有退化，不作改进的结论。

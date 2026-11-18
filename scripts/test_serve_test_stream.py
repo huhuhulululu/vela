@@ -72,5 +72,20 @@ class DiscontinuitySequence(unittest.TestCase):
                 self.assertEqual(a[k], b[k], "分片 %d (first=%d)" % (k, first))
 
 
+class StatsLogTests(unittest.TestCase):
+    def test_records_one_line_per_response(self):
+        d = tempfile.mkdtemp(prefix="vela-stats.")
+        path = os.path.join(d, "stats.txt")
+        stats = sts.StatsLog(path)
+        stats.record("seg_0_000.ts", 1234)
+        stats.record("media_0.m3u8", 200)
+        lines = open(path).read().splitlines()
+        self.assertEqual(len(lines), 2)
+        t, nbytes, name = lines[0].split()
+        self.assertEqual((int(nbytes), name), (1234, "seg_0_000.ts"))
+        self.assertLess(abs(float(t) - time.time()), 5)
+
+
 if __name__ == "__main__":
     unittest.main()
+

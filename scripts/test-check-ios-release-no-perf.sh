@@ -26,6 +26,9 @@ check "干净样本通过（0）" "$([ "$(run "$CLEAN_SETTINGS" "$T/clean.app")"
 mk_app "$T/long.app" "vela-perf-entry-armed-8c41d7e2b9a0"
 check "二进制含长标识串被拒（1）" "$([ "$(run "$CLEAN_SETTINGS" "$T/long.app")" = 1 ] && echo 1 || echo 0)"
 
+mk_app "$T/stream.app" "vela-perf-stream-hook-enabled"
+check "二进制含固定测试流标识串被拒（1）" "$([ "$(run "$CLEAN_SETTINGS" "$T/stream.app")" = 1 ] && echo 1 || echo 0)"
+
 mk_app "$T/arg.app" "--perf-autoplay"
 check "二进制含入口参数名被拒（1）" "$([ "$(run "$CLEAN_SETTINGS" "$T/arg.app")" = 1 ] && echo 1 || echo 0)"
 
@@ -42,6 +45,8 @@ check "空产物判错误（2）" "$([ "$(run "$CLEAN_SETTINGS" "$T/hollow.app")
 # 标识串与 PerfEntry.swift 一致，改一处漏一处会让门形同虚设。
 ENTRY_MARKER=$(grep -o 'vela-perf-entry-armed-[0-9a-f]*' "$ROOT/iOS/PerfEntry.swift" | head -1)
 check "脚本里的标识串与 PerfEntry.swift 一致" "$(grep -q -- "$ENTRY_MARKER" "$GATE" && [ -n "$ENTRY_MARKER" ] && echo 1 || echo 0)"
+STREAM_MARKER=$(grep -o 'vela-perf-stream-hook-[a-z]*' "$ROOT/iOS/PerfStream+Phone.swift" | head -1)
+check "脚本里的固定测试流标识串与 PerfStream+Phone.swift 一致" "$(grep -q -- "$STREAM_MARKER" "$GATE" && [ -n "$STREAM_MARKER" ] && echo 1 || echo 0)"
 check "入口参数名与脚本一致" "$(grep -q 'perf-autoplay' "$ROOT/iOS/PerfEntry.swift" && echo 1 || echo 0)"
 
 [ "$fail" = 0 ] && echo "全部通过" || echo "有失败"

@@ -47,7 +47,8 @@ extension StageModel {
         let previous = taste
         taste = next
         tasteSaver.schedule(next)
-        dwell.setLedgerExcluded(next.paused, now: Date())
+        // 暂停与恢复学习对每一路的停留都生效，副路的账本排除段也要同步。
+        for lane in lanes { lane.dwell.setLedgerExcluded(next.paused, now: Date()) }
         syncHiddenFilter(previous: previous)
         refreshReasons()
     }
@@ -57,7 +58,9 @@ extension StageModel {
         guard previous.vetoedKeys != taste.vetoedKeys, source == .guess, loadedSource == .guess else { return }
         let before = feed.current?.username
         // 当前房间因被过滤而换走：不记正向停留信号。
-        if let room = feed.current, taste.isVetoed(room) { dwell.discard() }
+        for lane in lanes {
+            if let room = room(of: lane), taste.isVetoed(room) { lane.dwell.discard() }
+        }
         let blocked = curation.blockedSet
         let only = allowedNames(for: curation)
         let hidden = taste.vetoedKeys
@@ -120,9 +123,9 @@ extension StageModel {
         showToast("口味画像已重置")
     }
 
-    /// 清掉画像、最近看过、旧版偏好文件，并作废当前房间的停留（否则它离开时又会写回一条）。
+    /// 清掉画像、最近看过、旧版偏好文件，并作废每一路当前房间的停留（否则它离开时又会写回一条）。
     func clearAllPreferences() {
-        dwell.discard()
+        for lane in lanes { lane.dwell.discard() }
         commitTaste(taste.erased())
         tasteSaver.flush()
         tasteStore.eraseLegacy()

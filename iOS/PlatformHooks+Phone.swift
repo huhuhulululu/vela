@@ -8,6 +8,10 @@ import SwiftUI
 @MainActor
 final class PlatformHooks {
     let allowsCrop = false
+    /// iOS 竖屏有双窗。
+    let supportsDual = true
+    /// 画中画小窗开着（或在启动）时焦点路不能换：小窗里放的就是它（T18b）。
+    var focusLocked: Bool { pictureInPicturePlaying }
     /// 上一次收到的场景阶段。
     private(set) var scenePhase: PhoneScenePhase = .active
     private static let log = Logger(subsystem: "com.vela.stage", category: "lifecycle")
@@ -113,6 +117,8 @@ final class PlatformHooks {
             Self.pipLog.notice("pip continue lane=\(StageModel.label(focus), privacy: .public) state=\(String(describing: self.pictureInPictureState), privacy: .public)")
             if pictureInPictureState != .active { armPictureInPictureFallback(stage: stage, reason: "timeout") }
         }
+        // 回前台时小窗已经收掉（或根本没起来）：另一路不再被画中画扣着。小窗还在收的话由 didStop 放开。
+        if next == .active, !pictureInPicturePlaying { stage.setPipSolo(false) }
         let visible = PhoneLifecycle.pointVisible(next)
         if !stage.lifecycleSuspended, stage.pointVisible != visible {
             stage.applyPower(windowVisible: visible)
@@ -204,6 +210,7 @@ final class PlatformHooks {
         switch event {
         case .willStart:
             pictureInPictureState = .starting
+            if !PerfEntry.noPipSolo { stage.setPipSolo(true) }
             keepMutedSessionForPictureInPicture(stage: stage)
         case .didStart:
             pictureInPictureState = .active
@@ -218,6 +225,7 @@ final class PlatformHooks {
             }
         case .failed(let error):
             pictureInPictureState = .none
+            stage.setPipSolo(false)
             Self.pipLog.notice("pip failed error=\(error, privacy: .public)")
             if pipContinuing, scenePhase == .background {
                 fallbackStop(stage: stage, reason: "failed")
@@ -228,6 +236,7 @@ final class PlatformHooks {
             pictureInPictureState = .stopping
         case .didStop:
             pictureInPictureState = .none
+            stage.setPipSolo(false)
             Self.pipLog.notice("pip stopped restore=\(self.pipRestoreRequested)")
             guard pipContinuing, scenePhase == .background else {
                 finishLatePictureInPicture(stage: stage)
@@ -295,7 +304,10 @@ final class PlatformHooks {
     /// 没能进入画中画：关掉可能半开的小窗，再全停释放。
     private func fallbackStop(stage: StageModel, reason: String) {
         Self.pipLog.notice("pip fallback-stop reason=\(reason, privacy: .public)")
-        if pictureInPictureState != .none { pip?.stop() }
+        if pictureInPictureState != .none { pip?.abort() }
+        // 还没真正进入时 stop() 是空操作，不会有委托回调：不等它，立刻放开焦点锁与另一路的扣留。
+        pictureInPictureState = .none
+        stage.setPipSolo(false)
         stopAllAfterPictureInPicture(stage: stage)
     }
 

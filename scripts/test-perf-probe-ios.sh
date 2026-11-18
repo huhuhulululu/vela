@@ -18,7 +18,7 @@ expect() {  # 名称 期望码 命令...
 expect bad-scenario 2 bash "$PROBE" --app /tmp --bundle x --scenario nope
 expect missing-app 1 bash "$PROBE" --app /nonexistent.app --bundle x --scenario single
 expect bad-profile 2 bash "$PROBE" --app /tmp --scenario single --profile nope
-expect vela-no-dual 2 bash "$PROBE" --app /tmp --scenario dual --profile vela
+expect vela-dual-accepted 1 bash "$PROBE" --app /nonexistent.app --scenario dual --profile vela
 if [ -n "$APP" ]; then
     common="--app $APP --profile $PROFILE --out $OUT"
     # shellcheck disable=SC2086

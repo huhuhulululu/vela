@@ -17,13 +17,13 @@ struct CurationPanel: View {
 
     var body: some View {
         FavoritesPanel(
-            current: model.feed.current.map { ($0.displayName, model.currentIsFavorite) },
+            current: model.focusRoom.map { ($0.displayName, model.currentIsFavorite) },
             board: board,
             blocked: model.curation.blocked,
             checking: model.favoritesChecking,
             listMaxHeight: Theme.favoritesListHeight(windowHeight: model.pointHeight),
-            toggleCurrent: { model.toggleFavorite(model.target()) },
-            blockCurrent: { model.blockCurrent(model.target()) },
+            toggleCurrent: { model.toggleFavorite(model.focusTarget()) },
+            blockCurrent: { model.blockCurrent(model.focusTarget()) },
             play: { model.playFavorite($0) },
             removeFavorite: { model.removeFavorite($0) },
             restoreFavorite: { model.restoreFavorite($0) },

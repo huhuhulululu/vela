@@ -19,7 +19,7 @@ struct PhoneRoomPage: View {
                 PlayerLayerView(
                     player: lane.player.player, laneLabel: lane.player.laneLabel, pane: pane, pip: pipController
                 ) { size in
-                    lane.displaySize = size
+                    model.noteDisplaySize(size, on: lane)
                 }
                 .opacity(videoReady ? 1 : 0)
                 .animation(reduceMotion ? nil : .easeOut(duration: Theme.videoFade), value: videoReady)
@@ -30,7 +30,11 @@ struct PhoneRoomPage: View {
                 noteMark(note)
             }
             // 只在允许播放时显示：后台或闸门关闭时播放项已释放，加载线的无限动画只会空转耗电。
-            if active && !videoReady && lane.playbackNote == nil && !lane.manuallyPaused && model.playbackGateOpen {
+            // 读已发布的 `playbackGateOpen` 让闸门变化能触发重绘，再按本路自己的闸门判断（副路可能单独暂停或被释放）。
+            if Self.showsLoadingLine(
+                active: active, videoReady: videoReady, hasNote: lane.playbackNote != nil,
+                laneAllowed: Self.loadingLaneAllowed(model: model, lane: lane)
+            ) {
                 PhoneLoadingLine()
             }
         }
@@ -40,9 +44,24 @@ struct PhoneRoomPage: View {
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { pane.frame = $0 }
     }
 
-    /// 只有焦点路挂画中画（单窗恒为主路）。
+    /// 只有焦点路挂画中画（单窗恒为主路）。画中画里的那一路就是焦点路，另一路不能进。
+    static func carriesPictureInPicture(lane: LaneID, focus: LaneID) -> Bool {
+        PerfEntry.pipOnAllLanes || lane == focus
+    }
+
+    /// 加载线只在这一路允许播放、还没出画面、没有提示时显示：闸门关着（后台、手动暂停、画中画释放）播放项已释放，无限动画只会空转。
+    static func showsLoadingLine(active: Bool, videoReady: Bool, hasNote: Bool, laneAllowed: Bool) -> Bool {
+        active && !videoReady && !hasNote && laneAllowed
+    }
+
+    /// 加载线用的本路闸门。读已发布的 `playbackGateOpen` 只为让闸门变化触发重绘，判断只看本路。
+    static func loadingLaneAllowed(model: StageModel, lane: PlaybackLane) -> Bool {
+        _ = model.playbackGateOpen
+        return model.laneAllowed(lane)
+    }
+
     private var pipController: PictureInPictureCoordinator? {
-        lane.id.role == (model.platform.audioFocus?.focusRole ?? .primary) ? model.platform.pipCoordinator : nil
+        Self.carriesPictureInPicture(lane: lane.id, focus: model.focusLane) ? model.platform.pipCoordinator : nil
     }
 
     private var videoReady: Bool { active && playback.readyUsername == room.username }

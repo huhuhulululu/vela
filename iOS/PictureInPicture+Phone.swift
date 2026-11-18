@@ -19,6 +19,13 @@ protocol PictureInPictureControlling: AnyObject {
     /// 设置里的「回桌面自动进入画中画」，改动立即落到系统控制器上。
     var autoEnter: Bool { get set }
     func stop()
+    /// 启动中止：回退全停时调用。系统控制器还没真正进入时 `stop()` 是空操作、也不会有回调，
+    /// 这里要把协调器的 active、旧控制器与播放层绑定一并清掉，之后能重新绑到新的焦点路。
+    func abort()
+}
+
+extension PictureInPictureControlling {
+    func abort() { stop() }
 }
 
 /// 回桌面后的回退判定（修订 A3）：按「将自动进入」放行焦点路之后，到时仍不在后台画中画里就全停释放。
@@ -60,7 +67,7 @@ final class PictureInPictureCoordinator: NSObject, ObservableObject, PictureInPi
         return PictureInPictureCoordinator(autoEnter: autoEnter)
     }
 
-    private init(autoEnter: Bool) {
+    init(autoEnter: Bool) {
         self.autoEnter = autoEnter
         super.init()
     }
@@ -75,6 +82,7 @@ final class PictureInPictureCoordinator: NSObject, ObservableObject, PictureInPi
         next.delegate = self
         next.canStartPictureInPictureAutomaticallyFromInline = autoEnter
         controller = next
+        Self.log.notice("pip attach")
         boundLayer = layer
         possibleObservation = next.observe(\.isPictureInPicturePossible, options: [.initial, .new]) { [weak self] pip, _ in
             let value = pip.isPictureInPicturePossible
@@ -105,11 +113,28 @@ final class PictureInPictureCoordinator: NSObject, ObservableObject, PictureInPi
         controller?.stopPictureInPicture()
     }
 
-    private func setPossible(_ value: Bool) {
-        if possible != value { possible = value }
+    /// 启动中止（3 秒回退）：系统控制器没真正进入时 `stopPictureInPicture()` 是空操作且没有回调，
+    /// `active` 会一直是 true，`attach` / `detach` 的守卫都被挡住。这里不等回调：摘掉委托（旧控制器迟到的事件不再进来）、
+    /// 清掉控制器与绑定、`active` 与 `possible` 归位；播放层还在窗口里就重新绑一个新控制器，焦点换了则由新焦点路的视图去绑。
+    func abort() {
+        let layer = boundLayer
+        controller?.delegate = nil
+        controller?.stopPictureInPicture()
+        possibleObservation = nil
+        controller = nil
+        boundLayer = nil
+        setPossible(false)
+        if active { active = false }
+        if let layer, layer.superlayer != nil { attach(layer) }
     }
 
-    fileprivate func deliver(_ event: PiPEvent) {
+    private func setPossible(_ value: Bool) {
+        guard possible != value else { return }
+        possible = value
+        Self.log.notice("pip possible=\(value)")
+    }
+
+    func deliver(_ event: PiPEvent) {
         switch event {
         case .willStart, .didStart: if !active { active = true }
         case .failed, .didStop: if active { active = false }

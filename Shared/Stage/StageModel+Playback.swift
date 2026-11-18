@@ -47,6 +47,8 @@ extension StageModel {
     /// 取消按取消处理，不当网络故障。
     func requestPlay(on given: PlaybackLane? = nil) {
         let lane = given ?? primary
+        // 横屏时被释放的路不起播；回竖屏由 `setLandscape` 重新请求。
+        guard lane.visible else { return }
         lane.playTask?.cancel()
         lane.playTask = Task { await playCurrent(on: lane) }
     }
@@ -54,6 +56,7 @@ extension StageModel {
     /// 同 `requestPlay`，并等这一轮结束（目录加载与刷新要在起播结束后继续收尾）。
     func requestPlayAndWait(isRetry: Bool = false, on given: PlaybackLane? = nil) async {
         let lane = given ?? primary
+        guard lane.visible else { return }
         lane.playTask?.cancel()
         let task = Task { await playCurrent(isRetry: isRetry, on: lane) }
         lane.playTask = task
@@ -131,7 +134,7 @@ extension StageModel {
         if lane.id == .primary { idleStart.clear() }
         lane.awayRetry.enter(room.username)
         do {
-            let cap = playbackCap()
+            let cap = playbackCap(on: lane)
             guard let target = try await playTarget(for: room.username, cap: cap, token: token, lane: lane, life: life) else { return }
             guard token == lane.playGeneration, !Task.isCancelled else { return }
             guard await relayReady(token: token, lane: lane, life: life) else { return }
@@ -233,7 +236,7 @@ extension StageModel {
     private func playTarget(
         for username: String, cap: Double, token: Int, lane: PlaybackLane, life: LifecycleEpoch.Token
     ) async throws -> PlayTarget? {
-        #if os(macOS) && (DEBUG || PERF_PROBE)
+        #if (os(macOS) && (DEBUG || PERF_PROBE)) || (os(iOS) && PERF_PROBE)
         if let fixed = perfStreamTarget(for: username) { return fixed }
         #endif
         if let cached = prepared.fresh(username, cap: cap, now: Date()) {
@@ -303,6 +306,8 @@ extension StageModel {
         lane.currentMaster = target.master
         lane.currentPlayable = target.playable
         lane.currentCap = cap
+        // 每路起播的档位上限（-1 为不封顶）：双窗两路都应是 -1，热降档时才是有限值（§4.4）。
+        Self.playbackLog.info("lane-start lane=\(Self.label(lane.id.role), privacy: .public) cap=\(cap.isFinite ? Int(cap) : -1)")
         lane.player.play(
             rendition: target.playable, username: room.username, peakBitrate: cap,
             allowed: laneAllowed(lane), isRetry: isRetry
@@ -313,6 +318,8 @@ extension StageModel {
         applyPower()
         scheduleChromeHide()
         startPrefetch(on: lane)
+        // 解析与等中继期间热状态或画面尺寸可能变了：起播用的 cap 是更早读的，就绪后补一次换档。
+        if needsCapSync(lane) { retier(lane) }
     }
 
     /// 起播成功后预取下一间。任务登记在这一路上，挂起与取消本路工作时一并取消（§3.1）。
@@ -320,7 +327,8 @@ extension StageModel {
     func startPrefetch(on lane: PlaybackLane) {
         lane.prefetchTask?.cancel()
         lane.prefetchTask = nil
-        guard sharedToken() != nil else { return }
+        // 预取只跟主路：双窗时两路各预取同一间「下一个房间」只会多花一份请求。
+        guard lane.id == .primary, sharedToken() != nil else { return }
         lane.prefetchTask = Task { [weak self, weak lane] in
             guard let self, let lane else { return }
             await self.prefetchAhead(on: lane)
@@ -395,12 +403,12 @@ extension StageModel {
     /// Watching uses the top rung. Window-height caps were selecting 540p and 720p, so the
     /// picture stayed soft. Power saving, when enabled, still starts a room on the bottom rung
     /// after the pointer has left.
-    func playbackCap() -> Double {
+    /// 双窗时再叠上设备热状态的上限（`.serious` 及以上才有，按这一路画面实际显示的高度，§4.4）。
+    func playbackCap(on lane: PlaybackLane? = nil) -> Double {
         let resting = restSavesPower && !resolvedPresence().engaged
-        if resting {
-            return PowerPolicy.peakBitrate(pixelHeight: pixelHeight, resting: true)
-        }
-        return .infinity
+        let base = resting ? PowerPolicy.peakBitrate(pixelHeight: pixelHeight, resting: true) : Double.infinity
+        guard let lane else { return base }
+        return min(base, thermalCap(for: lane))
     }
 
     /// The master playlist is low-latency HLS. AVPlayer stalls and sometimes never starts on it.
@@ -426,9 +434,12 @@ extension StageModel {
     func prefetchAhead(on given: PlaybackLane? = nil) async {
         let lane = given ?? primary
         let token = lane.playGeneration
-        let cap = playbackCap()
+        let cap = playbackCap(on: lane)
         guard let life = sharedToken() else { return }
         guard let next = feed.prefetchUsernames().first, prepared.fresh(next, cap: cap, now: Date()) == nil else { return }
+        #if (os(macOS) && (DEBUG || PERF_PROBE)) || (os(iOS) && PERF_PROBE)
+        if next.hasPrefix(PerfStream.username) { return }
+        #endif
         guard lifecycleAllows(.beforeRequest, life), !Task.isCancelled else { return }
         guard let ticket = try? await resolve(next), ticket.isPlayable, let master = ticket.url else { return }
         guard token == lane.playGeneration, !Task.isCancelled, lifecycleAllows(.beforeRequest, life) else { return }
@@ -469,6 +480,10 @@ extension StageModel {
             Self.playbackLog.info("renew-abort room-changed")
             return nil
         }
+        #if (os(macOS) && (DEBUG || PERF_PROBE)) || (os(iOS) && PERF_PROBE)
+        // 固定测试流不会 403，也不能为它请求真实站点。
+        if username.hasPrefix(PerfStream.username) { return nil }
+        #endif
         guard let ticket = try? await resolve(username), ticket.isPlayable, let master = ticket.url else {
             Self.playbackLog.info("renew-abort resolve")
             return nil
