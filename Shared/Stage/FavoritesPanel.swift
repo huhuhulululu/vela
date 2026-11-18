@@ -23,6 +23,8 @@ struct FavoritesPanel: View {
     var refresh: () -> Void
     var exportFile: () -> Void
     var importFile: () -> Void
+    /// macOS 弹层固定宽度；iOS sheet 传 nil：最宽不超过 `Theme.panelWidth`，窄窗格（iPad 分屏 320 点）随可用宽度收窄。
+    var width: CGFloat? = Theme.panelWidth
 
     @State private var page = Page.list
     @State private var draft = ""
@@ -40,7 +42,8 @@ struct FavoritesPanel: View {
             }
         }
         .padding(Theme.panelPadding)
-        .frame(width: Theme.panelWidth)
+        .frame(width: width)
+        .frame(maxWidth: width == nil ? Theme.panelWidth : nil)
     }
 
     private var listPage: some View {

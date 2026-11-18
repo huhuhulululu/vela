@@ -6,6 +6,14 @@ struct CurationPanel: View {
     /// 导出、导入走平台回调：macOS 弹文件面板，iOS 用 `.fileExporter` / `.fileImporter`。
     var exportFile: () -> Void
     var importFile: () -> Void
+    /// 面板宽度：macOS 固定 `Theme.panelWidth`；iOS 按可用宽度自适应（与口味面板一致）。
+    var width: CGFloat? = CurationPanel.platformWidth
+
+    #if os(iOS)
+    static let platformWidth: CGFloat? = nil
+    #else
+    static let platformWidth: CGFloat? = Theme.panelWidth
+    #endif
 
     var body: some View {
         FavoritesPanel(
@@ -29,7 +37,8 @@ struct CurationPanel: View {
                 }
             },
             exportFile: exportFile,
-            importFile: importFile
+            importFile: importFile,
+            width: width
         )
         .task {
             await model.refreshFavoritesIfStale()

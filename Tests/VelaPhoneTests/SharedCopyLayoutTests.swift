@@ -44,6 +44,19 @@ final class SharedCopyLayoutTests: XCTestCase {
         XCTAssertLessThanOrEqual(width, TastePanel.preferredWidth + 0.5)
     }
 
+    /// 收藏夹面板在 iPad 分屏的 320 点窄窗格里不被裁，宽屏不超过 macOS 的固定宽度。
+    func testFavoritesPanelFitsNarrowPaneAndCapsOnWide() {
+        let name = "vela-phone-layout-\(UUID().uuidString)"
+        let stage = StageModel(settings: SettingsStore(defaults: UserDefaults(suiteName: name)!))
+        defer { UserDefaults().removePersistentDomain(forName: name) }
+        for available in [320.0, 375.0] {
+            let width = renderedWidth(CurationPanel(model: stage, exportFile: {}, importFile: {}), proposed: available)
+            XCTAssertLessThanOrEqual(width, available + 0.5, "宽 \(available) 时收藏夹面板溢出：\(width)")
+        }
+        let wide = renderedWidth(CurationPanel(model: stage, exportFile: {}, importFile: {}), proposed: 700)
+        XCTAssertLessThanOrEqual(wide, Theme.panelWidth + 0.5)
+    }
+
     private func renderedWidth(_ view: some View, proposed: CGFloat) -> CGFloat {
         let renderer = ImageRenderer(content: view)
         renderer.proposedSize = ProposedViewSize(width: proposed, height: nil)
