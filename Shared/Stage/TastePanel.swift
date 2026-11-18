@@ -18,6 +18,10 @@ struct TastePanel: View {
 
     /// 关掉滚动容器：只给离屏渲染自查用（ImageRenderer 画不出 ScrollView）。
     var scrolls = true
+    /// macOS 弹层固定宽度；iOS sheet 传 nil：最宽不超过 `preferredWidth`，窄屏随屏宽收窄。
+    var width: CGFloat? = TastePanel.preferredWidth
+
+    static let preferredWidth: CGFloat = 380
 
     @State private var confirm: Confirm?
     @State private var likedExpanded = false
@@ -39,7 +43,8 @@ struct TastePanel: View {
             footer
         }
         .padding(Theme.inset + 4)
-        .frame(width: 380)
+        .frame(width: width)
+        .frame(maxWidth: width == nil ? Self.preferredWidth : nil)
     }
 
     private var content: some View {

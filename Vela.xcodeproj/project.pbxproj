@@ -129,6 +129,7 @@
 		1A486697B1A22114A9A60C90 /* PlatformHooks+Mac.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PlatformHooks+Mac.swift"; sourceTree = "<group>"; };
 		D096B2FF63E8DAD1F896F278 /* StageModel+Mac.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "StageModel+Mac.swift"; sourceTree = "<group>"; };
 		8FBC1ABAEFD8187434B9DBF0 /* PlatformHooks+Phone.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PlatformHooks+Phone.swift"; sourceTree = "<group>"; };
+		D15A000000000000000000A0 /* SharedCopyLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedCopyLayoutTests.swift; sourceTree = "<group>"; };
 		D15A00000000000000000012 /* PhoneHousekeepingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneHousekeepingTests.swift; sourceTree = "<group>"; };
 		D15A00000000000000000010 /* AudioFocusControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioFocusControllerTests.swift; sourceTree = "<group>"; };
 		D15A00000000000000000008 /* PerfEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerfEntry.swift; sourceTree = "<group>"; };
@@ -413,6 +414,7 @@
 				C13A00000000000000000011 /* LifecycleWiringTests.swift */,
 				D15A00000000000000000010 /* AudioFocusControllerTests.swift */,
 				D15A00000000000000000012 /* PhoneHousekeepingTests.swift */,
+				D15A000000000000000000A0 /* SharedCopyLayoutTests.swift */,
 			);
 			path = VelaPhoneTests;
 			sourceTree = "<group>";
@@ -754,6 +756,7 @@
 				C13A00000000000000000012 /* LifecycleWiringTests.swift in Sources (VelaPhoneTests) */,
 				D15A00000000000000000011 /* AudioFocusControllerTests.swift in Sources (VelaPhoneTests) */,
 				D15A00000000000000000013 /* PhoneHousekeepingTests.swift in Sources (VelaPhoneTests) */,
+				D15A000000000000000000A1 /* SharedCopyLayoutTests.swift in Sources (VelaPhoneTests) */,
 				C12A00000000000000000200 /* RelayMultiSourceTests.swift in Sources (VelaPhoneTests) */,
 				C12A00000000000000000201 /* LifecycleEpochTests.swift in Sources (VelaPhoneTests) */,
 				C12A00000000000000000202 /* PiPPolicyTests.swift in Sources (VelaPhoneTests) */,
@@ -955,6 +958,7 @@
 		233B2E30587FB5106D33024C /* PlatformHooks+Mac.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A486697B1A22114A9A60C90 /* PlatformHooks+Mac.swift */; };
 		A3512B34C2A1F3200213B590 /* StageModel+Mac.swift in Sources */ = {isa = PBXBuildFile; fileRef = D096B2FF63E8DAD1F896F278 /* StageModel+Mac.swift */; };
 		0FE1A2291B975A8E1863BD34 /* PlatformHooks+Phone.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 8FBC1ABAEFD8187434B9DBF0 /* PlatformHooks+Phone.swift */; };
+		D15A000000000000000000A1 /* SharedCopyLayoutTests.swift in Sources (VelaPhoneTests) */ = {isa = PBXBuildFile; fileRef = D15A000000000000000000A0 /* SharedCopyLayoutTests.swift */; };
 		D15A00000000000000000013 /* PhoneHousekeepingTests.swift in Sources (VelaPhoneTests) */ = {isa = PBXBuildFile; fileRef = D15A00000000000000000012 /* PhoneHousekeepingTests.swift */; };
 		D15A00000000000000000011 /* AudioFocusControllerTests.swift in Sources (VelaPhoneTests) */ = {isa = PBXBuildFile; fileRef = D15A00000000000000000010 /* AudioFocusControllerTests.swift */; };
 		D15A00000000000000000009 /* PerfEntry.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = D15A00000000000000000008 /* PerfEntry.swift */; };

@@ -26,7 +26,7 @@ struct PhoneStageView: View {
                     favoriteSuggestBanner(suggest)
                 }
             } else {
-                AgeGateView(enter: model.confirmAge, quit: model.quit)
+                AgeGateView(enter: model.confirmAge)
             }
         }
         .background(SceneWindowReader { model.sidecar.hold(window: $0) })

@@ -45,7 +45,7 @@ struct PhoneChrome: View {
                     }
                 PhonePill(title: "口味", active: model.taste.paused) { model.showTaste = true }
                     .sheet(isPresented: $model.showTaste, onDismiss: { model.noteActivity() }) {
-                        TasteView(model: model)
+                        TasteView(model: model, width: nil)
                             .frame(maxWidth: .infinity)
                             .phoneSheet()
                     }
