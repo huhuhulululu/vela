@@ -28,11 +28,11 @@ public enum SuggestRules {
 
 /// 列表为空时的说明：按原因区分，用户知道该去哪里处理。
 public enum EmptyListCopy {
-    /// 还没有收藏：macOS 提示 ⌘D，iOS 没有这个快捷键，只说轻点心形。
-    #if os(macOS)
-    static let noFavoritesYet = "还没有收藏，在房间里按 ⌘D 收藏"
-    #else
+    /// 还没有收藏：iOS 没有 ⌘D 快捷键，只说轻点心形；其余平台（macOS，以及只跑逻辑测试的 Linux）提示 ⌘D。
+    #if os(iOS)
     static let noFavoritesYet = "还没有收藏，在房间里轻点心形收藏"
+    #else
+    static let noFavoritesYet = "还没有收藏，在房间里按 ⌘D 收藏"
     #endif
 
     public static func message(
