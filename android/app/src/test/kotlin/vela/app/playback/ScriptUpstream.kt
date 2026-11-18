@@ -31,6 +31,14 @@ internal class ScriptUpstream : AutoCloseable {
     @Volatile
     var holdPaths: Set<String> = emptySet()
 
+    /**
+     * 状态码已经按到达顺序占下、响应还没写出时调用。
+     * 用来把「已经带着旧地址出去的 GET」留到另一次续期结束之后再返回。
+     * ordinal 从 1 开始。
+     */
+    @Volatile
+    var beforeResponse: ((path: String, ordinal: Int) -> Unit)? = null
+
     val held: CountDownLatch = CountDownLatch(1)
     val releaseHold: CountDownLatch = CountDownLatch(1)
 
@@ -63,7 +71,7 @@ internal class ScriptUpstream : AutoCloseable {
         }
         val headers = HashMap<String, List<String>>()
         for ((key, value) in exchange.requestHeaders) headers[key] = ArrayList(value)
-        val (status, body) = synchronized(lock) {
+        val (ordinal, status, body) = synchronized(lock) {
             val n = (counts[path] ?: 0) + 1
             counts[path] = n
             hits.add(UpstreamHeaderHit(path, headers))
@@ -75,8 +83,9 @@ internal class ScriptUpstream : AutoCloseable {
                 path.endsWith(".m3u8") -> playlist(n).toByteArray(Charsets.UTF_8)
                 else -> ByteArray(0)
             }
-            status to body
+            Triple(n, status, body)
         }
+        beforeResponse?.invoke(path, ordinal)
         val type = if (path.endsWith(".m3u8")) "application/vnd.apple.mpegurl" else "video/mp2t"
         exchange.responseHeaders.add("Content-Type", type)
         exchange.responseHeaders.add("Cache-Control", "no-store")

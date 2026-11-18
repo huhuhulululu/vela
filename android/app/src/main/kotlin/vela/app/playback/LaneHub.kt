@@ -314,6 +314,8 @@ class LaneHub internal constructor(
     /**
      * 200 直接返回。403 / 410 走 [RenewalCoordinator.renewBlocking]，
      * 成功后在同一次 `recovering` 里重取，这段时间 [RenewalCoordinator.isActive] 为真。
+     * 这次 GET 还拿着旧地址时，另一条刷新可能已经把续期做完并清掉了在途任务。
+     * 预算的最短间隔会拒绝再续一次，这时跟已经换上的地址重取，不能把过期的 403 交回去。
      * 线程中断或 [RenewalCoordinator.cancel] 都不必等 fetch 自己结束。
      */
     private fun fetchRenewed(lane: Lane, url: URI, urlAfter: () -> URI): LaneHttpResponse {
@@ -327,6 +329,7 @@ class LaneHub internal constructor(
         val renewed = try {
             runBlocking {
                 lane.coordinator.recovering {
+                    refetchIfAddressMoved(url, urlAfter)?.let { return@recovering it }
                     val stale = lane.snapshot()
                     val registered = lane.coordinator.epoch
                     val ok = lane.coordinator.renewBlocking(
@@ -334,7 +337,7 @@ class LaneHub internal constructor(
                         fetch = { lane.renew?.invoke() },
                         apply = { fresh -> installRenewed(lane, fresh, registered, stale) },
                     )
-                    if (!ok) return@recovering null
+                    if (!ok) return@recovering refetchIfAddressMoved(url, urlAfter)
                     val next = urlAfter()
                     val second = http.get(next)
                     if (second.code !in 200..299) null else second
@@ -346,6 +349,18 @@ class LaneHub internal constructor(
         }
         if (Thread.currentThread().isInterrupted) throw InterruptedIOException()
         return renewed ?: first
+    }
+
+    /**
+     * [requested] 飞着的时候地址已经换过，就重取现在的地址。
+     * 新地址仍是 403 / 410 则返回 null，让调用方继续续期；续期没成功时退回原来的失败。
+     */
+    private fun refetchIfAddressMoved(requested: URI, urlAfter: () -> URI): LaneHttpResponse? {
+        val next = urlAfter()
+        if (next == requested) return null
+        val response = http.get(next)
+        if (RenewalPolicy.isExpiry(RelayFailure.Http(response.code))) return null
+        return response
     }
 
     private fun trackUrl(lane: Lane, track: LaneTrack): URI? {

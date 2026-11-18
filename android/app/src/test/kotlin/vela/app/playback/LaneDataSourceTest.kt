@@ -127,6 +127,69 @@ class LaneDataSourceTest {
         }
     }
 
+    /**
+     * 旧地址的 GET 还在飞时，另一条请求已经把续期做完并清掉了在途任务。
+     * 预算的 3 秒最短间隔会拒绝再续一次；这条请求必须跟着新地址重取，不能把 403 交回去。
+     */
+    @Test(timeout = 30_000)
+    fun testInFlightForbiddenFollowsRenewalThatAlreadyFinished() {
+        withHub { hub, upstream ->
+            upstream.script("/a/video.m3u8", listOf(403, 403, 403, 403))
+            val arrived = CountDownLatch(2)
+            val releaseFollower = CountDownLatch(1)
+            upstream.beforeResponse = { path, ordinal ->
+                if (path == "/a/video.m3u8" && ordinal <= 2) {
+                    arrived.countDown()
+                    check(arrived.await(5, TimeUnit.SECONDS)) { "两条旧地址请求没有同时在途" }
+                    if (ordinal == 2) {
+                        check(releaseFollower.await(5, TimeUnit.SECONDS)) { "第二条 403 没有被放开" }
+                    }
+                }
+            }
+            val renewed = AtomicInteger()
+            val fresh = StreamRendition(video = URI.create("${upstream.base}/a2/video.m3u8"))
+            val handle = register(hub, upstream, "a") {
+                renewed.incrementAndGet()
+                fresh
+            }
+            val results = arrayOfNulls<Opened>(2)
+            val errors = arrayOfNulls<Throwable>(2)
+            val openers = List(2) { index ->
+                Thread {
+                    try {
+                        results[index] = open(hub, handle.url)
+                    } catch (error: Throwable) {
+                        errors[index] = error
+                    }
+                }.apply {
+                    isDaemon = true
+                    name = "lane-open-$index"
+                }
+            }
+            openers.forEach { it.start() }
+            try {
+                waitUntil(8_000) {
+                    renewed.get() >= 1 &&
+                        upstream.count("/a2/video.m3u8") >= 1 &&
+                        !hub.isRenewing(handle.id)
+                }
+            } finally {
+                releaseFollower.countDown()
+            }
+            openers.forEach { it.join(5_000) }
+            openers.forEach { assertFalse(it.isAlive) }
+            assertNull(errors[0]?.toString(), errors[0])
+            assertNull(errors[1]?.toString(), errors[1])
+            val first = results[0] ?: error("没有结果")
+            val second = results[1] ?: error("没有结果")
+            assertEquals("${first.text} / ${second.text} renews=${renewed.get()}", 200, first.code)
+            assertEquals(second.text, 200, second.code)
+            assertTrue(first.text, first.text.contains("/a2/seg"))
+            assertTrue(second.text, second.text.contains("/a2/seg"))
+            assertEquals(1, renewed.get())
+        }
+    }
+
     @Test(timeout = 30_000)
     fun testSuppressingAudioOfOneSourceKeepsTheOther() {
         withHub { hub, upstream ->
