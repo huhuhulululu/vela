@@ -46,7 +46,13 @@ import vela.core.feed.LoadSlot
 import vela.core.feed.PagingState
 import vela.core.feed.SearchEpoch
 import vela.core.feed.StartupGate
+import vela.core.hls.DegradedHold
+import vela.core.hls.PlaybackNoteRule
+import vela.core.hls.PreparedCache
+import vela.core.hls.SkipTracker
 import vela.core.ledger.DwellTracker
+import vela.core.lifecycle.AwayRetry
+import vela.core.lifecycle.AwayRetryTimer
 import vela.core.ledger.WatchLedger
 import vela.core.ledger.WatchLedgerStore
 import vela.core.lifecycle.ChallengeGate
@@ -60,7 +66,7 @@ import vela.core.taste.suggestedTags
 import vela.core.base.model.Room
 
 /**
- * 单窗舞台。目录、收藏、口味和列表落在这里；起播链、侧车和质询页由 A5b 接上。
+ * 单窗舞台。目录、收藏、口味、列表，以及接上播放器之后的起播链、侧车和质询都在这里。
  *
  * 列表改动一律走 [updateFeed]：先改副本，再交给 [vela.core.selection.LaneSelection.resolve]。
  * 单窗不设副路。房间换了用 [vela.core.selection.LaneSettlement] 结算停留。
@@ -73,7 +79,14 @@ class StageViewModel(
     dispatcher: CoroutineDispatcher = Dispatchers.Main.immediate,
     context: Context? = null,
 ) : StageContract {
-    internal val http: HTTPClient = http
+    internal val appContext: Context? = context
+    private val directHttp: HTTPClient = http
+    internal var sidecarHolder: SiteSidecar? = null
+    internal val http: HTTPClient = SidecarAwareClient(
+        direct = directHttp,
+        sidecar = { sidecarHolder },
+        active = { isSidecarWindow() },
+    )
     internal val text = StageText(context)
     internal val backoff = EndpointBackoffBox(now = { clock.instant() })
     internal val catalogAPI = CatalogAPI(http, backoff)
@@ -115,6 +128,15 @@ class StageViewModel(
     internal var volume: Double = Settings.DEFAULT_VOLUME
     internal var chromeVisible: Boolean = true
     internal var surface: StageSurface = StageSurface.None
+        set(value) {
+            val previous = field
+            field = value
+            if (value == StageSurface.Challenge) {
+                sidecarHolder?.suspendPage()
+            } else if (previous == StageSurface.Challenge) {
+                sidecarHolder?.resumeIfNeeded()
+            }
+        }
     internal var hintVisible: Boolean = false
     internal var hintSeen: Boolean = false
     internal var toast: String? = null
@@ -126,6 +148,23 @@ class StageViewModel(
     internal var startupNotices: List<String> = emptyList()
     internal var challengeResume: ChallengeResume? = null
     internal var laneFace = LaneFace()
+    /** 接上 [bindPlayback] 之后才向站点要地址。目录测试不接，请求数保持原样。 */
+    internal var playbackBound: Boolean = false
+    internal var playbackSink: PlaybackSink? = null
+    internal var playJob: Job? = null
+    internal var skipJob: Job? = null
+    internal var awayJob: Job? = null
+    internal val skips = SkipTracker()
+    internal val awayRetry = AwayRetry()
+    internal val awayTimer = AwayRetryTimer()
+    internal val prepared = PreparedCache()
+    internal val degradedHold = DegradedHold()
+    internal var sidecarUntil: Instant? = null
+    internal var playerNote: String? = null
+    internal var currentCap: Double = Double.POSITIVE_INFINITY
+    internal var prefetchEnabled: Boolean = true
+    internal var skipDelayMillis: Long = (SkipTracker.noticeSeconds * 1000.0).toLong()
+    internal var awayDelayOverrideMillis: Long? = null
     internal var quitRequested: Boolean = false
     internal var exportedFavorites: ByteArray? = null
 
@@ -203,6 +242,11 @@ class StageViewModel(
     }
 
     fun close() {
+        playJob?.cancel()
+        skipJob?.cancel()
+        awayJob?.cancel()
+        playbackSink?.stop()
+        sidecarHolder?.close()
         scope.cancel()
         tasteSaver.flush()
         curationSaver.flush()
@@ -241,12 +285,22 @@ class StageViewModel(
                 settings.infoAlwaysOn = infoAlwaysOn
                 publish()
             }
-            is StageIntent.Step -> if (intent.lane == LaneID.PRIMARY) move(intent.delta, userInitiated = true)
+            is StageIntent.Step -> if (intent.lane == LaneID.PRIMARY) {
+                if (intent.delta != 0) skips.noteManual(intent.delta)
+                move(intent.delta, userInitiated = true)
+            }
             is StageIntent.TogglePause -> togglePause(intent.target)
             is StageIntent.ToggleFavorite -> toggleFavorite(intent.target)
             is StageIntent.BlockCurrent -> blockCurrent(intent.target)
             is StageIntent.MarkNotInterested -> markNotInterested(intent.target)
-            is StageIntent.RetryPlayback -> retryPlayback(intent.target)
+            is StageIntent.RetryPlayback -> {
+                if (accepts(intent.target)) {
+                    degradedHold.release(DegradedHold.Release.RETRY)
+                    skips.reset()
+                    feed.currentUsername?.let { prepared.remove(it) }
+                }
+                retryPlayback(intent.target)
+            }
             is StageIntent.RemoveFavorite -> commitCuration(curation.unfavoriting(intent.name), null)
             is StageIntent.RestoreFavorite -> commitCuration(curation.restoringFavorite(intent.name), null)
             is StageIntent.Unblock -> commitCuration(curation.unblocking(intent.name), null)
@@ -256,7 +310,10 @@ class StageViewModel(
             StageIntent.ExportFavorites -> exportFavorites()
             is StageIntent.ImportFavorites -> importFavorites(intent.bytes)
             StageIntent.Retry -> track { retry() }
-            StageIntent.RetryAfterChallenge -> retryAfterChallenge()
+            StageIntent.RetryAfterChallenge -> {
+                skips.reset()
+                retryAfterChallenge()
+            }
             StageIntent.DismissChallenge -> {
                 if (surface == StageSurface.Challenge) {
                     surface = StageSurface.None
@@ -323,6 +380,7 @@ class StageViewModel(
         )
         if (same) {
             failureNote = null
+            playerNote = null
             dwell.clearFailure()
         }
         updateDwellActive()
@@ -331,7 +389,8 @@ class StageViewModel(
 
     override fun noteFailed(failed: Boolean, note: String) {
         if (!failed) {
-            val clear = laneFace.playbackNote == failureNote
+            val clear = PlaybackNoteRule.clearOnRecovery(laneFace.playbackNote, playerNote)
+            playerNote = null
             failureNote = null
             val playback = when (laneFace.playback) {
                 LanePlayback.Failed ->
@@ -342,10 +401,13 @@ class StageViewModel(
                 playback = playback,
                 playbackNote = if (clear) null else laneFace.playbackNote,
             )
+            dwell.clearFailure()
             publish()
             return
         }
+        dwell.markFailed()
         failureNote = note
+        playerNote = note
         chromeVisible = true
         laneFace = laneFace.copy(playback = LanePlayback.Failed, playbackNote = note)
         updateDwellActive()
@@ -451,31 +513,19 @@ class StageViewModel(
         )
     }
 
-    /** 只改界面上的这一路。真正向站点要地址是 A5b 的事。 */
-    internal fun requestPlay() {
+    /** 没接播放器时只推进界面。接上之后才解析地址并交给这一路。 */
+    internal fun requestPlay(isRetry: Boolean = false) {
+        if (!playbackBound) {
+            startUnboundPlayback()
+            return
+        }
         if (!ageConfirmed || laneFace.manuallyPaused) {
+            playJob?.cancel()
+            if (laneFace.manuallyPaused) playbackSink?.setAllowed(false)
             publish()
             return
         }
-        val name = feed.currentUsername
-        if (name == null) {
-            laneFace = laneFace.copy(username = null, playback = LanePlayback.Empty, playbackNote = null)
-            idleStart.markIdle()
-            updateDwellActive()
-            publish()
-            return
-        }
-        failureNote = null
-        laneFace = laneFace.copy(
-            username = name,
-            generation = laneFace.generation + 1,
-            playback = LanePlayback.Idle,
-            playbackNote = null,
-            readyUsername = null,
-            playingUsername = null,
-        )
-        updateDwellActive()
-        publish()
+        startBoundPlayback(isRetry)
     }
 
     internal fun cancelToastTimer() {
@@ -563,9 +613,24 @@ class StageViewModel(
 
     private fun togglePause(target: RoomTarget?) {
         if (target != null && !accepts(target)) return
-        laneFace = laneFace.copy(manuallyPaused = !laneFace.manuallyPaused)
+        val paused = !laneFace.manuallyPaused
+        laneFace = laneFace.copy(manuallyPaused = paused)
+        val allowed = !paused && ageConfirmed && feed.current != null && surface != StageSurface.Challenge
+        if (awayTimer.gateChanged(allowed)) {
+            awayJob?.cancel()
+            val replaced = AwayRetry.noteAfterCancel(laneFace.playbackNote)
+            if (replaced != laneFace.playbackNote) {
+                laneFace = laneFace.copy(playbackNote = replaced)
+            }
+        }
         updateDwellActive()
         publish()
+        if (paused) {
+            playJob?.cancel()
+            playbackSink?.setAllowed(false)
+        } else if (playbackBound) {
+            requestPlay()
+        }
     }
 
     private fun noteActivity() {
@@ -664,12 +729,39 @@ internal class StageText(context: Context?) {
 
     fun needsChallenge(): String = get(R.string.stage_catalog_needs_challenge, "目录需要先通过站点确认")
 
+    fun needsConfirm(): String = get(R.string.playchain_needs_confirm, "需要确认访问后才能播放")
+
+    fun challengeSkip(): String = get(R.string.playchain_challenge_skip, "站点连续要求确认，这一间先跳过")
+
+    fun connectFailed(): String = get(R.string.playchain_connect_failed, "连不上这路画面")
+
+    fun relayDown(): String = get(R.string.playchain_relay_down, "本地中继没能启动，暂时无法播放")
+
+    fun failure(failure: vela.core.stream.StreamFailure?): String = when (failure) {
+        vela.core.stream.StreamFailure.geo -> get(R.string.playchain_failure_geo, "当前地区不可观看")
+        vela.core.stream.StreamFailure.privateShow -> get(R.string.playchain_failure_private, "私密表演")
+        vela.core.stream.StreamFailure.group -> get(R.string.playchain_failure_group, "群组表演")
+        vela.core.stream.StreamFailure.away -> get(R.string.playchain_failure_away, "暂时离开")
+        vela.core.stream.StreamFailure.offline -> get(R.string.playchain_failure_offline, "已离线")
+        vela.core.stream.StreamFailure.hidden -> get(R.string.playchain_failure_hidden, "隐藏中")
+        vela.core.stream.StreamFailure.password -> get(R.string.playchain_failure_password, "需要房间密码")
+        vela.core.stream.StreamFailure.unavailable, null -> get(R.string.playchain_failure_unavailable, "暂时无法播放")
+    }
+
     fun imported(added: Int, skipped: String): String = get(R.string.stage_import, "已导入 %1\$d 个收藏%2\$s", added, skipped)
 
     fun importSkipped(rejected: Int): String = get(R.string.stage_import_skipped, "，忽略 %1\$d 条格式不对的", rejected)
 
     fun rollback(message: String, source: FeedSource): String =
         get(R.string.stage_rollback, "%1\$s，仍停在%2\$s", message, source(source))
+
+    fun challengeTitle(): String = get(R.string.playchain_challenge_title, "确认访问")
+
+    fun challengeBody(): String = get(R.string.playchain_challenge_body, "站点要求确认这次访问。完成后回到播放器即可，画面不会在这个窗口里播放。")
+
+    fun challengeDone(): String = get(R.string.playchain_challenge_done, "已完成，继续播放")
+
+    fun challengeClose(): String = get(R.string.playchain_challenge_close, "关闭")
 
     fun readOnly(label: String): String = "$label 文件无法读取，已停用保存"
 
