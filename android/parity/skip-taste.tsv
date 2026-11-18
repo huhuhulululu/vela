@@ -1,0 +1,5 @@
+# C6a 跳过。三列制表符：swift_file、swift_test、reason。
+# 旧版 Preferences 迁移不移植。
+swift_file	swift_test	reason
+Tests/VelaCoreTests/TasteTests.swift	testMigrationKeepsOldProfileAndSeen	不移植旧 Preferences 迁移（Taste 不含 init(migrating:)）
+Tests/VelaCoreTests/TasteTests.swift	testStoreMigratesOnceThenOwnsItsFile	不移植 TasteStore 从旧偏好文件迁移
