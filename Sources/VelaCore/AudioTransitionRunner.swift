@@ -22,13 +22,15 @@ public struct AudioOutcome: Equatable, Sendable {
     public var pausesPlayback: Bool
     public var ignored: Bool
     public var failed: Bool
+    /// 计划里的 `setActive(false)` 失败了（他人没收到恢复通知），调用方要重试或补做。
+    public var deactivationFailed: Bool
     /// 这次成功执行的 `setActive` 的结果：true 已激活，false 已停用；nil 表示没有这一步或这一步失败。
     public var sessionActiveAfter: Bool?
 
     public init(
         mutedAfter: Bool?, audibleLane: PlaybackLaneRole?, writesSettings: Bool,
         notice: String?, pausesPlayback: Bool, ignored: Bool, failed: Bool,
-        sessionActiveAfter: Bool? = nil
+        deactivationFailed: Bool = false, sessionActiveAfter: Bool? = nil
     ) {
         self.mutedAfter = mutedAfter
         self.audibleLane = audibleLane
@@ -37,6 +39,7 @@ public struct AudioOutcome: Equatable, Sendable {
         self.pausesPlayback = pausesPlayback
         self.ignored = ignored
         self.failed = failed
+        self.deactivationFailed = deactivationFailed
         self.sessionActiveAfter = sessionActiveAfter
     }
 }
@@ -56,6 +59,7 @@ public enum AudioTransitionRunner {
         }
         var categoryOK = true
         var activeOK = true
+        var deactivationFailed = false
         var sessionActiveAfter: Bool?
         var index = 0
         steps: while index < plan.steps.count {
@@ -93,6 +97,7 @@ public enum AudioTransitionRunner {
                     log("audio step active=\(active) notify=\(notify)")
                 } catch {
                     activeOK = false
+                    if !active { deactivationFailed = true }
                     log("audio step active failed")
                     if plan.attemptsAudible { break steps }
                 }
@@ -116,6 +121,7 @@ public enum AudioTransitionRunner {
             pausesPlayback: final.pausesPlayback,
             ignored: final.ignored,
             failed: failed,
+            deactivationFailed: deactivationFailed,
             sessionActiveAfter: sessionActiveAfter
         )
     }

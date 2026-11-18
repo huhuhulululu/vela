@@ -11,6 +11,8 @@ final class AudioFocusControllerTests: XCTestCase {
         var calls: [String] = []
         var failActive = false
         var failCategory = false
+        /// 只让接下来这么多次 `setActive(false)` 失败。
+        var failDeactivations = 0
         var onCategory: () -> Void = {}
 
         func setCategory(_ category: AudioSessionCategory, mode: AudioSessionMode?, options: AudioSessionOptions) throws {
@@ -22,6 +24,10 @@ final class AudioFocusControllerTests: XCTestCase {
         func setActive(_ active: Bool, notifyOthers: Bool) throws {
             calls.append("active \(active) notify=\(notifyOthers)")
             if failActive { throw Failure() }
+            if !active, failDeactivations > 0 {
+                failDeactivations -= 1
+                throw Failure()
+            }
         }
     }
 
@@ -200,7 +206,7 @@ final class AudioFocusControllerTests: XCTestCase {
         XCTAssertEqual(Array(driver.calls.prefix(2)), ["category playback mix=true", "active true notify=false"])
         XCTAssertTrue(stage.primary.player.hasItem, "随后确实起播了（播放器拿到了播放项）")
     }
-    // MARK: 审计修复：后台不改静音意图、最后一路停播
+    // MARK: 审计修复：后台不改静音意图、最后一路停播、再静音停用失败
 
     /// 出声进后台再回前台：运行时与设置一致（仍是出声），回前台起播前按出声重新准备会话。
     func testAudibleBackgroundThenForegroundKeepsIntentAndPreparesAudibleSession() {
@@ -260,5 +266,35 @@ final class AudioFocusControllerTests: XCTestCase {
         XCTAssertEqual(driver.calls.last, "active false notify=true", "\(driver.calls)")
         XCTAssertFalse(stage.muted)
         XCTAssertFalse(stage.settings.muted)
+    }
+
+    /// 再静音时停用失败：短延迟后重试一次。
+    func testRemuteDeactivationFailureRetriesOnce() async {
+        let (stage, controller, driver) = make()
+        controller.deactivationRetryDelay = 0.05
+        stage.toggleMute()
+        driver.calls = []
+        driver.failDeactivations = 1
+        stage.toggleMute()
+        XCTAssertTrue(stage.muted, "静音照样生效")
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(driver.calls.filter { $0 == "active false notify=true" }.count, 2, "\(driver.calls)")
+        XCTAssertFalse(controller.deactivationPending)
+    }
+
+    /// 重试仍失败：记下待补做，下次起播或停播时先补做停用。
+    func testRemuteDeactivationStillFailingIsRedoneOnNextTransition() async {
+        let (stage, controller, driver) = make()
+        controller.deactivationRetryDelay = 0.05
+        stage.toggleMute()
+        driver.calls = []
+        driver.failDeactivations = 2
+        stage.toggleMute()
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertTrue(controller.deactivationPending, "两次都失败：记下待补做")
+        driver.calls = []
+        stage.prepareAudioSession()
+        XCTAssertEqual(driver.calls.first, "active false notify=true", "起播前先补做停用：\(driver.calls)")
+        XCTAssertFalse(controller.deactivationPending)
     }
 }

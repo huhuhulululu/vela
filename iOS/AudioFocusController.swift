@@ -39,6 +39,11 @@ final class AudioFocusController: AudioFocusing, AudioLaneControlling {
     /// 会话此刻是否按我们的配置激活着。冷启动静音起播也要先落实会话类别，否则停在系统默认类别。
     /// 成功激活时置真，成功停用（再静音、进后台、最后一路停播）时复位，下次起播按当时的静音状态重新准备。
     private(set) var sessionPrepared = false
+    /// `setActive(false)` 失败后重试前的等待。测试缩短。
+    var deactivationRetryDelay: TimeInterval = 0.25
+    /// 停用失败且重试也失败：他人还没收到恢复通知，下次起播或停播时先补做。
+    private(set) var deactivationPending = false
+    private var deactivationRetry: Task<Void, Never>?
 
     init(
         stage: StageModel,
@@ -79,8 +84,9 @@ final class AudioFocusController: AudioFocusing, AudioLaneControlling {
         return outcome
     }
 
-    /// 起播前：按当前静音状态准备会话（已按配置激活着就不重复）。
+    /// 起播前：先补做之前没成功的停用，再按当前静音状态准备会话（已按配置激活着就不重复）。
     func prepareSession(muted: Bool) -> AudioOutcome? {
+        redoPendingDeactivation()
         guard !sessionPrepared else { return nil }
         Self.log.info("audio prepare muted=\(muted)")
         return perform(.prepare(muted: muted))
@@ -89,15 +95,47 @@ final class AudioFocusController: AudioFocusing, AudioLaneControlling {
     /// 最后一路停播（筛选清空、播放失败、进入访问确认）：停用会话并通知他人恢复（§3.3）。
     /// 会话本来就没激活、或画中画还在播时不做。运行时静音意图不变。
     func releaseAfterLastLaneStopped() -> AudioOutcome? {
-        guard sessionPrepared, !pictureInPictureActive() else { return nil }
+        guard sessionPrepared || deactivationPending, !pictureInPictureActive() else { return nil }
         Self.log.info("audio last lane stopped")
         return perform(.deactivate(.lastLaneStopped))
     }
 
-    /// 记下这次转换之后会话的状态。
+    /// 记下这次转换之后会话的状态；停用失败就短延迟后重试一次，仍失败记错误并留待补做。
     private func noteSession(_ outcome: AudioOutcome) {
         if let active = outcome.sessionActiveAfter {
             sessionPrepared = active
+            deactivationPending = false
+            deactivationRetry?.cancel()
+            deactivationRetry = nil
+        }
+        guard outcome.deactivationFailed else { return }
+        deactivationPending = true
+        deactivationRetry?.cancel()
+        let delay = UInt64(max(deactivationRetryDelay, 0) * 1_000_000_000)
+        deactivationRetry = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: delay)
+            guard !Task.isCancelled, let self else { return }
+            self.deactivationRetry = nil
+            if !self.redoPendingDeactivation() {
+                Self.log.error("audio deactivate retry failed, will redo on next start or stop")
+            }
+        }
+    }
+
+    /// 补做停用（通知他人恢复）。没有待补做、或画中画还在播（会话要保持）时什么都不做。返回是否已没有待补做。
+    @discardableResult
+    private func redoPendingDeactivation() -> Bool {
+        guard deactivationPending else { return true }
+        guard !pictureInPictureActive() else { return false }
+        do {
+            try driver.setActive(false, notifyOthers: true)
+            Self.log.info("audio deactivate redone")
+            deactivationPending = false
+            sessionPrepared = false
+            return true
+        } catch {
+            Self.log.error("audio deactivate redo failed")
+            return false
         }
     }
 
