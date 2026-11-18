@@ -30,7 +30,11 @@ struct PhoneRoomPage: View {
                 noteMark(note)
             }
             // 只在允许播放时显示：后台或闸门关闭时播放项已释放，加载线的无限动画只会空转耗电。
-            if active && !videoReady && lane.playbackNote == nil && !lane.manuallyPaused && model.playbackGateOpen {
+            // 读已发布的 `playbackGateOpen` 让闸门变化能触发重绘，再按本路自己的闸门判断（副路可能单独暂停或被释放）。
+            if Self.showsLoadingLine(
+                active: active, videoReady: videoReady, hasNote: lane.playbackNote != nil,
+                laneAllowed: model.playbackGateOpen && model.laneAllowed(lane)
+            ) {
                 PhoneLoadingLine()
             }
         }
@@ -45,7 +49,10 @@ struct PhoneRoomPage: View {
         PerfEntry.pipOnAllLanes || lane == focus
     }
 
-    static func showsLoadingLine(active: Bool, videoReady: Bool, hasNote: Bool, laneAllowed: Bool) -> Bool { false }
+    /// 加载线只在这一路允许播放、还没出画面、没有提示时显示：闸门关着（后台、手动暂停、画中画释放）播放项已释放，无限动画只会空转。
+    static func showsLoadingLine(active: Bool, videoReady: Bool, hasNote: Bool, laneAllowed: Bool) -> Bool {
+        active && !videoReady && !hasNote && laneAllowed
+    }
 
     private var pipController: PictureInPictureCoordinator? {
         Self.carriesPictureInPicture(lane: lane.id, focus: model.focusLane) ? model.platform.pipCoordinator : nil
