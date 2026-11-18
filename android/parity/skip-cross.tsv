@@ -1,4 +1,5 @@
 # C9 跳过。三列制表符：swift_file、swift_test、reason。
-# 组 cross 的用例都已移植，这里没有跳过行。
+# 组 cross 的用例除下面登记的 iOS 专属项外都已移植。
 # deferred:C9 由 split-cross.tsv 里真正跑过的映射消化，不在本文件用非 deferred 理由销掉。
 swift_file	swift_test	reason
+Tests/VelaCoreTests/ReviewFixTests.swift	testCancelStopsInflightBatchAndLaterRunsStillWork	不移植：iOS 挂起时取消在途批次（安卓无对应的统一挂起）
