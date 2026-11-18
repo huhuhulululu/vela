@@ -130,7 +130,7 @@ struct FavoritesPanel: View {
     private var emptyState: some View {
         VStack(spacing: 6) {
             Text("还没有收藏").font(Theme.titleFont)
-            Text("在房间里单击心形，或按 ⌘D 收藏")
+            Text(Self.emptyHint)
                 .font(Theme.captionFont)
                 .foregroundStyle(Theme.textSecondary)
         }
@@ -264,4 +264,13 @@ struct FavoritesPanel: View {
         .menuIndicator(.hidden)
         .fixedSize()
     }
+}
+
+extension FavoritesPanel {
+    /// 空收藏夹的提示。macOS 有单击与 ⌘D，iOS 只说轻点。
+    #if os(macOS)
+    static let emptyHint = "在房间里单击心形，或按 ⌘D 收藏"
+    #else
+    static let emptyHint = "在房间里轻点心形收藏"
+    #endif
 }

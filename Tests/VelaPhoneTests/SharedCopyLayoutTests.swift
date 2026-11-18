@@ -14,6 +14,24 @@ final class SharedCopyLayoutTests: XCTestCase {
         XCTAssertTrue(copy.blurb.contains("18 岁"), "年龄提示不能丢")
     }
 
+    /// 两端共用的面板文案在 iOS 上不能出现 macOS 专属说法（这台 Mac、⌘ 快捷键、单击、窗口）。
+    func testSharedPanelCopyHasNoMacOnlyWording() {
+        let copies = [
+            ("口味面板页眉", TastePanel.privacyNote),
+            ("收藏夹空状态", FavoritesPanel.emptyHint),
+            ("访问确认页眉", ChallengeContent.hint),
+            ("收藏来源空列表", EmptyListCopy.message(
+                catalogError: nil, query: RoomQuery(), catalog: [], source: .favorites, favoriteCount: 0
+            ))
+        ]
+        for (place, text) in copies {
+            for word in ["Mac", "⌘", "单击", "窗口", "桌面", "菜单栏"] {
+                XCTAssertFalse(text.contains(word), "\(place)含 macOS 专属说法「\(word)」：\(text)")
+            }
+        }
+        XCTAssertTrue(TastePanel.privacyNote.contains("不上传"), "隐私说明的要点不能丢")
+    }
+
     func testTastePanelFitsNarrowScreen() {
         for available in [320.0, 375.0] {
             let width = renderedWidth(TastePanel.fixture(width: nil), proposed: available)

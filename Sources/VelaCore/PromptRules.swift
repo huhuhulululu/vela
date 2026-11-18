@@ -28,13 +28,20 @@ public enum SuggestRules {
 
 /// 列表为空时的说明：按原因区分，用户知道该去哪里处理。
 public enum EmptyListCopy {
+    /// 还没有收藏：macOS 提示 ⌘D，iOS 没有这个快捷键，只说轻点心形。
+    #if os(macOS)
+    static let noFavoritesYet = "还没有收藏，在房间里按 ⌘D 收藏"
+    #else
+    static let noFavoritesYet = "还没有收藏，在房间里轻点心形收藏"
+    #endif
+
     public static func message(
         catalogError: String?, query: RoomQuery, catalog: [Room], source: FeedSource, favoriteCount: Int
     ) -> String {
         if let catalogError { return catalogError }
         guard !catalog.isEmpty else {
             if source == .favorites {
-                return favoriteCount == 0 ? "还没有收藏，在房间里按 ⌘D 收藏" : "收藏的人现在都不在线"
+                return favoriteCount == 0 ? noFavoritesYet : "收藏的人现在都不在线"
             }
             return "目录里现在没有房间，可以稍后重试"
         }

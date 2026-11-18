@@ -62,7 +62,7 @@ struct TastePanel: View {
         VStack(alignment: .leading, spacing: 3) {
             Text("我的口味")
                 .font(.system(size: 13, weight: .semibold))
-            Text("偏好只保存在这台 Mac 上，不上传。")
+            Text(Self.privacyNote)
                 .font(.system(size: 11))
                 .foregroundStyle(Theme.textSecondary)
                 .lineLimit(1)
@@ -232,4 +232,9 @@ struct TastePanel: View {
         }
         .buttonStyle(QuietButtonStyle())
     }
+}
+
+extension TastePanel {
+    /// 页眉的隐私说明。两端通用，不点名设备。
+    static let privacyNote = "偏好只保存在本机，不上传。"
 }
