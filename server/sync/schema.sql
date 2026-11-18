@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS meta (
 CREATE TABLE IF NOT EXISTS blobs (
     id TEXT PRIMARY KEY CHECK(length(id)=64),
     ver INTEGER NOT NULL,
-    pub BLOB NOT NULL CHECK(length(pub)=32),
+    pub BLOB NOT NULL CHECK(length(pub)=65),
     data TEXT NOT NULL,
     size INTEGER NOT NULL,
     created_at INTEGER NOT NULL,

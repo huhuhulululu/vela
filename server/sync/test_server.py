@@ -18,8 +18,9 @@ import unittest
 import urllib.error
 import urllib.request
 
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
 
 import app
 import backup
@@ -29,7 +30,7 @@ import rotate_epoch
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 VECTORS = os.path.join(ROOT, "Tests", "Fixtures", "sync", "vectors.json")
-WYCHEPROOF = os.path.join(HERE, "testdata", "ed25519_test.json")
+WYCHEPROOF = os.path.join(HERE, "testdata", "ecdsa_secp256r1_sha256_test.json")
 
 CREATE_BYTE_LIMIT = 214_748_364
 UPDATE_BYTE_LIMIT = 268_435_456
@@ -38,27 +39,8 @@ MAX_ENVELOPE = 800_100
 MAX_BODY = 802_048
 HEADER_LIMIT = 8192
 DEADLINE_S = 10.0
-
-RFC8032 = [
-    {
-        "seed": "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
-        "msg": "",
-        "sig": "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e06522490155"
-        "5fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b",
-    },
-    {
-        "seed": "4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb",
-        "msg": "72",
-        "sig": "92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da"
-        "085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00",
-    },
-    {
-        "seed": "c5aa8df43f9f837bedb7442f31dcb7b166d38535076f094b85ce3a2e0b4458f7",
-        "msg": "af82",
-        "sig": "6291d657deec24024827e69c3abe01a30ce548a284743a445e3680d7db5ac3ac"
-        "18ff9b538d16f290ae67f760984dc6594a7c15e9716ed28dc027beceea1ec40a",
-    },
-]
+# 第 4.1 节写死的 P-256 阶。
+P256_N = int("FFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551", 16)
 
 
 def b64url_encode(raw):
@@ -90,11 +72,89 @@ def sign_message(op, blob_id, epoch, base, envelope):
 
 
 def new_key():
-    sk = Ed25519PrivateKey.generate()
+    sk = ec.generate_private_key(ec.SECP256R1())
     pub = sk.public_key().public_bytes(
-        serialization.Encoding.Raw, serialization.PublicFormat.Raw
+        serialization.Encoding.X962,
+        serialization.PublicFormat.UncompressedPoint,
     )
+    if len(pub) != 65 or pub[0] != 0x04:
+        raise AssertionError("uncompressed P-256 public key")
     return sk, pub
+
+
+def raw_sign(sk, msg):
+    """第 9 节：ECDSA P-256 SHA-256，线上 r‖s 各 32 字节大端。k 由平台 CSPRNG 生成。"""
+    der = sk.sign(msg, ec.ECDSA(hashes.SHA256()))
+    r, s = decode_dss_signature(der)
+    if r < 1 or r >= P256_N or s < 1 or s >= P256_N:
+        raise AssertionError("signature scalar out of range")
+    return r.to_bytes(32, "big") + s.to_bytes(32, "big")
+
+
+def _read_der_len(buf, i):
+    if i >= len(buf):
+        return None
+    first = buf[i]
+    i += 1
+    if first < 0x80:
+        return first, i, True
+    nbytes = first & 0x7F
+    if nbytes == 0 or i + nbytes > len(buf):
+        return None
+    # 长形式不得有前导 0，也不得在短形式够用时使用。
+    canonical = buf[i] != 0 and not (nbytes == 1 and buf[i] < 0x80)
+    value = int.from_bytes(buf[i : i + nbytes], "big")
+    return value, i + nbytes, canonical
+
+
+def _read_der_int(buf, i):
+    if i >= len(buf) or buf[i] != 0x02:
+        return None
+    got = _read_der_len(buf, i + 1)
+    if got is None:
+        return None
+    length, nxt, len_ok = got
+    if length < 1 or nxt + length > len(buf):
+        return None
+    raw = buf[nxt : nxt + length]
+    nxt += length
+    if raw[0] & 0x80:
+        return ("negative", nxt)
+    canonical = len_ok
+    if len(raw) > 1 and raw[0] == 0x00 and (raw[1] & 0x80) == 0:
+        canonical = False
+    return ("int", int.from_bytes(raw, "big"), nxt, canonical)
+
+
+def _rs_from_strict_der(sig):
+    """严格 DER 的 (r, s)。返回 ("ok", r, s) 或 (跳过原因,)。"""
+    if not sig or sig[0] != 0x30:
+        return ("structural",)
+    got = _read_der_len(sig, 1)
+    if got is None:
+        return ("structural",)
+    length, i, len_ok = got
+    if i + length != len(sig):
+        return ("structural",)
+    first = _read_der_int(sig, i)
+    if first is None:
+        return ("structural",)
+    if first[0] == "negative":
+        return ("negative",)
+    _tag, r, i, r_ok = first
+    second = _read_der_int(sig, i)
+    if second is None:
+        return ("structural",)
+    if second[0] == "negative":
+        return ("negative",)
+    _tag, s, i, s_ok = second
+    if i != len(sig):
+        return ("structural",)
+    if not (len_ok and r_ok and s_ok):
+        return ("noncanonical",)
+    if r >= (1 << 256) or s >= (1 << 256):
+        return ("too_wide",)
+    return ("ok", r, s)
 
 
 def envelope(payload_len=22):
@@ -140,6 +200,7 @@ class UnitTest(unittest.TestCase):
         self.assertEqual(app.UPDATE_BYTE_LIMIT, 256 * 1024 * 1024)
         self.assertEqual(app.UPDATE_BYTE_LIMIT * 80 // 100, CREATE_BYTE_LIMIT)
         self.assertEqual(app.HEALTH_BYTE_LIMIT, UPDATE_BYTE_LIMIT * 70 // 100)
+        self.assertEqual(app.P256_N, P256_N)
 
     def test_signed_message_bytes(self):
         blob = "ab" * 32
@@ -164,59 +225,117 @@ class UnitTest(unittest.TestCase):
         self.assertTrue(deleted.endswith(b"\n5\n-"))
         self.assertFalse(deleted.endswith(b"-\n"))
 
-    def test_rfc8032_vectors(self):
-        for vec in RFC8032:
-            msg = bytes.fromhex(vec["msg"]) if vec["msg"] else b""
-            sk = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(vec["seed"]))
-            sig = sk.sign(msg)
-            self.assertEqual(sig.hex(), vec["sig"])
-            pub = sk.public_key().public_bytes(
-                serialization.Encoding.Raw, serialization.PublicFormat.Raw
-            )
-            self.assertEqual(len(pub), 32)
-            self.assertTrue(app.verify_ed25519(pub, sig, msg))
-            flipped = bytearray(sig)
-            flipped[0] ^= 0x01
-            self.assertFalse(app.verify_ed25519(pub, bytes(flipped), msg))
+    def test_p256_format_and_high_s(self):
+        sk, pub = new_key()
+        msg = b"vela-sync/v2/put\n" + b"ab" * 32
+        sig = raw_sign(sk, msg)
+        self.assertEqual(len(sig), 64)
+        self.assertTrue(app.verify_p256(pub, sig, msg))
+        flipped = bytearray(sig)
+        flipped[-1] ^= 0x01
+        self.assertFalse(app.verify_p256(pub, bytes(flipped), msg))
+        for bad in (sig[:63], sig + b"\x00", b"", sig[:32], b"\x11" * 128):
+            self.assertFalse(app.verify_p256(pub, bad, msg))
+        r = int.from_bytes(sig[:32], "big")
+        s = int.from_bytes(sig[32:], "big")
+        one = (1).to_bytes(32, "big")
+        for raw in (
+            b"\x00" * 32 + s.to_bytes(32, "big"),
+            r.to_bytes(32, "big") + (b"\x00" * 32),
+            P256_N.to_bytes(32, "big") + one,
+            one + P256_N.to_bytes(32, "big"),
+            (P256_N + 1).to_bytes(32, "big") + one,
+        ):
+            self.assertEqual(len(raw), 64)
+            self.assertFalse(app.verify_p256(pub, raw, msg))
+        high = r.to_bytes(32, "big") + (P256_N - s).to_bytes(32, "big")
+        self.assertNotEqual(high[32:], sig[32:])
+        self.assertTrue(app.verify_p256(pub, high, msg))
+        off = b"\x04" + (b"\x11" * 64)
+        self.assertFalse(app.verify_p256(off, sig, msg))
+        self.assertFalse(app.verify_p256(pub[:32], sig, msg))
+        self.assertFalse(app.verify_p256(b"\x02" + pub[1:], sig, msg))
 
-    def test_wycheproof_ed25519(self):
-        doc = json.load(open(WYCHEPROOF, encoding="utf-8"))
-        self.assertEqual(doc["algorithm"], "EDDSA")
-        counts = {"valid": 0, "invalid": 0, "acceptable": 0}
-        rejected_flags = {"SignatureMalleability": 0, "InvalidEncoding": 0}
+    def test_wycheproof_ecdsa_p256_sha256(self):
+        # Wycheproof 这份是 ASN.1 签名。线上格式是固定 64 字节 r‖s，
+        # 只能表达「严格 DER 且 r、s 均为小于 2^256 的非负整数」的条目。
+        # BER、负整数、超过 32 字节的整数、截断或类型错误表达不了，不送入验签；
+        # 长度不为 64 的拒绝见 test_p256_format_and_high_s 与 HTTP 用例。
+        with open(WYCHEPROOF, encoding="utf-8") as handle:
+            doc = json.load(handle)
+        self.assertEqual(doc["algorithm"], "ECDSA")
+        self.assertEqual(doc["schema"], "ecdsa_verify_schema_v1.json")
+        seen = 0
+        included = {"valid": 0, "invalid": 0, "acceptable": 0}
+        skipped = {
+            "structural": 0,
+            "negative": 0,
+            "noncanonical": 0,
+            "too_wide": 0,
+        }
+        out_of_range = {"r0": 0, "s0": 0, "r_ge_n": 0, "s_ge_n": 0}
         problems = []
         for group in doc["testGroups"]:
-            pub = bytes.fromhex(group["publicKey"]["pk"])
+            self.assertEqual(group.get("sha"), "SHA-256")
+            self.assertEqual(group["publicKey"]["curve"], "secp256r1")
+            pub = bytes.fromhex(group["publicKey"]["uncompressed"])
+            self.assertEqual(len(pub), 65)
+            self.assertEqual(pub[0], 0x04)
             for case in group["tests"]:
+                seen += 1
+                sig = bytes.fromhex(case["sig"]) if case["sig"] else b""
+                parsed = _rs_from_strict_der(sig)
+                if parsed[0] != "ok":
+                    skipped[parsed[0]] += 1
+                    continue
+                r, s = parsed[1], parsed[2]
+                raw = r.to_bytes(32, "big") + s.to_bytes(32, "big")
                 msg = bytes.fromhex(case["msg"]) if case["msg"] else b""
-                sig = bytes.fromhex(case["sig"])
-                accepted = app.verify_ed25519(pub, sig, msg)
+                accepted = app.verify_p256(pub, raw, msg)
                 result = case["result"]
-                counts[result] = counts.get(result, 0) + 1
-                flags = case.get("flags") or []
+                included[result] = included.get(result, 0) + 1
+                if not (1 <= r < P256_N and 1 <= s < P256_N):
+                    if r == 0:
+                        out_of_range["r0"] += 1
+                    if s == 0:
+                        out_of_range["s0"] += 1
+                    if r >= P256_N:
+                        out_of_range["r_ge_n"] += 1
+                    if s >= P256_N:
+                        out_of_range["s_ge_n"] += 1
+                    self.assertFalse(accepted)
                 if result == "valid" and not accepted:
-                    problems.append(("valid-rejected", case["tcId"], flags))
+                    problems.append(("valid-rejected", case["tcId"], case.get("flags")))
                 elif result == "invalid" and accepted:
-                    problems.append(("invalid-accepted", case["tcId"], flags))
-                elif result == "invalid":
-                    for flag in ("SignatureMalleability", "InvalidEncoding"):
-                        if flag in flags:
-                            rejected_flags[flag] += 1
+                    problems.append(("invalid-accepted", case["tcId"], case.get("flags")))
+                elif result == "acceptable" and accepted not in (True, False):
+                    problems.append(("acceptable", case["tcId"]))
         self.assertEqual(problems, [])
-        self.assertGreater(counts["valid"], 0)
-        self.assertGreater(counts["invalid"], 0)
-        self.assertGreater(counts["acceptable"], 0)
-        self.assertGreater(rejected_flags["SignatureMalleability"], 0)
-        self.assertGreater(rejected_flags["InvalidEncoding"], 0)
+        self.assertEqual(seen, doc["numberOfTests"])
+        self.assertGreater(included["valid"], 0)
+        self.assertGreater(included["invalid"], 0)
+        self.assertGreater(out_of_range["r0"], 0)
+        self.assertGreater(out_of_range["s0"], 0)
+        self.assertGreater(out_of_range["r_ge_n"], 0)
+        self.assertGreater(out_of_range["s_ge_n"], 0)
+        for reason in skipped:
+            self.assertGreater(skipped[reason], 0, reason)
+        self.assertEqual(
+            seen,
+            sum(included.values()) + sum(skipped.values()),
+        )
 
     def test_vectors_json_sign_section_when_present(self):
         if not os.path.exists(VECTORS):
             self.skipTest("S0 vectors.json 尚未产出")
-        doc = json.load(open(VECTORS, encoding="utf-8"))
+        with open(VECTORS, encoding="utf-8") as handle:
+            doc = json.load(handle)
         self.assertIn("sign", doc)
         self.assertIn("signInvalid", doc)
         self.assertGreater(len(doc["sign"]), 0)
         self.assertGreater(len(doc["signInvalid"]), 0)
+        p256 = 0
+        legacy = 0
 
         def rebuild(item):
             op = item["op"]
@@ -234,20 +353,47 @@ class UnitTest(unittest.TestCase):
             return text.encode("ascii")
 
         for item in doc["sign"]:
-            msg = rebuild(item)
-            self.assertEqual(msg, bytes.fromhex(item["message_hex"]))
-            self.assertEqual(item["next"], item["base"] + 1)
+            if all(k in item for k in ("op", "blobID", "epoch", "base", "next")):
+                msg = rebuild(item)
+                self.assertEqual(msg, bytes.fromhex(item["message_hex"]))
+                self.assertEqual(item["next"], item["base"] + 1)
+            else:
+                msg = bytes.fromhex(item["message_hex"])
             pub = app.b64url_decode(item["pub_b64url"])
             sig = app.b64url_decode(item["sig_b64url"])
-            self.assertTrue(app.verify_ed25519(pub, sig, msg))
+            if len(pub) == 65 and pub[0] == 0x04:
+                self.assertTrue(app.verify_p256(pub, sig, msg))
+                if item.get("valid") is False:
+                    self.fail("sign entry marked invalid")
+                p256 += 1
+            elif len(pub) == 32 and "signSeed_hex" in item:
+                # v4 Ed25519 金样本还在树里；不能当成 P-256 验签。
+                legacy += 1
+            else:
+                self.fail("unrecognized sign vector shape")
         for item in doc["signInvalid"]:
-            msg = rebuild(item)
+            if all(k in item for k in ("op", "blobID", "epoch", "base", "next")):
+                msg = rebuild(item)
+                if "message_hex" in item:
+                    self.assertEqual(msg, bytes.fromhex(item["message_hex"]))
+            elif "message_hex" in item:
+                msg = bytes.fromhex(item["message_hex"])
+            else:
+                self.fail("signInvalid missing message")
             try:
                 pub = app.b64url_decode(item["pub_b64url"])
                 sig = app.b64url_decode(item["sig_b64url"])
             except ValueError:
                 continue
-            self.assertFalse(app.verify_ed25519(pub, sig, msg))
+            if len(pub) == 65 and pub[0] == 0x04:
+                self.assertFalse(app.verify_p256(pub, sig, msg))
+                p256 += 1
+            elif len(pub) == 32:
+                legacy += 1
+                self.assertFalse(app.verify_p256(pub, sig, msg))
+            else:
+                self.assertFalse(app.verify_p256(pub, sig, msg))
+        self.assertGreater(p256 + legacy, 0)
 
     def test_lru_evicts_oldest_bucket_only(self):
         self.assertEqual(app.LRU_BUCKETS, 10_000)
@@ -269,7 +415,7 @@ class UnitTest(unittest.TestCase):
     def test_schema_and_pragmas(self):
         sql = open(os.path.join(HERE, "schema.sql"), encoding="utf-8").read()
         self.assertIn("CHECK(length(id)=64)", sql)
-        self.assertIn("CHECK(length(pub)=32)", sql)
+        self.assertIn("CHECK(length(pub)=65)", sql)
         self.assertIn("CREATE TABLE IF NOT EXISTS deleted", sql)
         self.assertIn("CREATE TABLE IF NOT EXISTS creations", sql)
         self.assertIn("CREATE INDEX IF NOT EXISTS creations_ts", sql)
@@ -361,7 +507,7 @@ class ProtocolTest(unittest.TestCase):
 
     def signed_put(self, sk, blob, epoch, base, env, pub=None):
         msg = sign_message("put", blob, epoch, base, env)
-        body = put_bytes(base, env, sk.sign(msg), pub)
+        body = put_bytes(base, env, raw_sign(sk, msg), pub)
         return body
 
     def create(self, blob=None, env=None, ip=None, sk=None, pub=None):
@@ -394,14 +540,18 @@ class ProtocolTest(unittest.TestCase):
         self.assertEqual(obj["data"], env)
         self.assertEqual(obj["epoch"], epoch)
         conn = sqlite3.connect(self.db)
-        row = conn.execute("SELECT ver, size, length(data) FROM blobs WHERE id=?", (blob,)).fetchone()
+        row = conn.execute(
+            "SELECT ver, size, length(data), length(pub) FROM blobs WHERE id=?", (blob,)
+        ).fetchone()
         conn.close()
         self.assertEqual(row[0], 1)
         self.assertEqual(row[1], len(env))
         self.assertEqual(row[2], len(env))
+        self.assertEqual(row[3], 65)
+        self.assertEqual(len(b64url_encode(pub)), 87)
         # 非创建请求带 pub 会被拒，已登记的 pub 不变。
         msg = sign_message("put", blob, epoch, 1, envelope(40))
-        bad = put_bytes(1, envelope(40), sk.sign(msg), pub)
+        bad = put_bytes(1, envelope(40), raw_sign(sk, msg), pub)
         status, hdr, data = self.call("PUT", "/v2/blob/" + blob, bad)
         self.assert_json(status, hdr, data, 400)
         status, hdr, data = self.call("GET", "/v2/blob/" + blob)
@@ -415,7 +565,7 @@ class ProtocolTest(unittest.TestCase):
         sk, pub = new_key()
         epoch = self.epoch_of(blob)
         msg = sign_message("put", blob, epoch, 0, env)
-        sig = bytearray(sk.sign(msg))
+        sig = bytearray(raw_sign(sk, msg))
         sig[-1] ^= 0x01
         body = put_bytes(0, env, bytes(sig), pub)
         status, hdr, data = self.call("PUT", "/v2/blob/" + blob, body)
@@ -427,6 +577,70 @@ class ProtocolTest(unittest.TestCase):
         n = conn.execute("SELECT count(*) FROM creations").fetchone()[0]
         conn.close()
         self.assertEqual(n, 0)
+
+    def test_sig_length_and_scalar_range_403(self):
+        blob = "12" * 32
+        env = envelope()
+        sk, pub = new_key()
+        epoch = self.epoch_of(blob)
+        msg = sign_message("put", blob, epoch, 0, env)
+        good = raw_sign(sk, msg)
+        r = int.from_bytes(good[:32], "big")
+        s = int.from_bytes(good[32:], "big")
+        one = (1).to_bytes(32, "big")
+        cases = [
+            good[:63],
+            good + b"\x00",
+            b"\x00" * 32 + s.to_bytes(32, "big"),
+            r.to_bytes(32, "big") + (b"\x00" * 32),
+            P256_N.to_bytes(32, "big") + one,
+            one + P256_N.to_bytes(32, "big"),
+        ]
+        # 验签失败每分钟 5 次，每条换一个 IP 桶，避免第 6 条被记成 429。
+        for i, raw in enumerate(cases):
+            body = put_bytes(0, env, raw, pub)
+            status, hdr, data = self.call(
+                "PUT", "/v2/blob/" + blob, body, ip="203.0.113.%d" % (20 + i)
+            )
+            self.assert_json(status, hdr, data, 403)
+        status, hdr, data = self.call("GET", "/v2/blob/" + blob)
+        self.assert_json(status, hdr, data, 404)
+
+    def test_bad_point_400_on_create(self):
+        blob = "13" * 32
+        env = envelope()
+        epoch = self.epoch_of(blob)
+        msg = sign_message("put", blob, epoch, 0, env)
+        sk, good_pub = new_key()
+        sig = raw_sign(sk, msg)
+        for pub in (
+            b"\x04" + (b"\x11" * 64),
+            b"\x02" + good_pub[1:],
+            good_pub[:64],
+            good_pub + b"\x00",
+            b"\x00" * 65,
+        ):
+            body = put_bytes(0, env, sig, pub)
+            status, hdr, data = self.call("PUT", "/v2/blob/" + blob, body)
+            self.assert_json(status, hdr, data, 400)
+        status, hdr, data = self.call("GET", "/v2/blob/" + blob)
+        self.assert_json(status, hdr, data, 404)
+
+    def test_high_s_create_accepted(self):
+        blob = "14" * 32
+        env = envelope()
+        sk, pub = new_key()
+        epoch = self.epoch_of(blob)
+        msg = sign_message("put", blob, epoch, 0, env)
+        sig = raw_sign(sk, msg)
+        r = int.from_bytes(sig[:32], "big")
+        s = int.from_bytes(sig[32:], "big")
+        high = r.to_bytes(32, "big") + (P256_N - s).to_bytes(32, "big")
+        self.assertNotEqual(high, sig)
+        body = put_bytes(0, env, high, pub)
+        status, hdr, data = self.call("PUT", "/v2/blob/" + blob, body)
+        obj = self.assert_json(status, hdr, data, 200)
+        self.assertEqual(obj["ver"], 1)
 
     def test_wrong_epoch_403(self):
         blob = "22" * 32
@@ -452,12 +666,12 @@ class ProtocolTest(unittest.TestCase):
         # 版本不符但签名是按请求体里的 base 签的：先验签，再 409。
         other = envelope(28)
         msg = sign_message("put", blob, epoch, 5, other)
-        mismatch = put_bytes(5, other, sk.sign(msg))
+        mismatch = put_bytes(5, other, raw_sign(sk, msg))
         status, hdr, data = self.call("PUT", "/v2/blob/" + blob, mismatch)
         obj = self.assert_json(status, hdr, data, 409)
         self.assertEqual(obj["data"], env)
         msg = sign_message("put", blob, epoch, 5, other)
-        bad = bytearray(sk.sign(msg))
+        bad = bytearray(raw_sign(sk, msg))
         bad[0] ^= 0x04
         status, hdr, data = self.call("PUT", "/v2/blob/" + blob, put_bytes(5, other, bytes(bad)))
         self.assert_json(status, hdr, data, 403)
@@ -555,7 +769,7 @@ class ProtocolTest(unittest.TestCase):
         blob = "66" * 32
         sk, pub, epoch, env, create_body = self.create(blob)
         msg = sign_message("delete", blob, epoch, 1, env)
-        dbody = delete_bytes(1, sk.sign(msg))
+        dbody = delete_bytes(1, raw_sign(sk, msg))
         status, hdr, data = self.call("POST", "/v2/blob/" + blob + "/delete", dbody)
         obj = self.assert_json(status, hdr, data, 200)
         self.assertEqual(set(obj), {"epoch", "now"})
@@ -944,13 +1158,13 @@ class ProtocolTest(unittest.TestCase):
         env = envelope()
         for i in range(5):
             msg = sign_message("put", "91" * 32, epoch, 0, env)
-            sig = bytearray(sk.sign(msg))
+            sig = bytearray(raw_sign(sk, msg))
             sig[i] ^= 0x01
             body = put_bytes(0, env, bytes(sig), pub)
             status, hdr, data = self.call("PUT", "/v2/blob/" + ("91" * 32), body, ip="203.0.113.141")
             self.assert_json(status, hdr, data, 403)
         msg = sign_message("put", "91" * 32, epoch, 0, env)
-        sig = bytearray(sk.sign(msg))
+        sig = bytearray(raw_sign(sk, msg))
         sig[0] ^= 0x02
         body = put_bytes(0, env, bytes(sig), pub)
         status, hdr, data = self.call("PUT", "/v2/blob/" + ("91" * 32), body, ip="203.0.113.141")
@@ -1164,7 +1378,7 @@ class ProtocolTest(unittest.TestCase):
         epoch = self.epoch_of(blob)
         env = envelope()
         msg = sign_message("put", blob, epoch, 0, env)
-        sig = sk.sign(msg)
+        sig = raw_sign(sk, msg)
         pub_text = b64url_encode(pub)
         alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
         last = alphabet.index(pub_text[-1])
@@ -1279,7 +1493,7 @@ def _seed_blobs(db, count):
     conn.execute("BEGIN")
     rows = []
     for i in range(1, count + 1):
-        rows.append(("%064x" % i, 1, b"\x11" * 32, env, len(env), 0, 0))
+        rows.append(("%064x" % i, 1, b"\x04" + (b"\x11" * 64), env, len(env), 0, 0))
     conn.executemany(
         "INSERT INTO blobs(id, ver, pub, data, size, created_at, updated_at) VALUES (?,?,?,?,?,?,?)",
         rows,

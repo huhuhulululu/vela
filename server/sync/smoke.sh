@@ -54,16 +54,22 @@ fi
 
 SMOKE_BODY="$TMP/b" SMOKE_DIR="$TMP" python3 - << 'PY'
 import hashlib, json, os
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
 
 out = os.environ["SMOKE_DIR"]
 obj = json.load(open(os.environ["SMOKE_BODY"], encoding="utf-8"))
 epoch = obj["epoch"]
 blob = "ab" * 32
 env = "e1." + ("A" * 16) + "." + ("B" * 22)
-sk = Ed25519PrivateKey.generate()
-pub = sk.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+sk = ec.generate_private_key(ec.SECP256R1())
+pub = sk.public_key().public_bytes(
+    serialization.Encoding.X962,
+    serialization.PublicFormat.UncompressedPoint,
+)
+if len(pub) != 65 or pub[0] != 4:
+    raise SystemExit("pub")
 
 def b64url(raw):
     import base64
@@ -79,7 +85,10 @@ def sign(op, base, envelope):
         str(base + 1),
         line6,
     ]).encode("ascii")
-    return b64url(sk.sign(msg))
+    der = sk.sign(msg, ec.ECDSA(hashes.SHA256()))
+    r, s = decode_dss_signature(der)
+    raw = r.to_bytes(32, "big") + s.to_bytes(32, "big")
+    return b64url(raw)
 
 create = {"base": 0, "data": env, "sig": sign("put", 0, env), "pub": b64url(pub)}
 delete = {"base": 1, "sig": sign("delete", 1, None)}
