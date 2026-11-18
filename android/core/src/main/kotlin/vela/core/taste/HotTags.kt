@@ -60,7 +60,7 @@ object HotTags {
         for (item in payload.hashtags) {
             val name = normalized(item.hashtag) ?: continue
             if (!seen.add(name)) continue
-            out.add(HotTag(name = name, rooms = max(0, item.roomCount?.value ?: 0)))
+            out.add(HotTag(name = name, rooms = max(0, item.roomCount?.toIntExactOrNull() ?: 0)))
         }
         return out
     }
