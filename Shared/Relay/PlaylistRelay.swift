@@ -91,19 +91,24 @@ final class PlaylistRelay: @unchecked Sendable {
         "http://\(RelayHost.name):\(port)"
     }
 
-    /// 关闭期间（iOS 挂起）`start` 与 `waitUntilListening` 直接返回 false；已在监听的不受影响，要停用 `stopListener`。
+    /// 关闭期间（iOS 挂起）`start` 与 `waitUntilListening` 直接返回 false，`localURL` 不登记新源；已登记的源照常应答，要停用 `stopListener`。
     var allowStart: Bool {
         get { lock.withLock { startAllowed } }
         set { lock.withLock { startAllowed = newValue } }
     }
 
     /// 登记一个新源，返回它的 id 与本地主列表地址。端口还没绑好时触发监听并返回 nil。
+    /// `allowStart` 关闭期间（挂起）即使端口仍绑着也不登记，返回 nil。
     /// 表里已满两个源时淘汰最旧的那个（它的循环与在途一并取消）；调用方换源前应先作废自己的旧源。
     func localURL(
         for rendition: StreamRendition, maxBandwidth: Double, audioSuppressed: Bool,
         renew: (@Sendable () async -> StreamRendition?)? = nil
     ) -> (id: String, url: URL)? {
         lock.lock()
+        guard startAllowed else {
+            lock.unlock()
+            return nil
+        }
         let bound = port
         let id = UUID().uuidString
         guard bound != 0, let url = URL(string: "\(Self.localBase(port: bound))/\(id)/master.m3u8") else {

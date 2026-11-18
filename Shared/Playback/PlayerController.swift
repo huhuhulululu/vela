@@ -148,8 +148,10 @@ final class PlayerController: ObservableObject {
         let suppressed = MuteAudioPolicy.shouldSuppressAudioFetch(muted: wantsMuted, allowsEmptySelection: nil)
         // 中继没就绪时不把低延迟主列表直接交给 AVPlayer（会卡住甚至不起播）：停下并报错，界面给出重试。
         guard let source = PlaylistRelay.shared.localURL(for: rendition, maxBandwidth: peakBitrate, audioSuppressed: suppressed, renew: renew) else {
-            Self.log.error("relay unavailable")
             stop()
+            // 中继被挂起（iOS 后台）不是故障：静默停下，回前台由生命周期重新起播。macOS 恒允许，不会走到这里。
+            guard PlaylistRelay.shared.allowStart else { return }
+            Self.log.error("relay unavailable")
             lastError = "本地中继没能启动，暂时无法播放"
             failed = true
             return

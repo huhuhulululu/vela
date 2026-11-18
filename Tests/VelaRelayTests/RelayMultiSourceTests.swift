@@ -183,6 +183,21 @@ final class RelayMultiSourceTests: XCTestCase {
         XCTAssertNotEqual(relay.listeningPort, 0)
     }
 
+    /// 端口已绑好之后挂起（allowStart=false）：不登记新源、返回 nil；已登记的源照常应答。
+    func testSuspendedAfterBindingRefusesNewSources() async throws {
+        try await listen()
+        let existing = try register(muxed("a"))
+        relay.allowStart = false
+        XCTAssertNotEqual(relay.listeningPort, 0, "挂起不关已有监听")
+        XCTAssertNil(relay.localURL(for: muxed("b"), maxBandwidth: .infinity, audioSuppressed: false))
+        let status = try await get(existing.url).status
+        XCTAssertEqual(status, 200)
+        relay.allowStart = true
+        let resumed = try register(muxed("c"))
+        let resumedStatus = try await get(resumed.url).status
+        XCTAssertEqual(resumedStatus, 200)
+    }
+
     // MARK: 工具
 
     private func path(_ suffix: String) -> String { "/\(tag)/\(suffix)" }
