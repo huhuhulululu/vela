@@ -109,6 +109,9 @@
 		AB11C0DE0100000000000F02 /* PreferenceQuarantine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferenceQuarantine.swift; sourceTree = "<group>"; };
 		A1WATCH0000000000000001 /* WatchLedger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchLedger.swift; sourceTree = "<group>"; };
 		B1A55E1F00000000000000A1 /* AssignIf.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssignIf.swift; sourceTree = "<group>"; };
+		273A7A1C0A4127872757F4FD /* ButtonStyles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ButtonStyles.swift"; sourceTree = "<group>"; };
+		B81969383A625186A1D10B2F /* AgeGateContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgeGateContent.swift"; sourceTree = "<group>"; };
+		530F0A44EED4FAE366351B2E /* ClickRegion+Phone.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ClickRegion+Phone.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -244,6 +247,7 @@
 		A1F0C0DE00000000000000B1 /* Shared */ = {
 			isa = PBXGroup;
 			children = (
+				CB34A6584F241E6CEF4433EF /* Stage */,
 				A1F0C0DE00000000000000B2 /* Relay */,
 			);
 			path = Shared;
@@ -269,9 +273,19 @@
 		B7A0C0DE0000000000000002 /* iOS */ = {
 			isa = PBXGroup;
 			children = (
+				530F0A44EED4FAE366351B2E /* ClickRegion+Phone.swift */,
 				B7A0C0DE0000000000000001 /* VelaPhoneApp.swift */,
 			);
 			path = iOS;
+			sourceTree = "<group>";
+		};
+		CB34A6584F241E6CEF4433EF /* Stage */ = {
+			isa = PBXGroup;
+			children = (
+				B81969383A625186A1D10B2F /* AgeGateContent.swift */,
+				273A7A1C0A4127872757F4FD /* ButtonStyles.swift */,
+			);
+			path = Stage;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -350,6 +364,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				85783787A307E861A831B7AF /* AgeGateContent.swift in Sources */,
+				FDFBDD0CA7ECB48B64CAEB93 /* ButtonStyles.swift in Sources */,
 				07CE08A845318DB2581EB2F6 /* AgeGateView.swift in Sources */,
 				6D90BDCB5C13BA84942F44F3 /* ChromeView.swift in Sources */,
 				855DD1400A54AE65A687DABF /* ChallengeSheet.swift in Sources */,
@@ -455,6 +471,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				EC1323DECFCC9557631A3CCC /* ClickRegion+Phone.swift in Sources (VelaPhone) */,
 				B7A0C0DE0000000000000064 /* CatalogAPI.swift in Sources (VelaPhone) */,
 				B7A0C0DE0000000000000065 /* DisplayFit.swift in Sources (VelaPhone) */,
 				B7A0C0DE0000000000000066 /* LaneCursor.swift in Sources (VelaPhone) */,
@@ -686,6 +703,9 @@
 		AB14C0DE0100000000000B01 /* PlaybackFailureClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB14C0DE0100000000000F01 /* PlaybackFailureClassifier.swift */; };
 		AB11C0DE0100000000000B02 /* PreferenceQuarantine.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB11C0DE0100000000000F02 /* PreferenceQuarantine.swift */; };
 		A1WATCH0000000000000002 /* WatchLedger.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1WATCH0000000000000001 /* WatchLedger.swift */; };
+		FDFBDD0CA7ECB48B64CAEB93 /* ButtonStyles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 273A7A1C0A4127872757F4FD /* ButtonStyles.swift */; };
+		85783787A307E861A831B7AF /* AgeGateContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = B81969383A625186A1D10B2F /* AgeGateContent.swift */; };
+		EC1323DECFCC9557631A3CCC /* ClickRegion+Phone.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 530F0A44EED4FAE366351B2E /* ClickRegion+Phone.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin XCBuildConfiguration section */
