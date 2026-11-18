@@ -294,8 +294,8 @@ final class StageModel: ObservableObject {
 
     /// 「播放」菜单的重试：有当前房间就重新解析起播，没有（空列表）就重新加载目录。
     func retryFromMenu() {
-        if feed.current != nil {
-            retryPlayback(target())
+        if focusRoom != nil {
+            retryPlayback(focusTarget())
         } else {
             Task { await retry() }
         }

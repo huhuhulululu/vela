@@ -161,6 +161,7 @@ extension StageModel {
 }
 
 extension StageModel {
-    func focusTarget() -> RoomTarget? { nil }
+    /// 界面「当前房间」对应的目标：焦点路（收藏夹弹窗与重试菜单用；单窗恒为主路）。
+    func focusTarget() -> RoomTarget? { target(focusLane) }
     func applyDirectSearchHit(_ room: Room) {}
 }
