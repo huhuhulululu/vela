@@ -78,9 +78,13 @@ android {
     sourceSets {
         getByName("debug") {
             kotlin.directories.add("src/hooks/kotlin")
+            res.directories.add("src/testnet/res")
+            manifest.srcFile("src/testnet/AndroidManifest.xml")
         }
         getByName("perf") {
             kotlin.directories.add("src/hooks/kotlin")
+            res.directories.add("src/testnet/res")
+            manifest.srcFile("src/testnet/AndroidManifest.xml")
         }
     }
 
