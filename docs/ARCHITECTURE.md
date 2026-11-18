@@ -10,9 +10,18 @@
 - 两层结构：
   - `Sources/VelaCore/`：纯逻辑（模型、接口编解码、HLS 改写、推荐、策略、存储），不依赖 AppKit，`swift test` 可测。SwiftPM 库产品 `VelaCore`。
   - `Shared/Relay/`：本地 HLS 中继 `PlaylistRelay`（Network.framework + Foundation，不依赖 AppKit）。macOS 目标直接编译它；SwiftPM 另有目标 `VelaRelay`（路径 `Shared/Relay`，依赖 `VelaCore`），供 `swift test` 用真实回环端口测试。文件头 `#if SWIFT_PACKAGE import VelaCore #endif`，整文件包 `#if canImport(Network)`（Linux 上编译为空）。
-  - `App/`：界面与系统集成（SwiftUI、AppKit、AVFoundation、WebKit、Carbon），只能用 `xcodebuild` 编译验证，没有自动化测试。
-- Xcode 工程（`Vela.xcodeproj`）显式列出每个源文件：`App/`、`Shared/` 与 `Sources/VelaCore/` 下新增、重命名、删除 Swift 文件都必须同步登记 `project.pbxproj`（每个文件在 PBXBuildFile 与 PBXSourcesBuildPhase 各出现一次）。`Tests/` 不在 Xcode 工程里，只属于 SwiftPM。
-- 目录：`App/`（36 个源文件）、`Shared/Relay/`（1 个源文件）、`Sources/VelaCore/`（61 个源文件）、`Tests/VelaCoreTests/`（68 个文件）、`Tests/VelaRelayTests/`（1 个文件）、`.github/workflows/macos.yml`。
+  - `Shared/Stage/`、`Shared/Playback/`：两个 App 目标共用的模型、播放与界面源码（SwiftUI、AVFoundation、WebKit、Foundation），不得依赖 AppKit / UIKit / Carbon（门禁：`grep -rlE 'import (AppKit|Carbon)|NSApp\b|NSImage|NSView\b|NSSavePanel|NSOpenPanel' Shared/` 必须为空）。`Shared/Stage/` 放 `StageModel` 及全部扩展、设置与通用（`SettingsStore`、`PreferenceHealth`、`RoomInfoPrefs`、`LegacyLoginCleanup`、`Theme`、`ButtonStyles`）、共享界面（`AgeGateContent`、`RoomCaption`、`ChallengeSheet` 里的 `ChallengeContent` 与 `WebKitWarmup`、`SwapBackdrop`、`RoomThumbnailCache`）与面板（`TastePanel`、`TasteParts`、`TasteView`、`FavoritesPanel`、`FavoritesRows`、`CurationPanel`）；`Shared/Playback/` 放 `PlayerController`、`SiteSidecar`、`URLSessionHTTPClient`。只进 Xcode 目标，不进 SwiftPM。
+  - `App/`：macOS 专用（SwiftUI、AppKit、Carbon）：入口与窗口（`VelaApp`、`WindowBridge`、`BossKey`、`ClickableRegion`）、界面（`StageView`、`PagerView`、`RoomCanvas`、`ChromeView`、`ChromeControls`、`HeartButton`、`MenuBarFavorites`、`AgeGateView` 外壳、`ChallengeSheet+Mac` 外壳）与各平台适配的 macOS 版（多数在 `*+Mac.swift`；`PlayerLayerView` 留在 `RoomCanvas.swift`，`platformClickRegion()` 在 `ClickableRegion.swift`）。只能用 `xcodebuild` 编译验证，没有自动化测试。
+  - `iOS/`：iOS 目标 `VelaPhone`（iOS 17.0+）专用：占位入口 `VelaPhoneApp` 与各平台适配的 iOS 版（`*+Phone.swift`）。
+- 平台适配方式（计划 §1.2）：同名符号在 `App/`（多数为 `*+Mac.swift`，例外：macOS 版 `PlayerLayerView` 在 `App/RoomCanvas.swift`，`platformClickRegion()` 在 `App/ClickableRegion.swift`）与 `iOS/*+Phone.swift` 各写一份，每份只登记进自己的目标，共享代码直接用这个名字，不写 `#if os`、不加协议。现有适配点：
+  - `PlatformHooks`（`StageModel.platform`）：macOS 版持有老板键 `GlobalHotKey`（⌃⌥⌘V）、`SystemActivity`、三个应用通知（取消隐藏、隐藏、即将终止），提供 `appHidden`、`terminate`、`hide`、`unhide`、`revealMain`；`allowsCrop = true`。iOS 版目前是占位（无老板键，`startSystemHooks` 视为成功不打「boss key unavailable」），`allowsCrop = false`。`StageModel.effectiveFill = platform.allowsCrop && portraitFit.fill(...)`，所以 iOS 上恒为不裁切，macOS 的 F 铺满切换不变。
+  - `platformClickRegion()`：macOS 转发 `clickableRegion()`（拖窗判定排除可点区域），iOS 原样返回；`QuietButtonStyle`、`ChampagneButton` 用它。
+  - `PulseDotMark`（脉冲圆点图层）、`SiteWebView`（质询网页宿主）、`SidecarHost`（侧车离屏网页视图挂在哪个窗口；macOS 由 `WindowBridge` 经 `SiteSidecar.hold(window:)` 设置）、`PlayerLayerView`（macOS 版带 `fill`，iOS 版无 `fill`、固定 `.resizeAspect`、背景透明露出 `SwapBackdrop`）。
+  - 收藏导出导入：模型只提供 `exportFavoritesData()` 与 `importFavorites(_ url:)`；macOS 的文件面板与菜单栏「把主窗口带到前面」在 `App/StageModel+Mac.swift`，`CurationPanel` 经 `exportFile` / `importFile` 回调接入。
+  - `SiteSidecar(host:beforeLoad:)`：`beforeLoad` 默认等 `LegacyLoginCleanup.waitUntilDone()`，加载页面前调用。
+  - `RoomThumbnailCache` 存 `CGImage`（`NSCache<NSURL, CGImage>`，按位图字节计费），展示端两平台都用 `Image(decorative:scale:)`。
+- Xcode 工程（`Vela.xcodeproj`）显式列出每个源文件：`App/`、`Shared/`、`iOS/` 与 `Sources/VelaCore/` 下新增、重命名、删除 Swift 文件都必须同步登记 `project.pbxproj`（每个文件在 PBXBuildFile 与 PBXSourcesBuildPhase 各出现一次；`Shared/` 与 `Sources/VelaCore/` 的文件两个目标各登记一次，`App/` 只进 `Vela`，`iOS/` 只进 `VelaPhone`）。`Tests/` 不在 Xcode 工程里，只属于 SwiftPM。
+- 目录：`App/`（18 个源文件）、`Shared/Stage/`（25 个源文件）、`Shared/Playback/`（3 个源文件）、`Shared/Relay/`（1 个源文件）、`iOS/`（7 个源文件）、`Sources/VelaCore/`（61 个源文件）、`Tests/VelaCoreTests/`（68 个文件）、`Tests/VelaRelayTests/`（1 个文件）、`.github/workflows/macos.yml`。
 
 ## 2. 模块表
 
@@ -20,40 +29,57 @@
 | 文件 | 层 | 职责 |
 |---|---|---|
 | `App/VelaApp.swift` | App | 入口、窗口场景、菜单栏图标场景（`MenuBarExtra`，开关在「播放」菜单）、「播放」菜单与快捷键（含「重试当前房间」），`AppDelegate` 固定深色外观 |
-| `App/StageModel.swift` | App | 主状态机：来源 / 筛选 / 播放门控 / 指针与窗口状态 / 设置读写，持有各子系统；冷启动闸门 `startupGate`（`StartupGate`）：初始化里年龄已确认就先领目录请求，`bootstrap` 再进时不重发；画面订阅的播放镜像 `playback`（`PlaybackFace`）；同值不写（`AssignIf`），`presence` / `chromeVisible` / `playbackNote` 不变不通知；`syncPlayerHidden` 把窗口不可见同步给播放器，`refreshPointerPolling` 让窗口桥接重判指针轮询 |
-| `App/StageModel+Catalog.swift` | App | 目录加载：重新加载、翻页、补拉到出现可见房间、确认页；记录最近取回的目录供收藏比对；常规目录先安装并起播，按口味定向的候选并发拉取（各自 6 秒超时）、完成后并入当前位置之后；全站搜索的临时列表（`searchSite`，回车且本地无匹配时触发，重新加载时结束搜索）；新开播用站点的新开播筛选；冷启动只等首页（`fetchOpening`）：猜你喜欢 / 新开播的后续页由 `catalogRestTask` 在后台顺序续拉（`CatalogRest`），经 `mergePageAfterCurrent` 并入当前项之后，失败只记日志、不换房不起播；定向候选等续页并完后再发；换来源、重新加载、全站搜索时取消续页 |
-| `App/StageModel+Playback.swift` | App | 起播链：解析流地址、取档、重试与重新解析、预取下一个、失败自动跳过（先请求房间状态取 `hls_source`、拿不到再走 ajax 与侧车，见 `StreamSourcing`，并记录起播来源日志；暂时离开停留 60 秒只重试一次（`AwayRetry`）；到列表尽头时保留原失败原因并说明，不占连续次数）；普通 403 / 503 与质询分开，只有质询才弹确认页（先停掉当前播放；等待期间被换房取代时恢复侧车），连续质询经 `ChallengeGate` 限次，达到上限改为提示并跳过；起播同一时间只保留一个任务（`playTask`），新的划动 / 选择 / 重试取消旧的解析，取消按取消处理，不当网络故障；起播前等本地中继监听就绪，不就绪则提示并停下，不把低延迟主列表交给 AVPlayer |
-| `App/StageModel+Quality.swift` | App | 离开后降画质：计时、取档、重建播放项 |
-| `App/StageModel+Dwell.swift` | App | 停留结算（带来源）、口味画像写入、热门关联前置、常看收藏提示（点「收藏」或关闭才记账，超时不记，本次停留不重复弹，指针回到窗口才显示） |
-| `App/StageModel+Taste.swift` | App | 推荐理由查询、口味面板操作（加强 / 不想看 / 恢复 / 移除 / 暂停 / 重置 / 清除；改标签后立即对当前位置之后重排并更新推荐理由）、对当前房间不感兴趣 |
-| `App/StageModel+Curation.swift` | App | 收藏、屏蔽、名单提交与换房 |
-| `App/StageModel+Favorites.swift` | App | 收藏来源：解析全部收藏的在线状态（目录与缓存优先，其余逐个查；同一时间只有一批，直连被拦后经侧车重查）、刷新、离线收藏的上次开播时间按需补查、点击切换（清掉会挡住目标的搜索条件）、手动添加、导出导入 |
-| `App/PlayerController.swift` | App | AVPlayer 封装（起播看门狗、卡住看门狗：到点时若缓冲末端仍在增长或续期进行中则重新计时，不消耗重试；重试、暂停恢复、开播音轨日志）；静音时不选独立音轨并通知中继停刷音频清单（`MuteAudioPolicy`）；停播且窗口不可见满 30 秒释放播放项与中继源（`setHidden` / `releasePausedSource`，日志 `paused-release`）；每个媒体项首次真正播放记一条 `playing-started`（Release 也有，探针以它为起播时刻） |
+| `Shared/Stage/StageModel.swift` | Shared | 主状态机：来源 / 筛选 / 播放门控 / 指针与窗口状态 / 设置读写，持有各子系统（平台能力经 `platform`（`PlatformHooks`），模型本身不直接持有 `GlobalHotKey` / `SystemActivity`）；`effectiveFill` 受 `platform.allowsCrop` 约束，iOS 恒为不裁切；冷启动闸门 `startupGate`（`StartupGate`）：初始化里年龄已确认就先领目录请求，`bootstrap` 再进时不重发；画面订阅的播放镜像 `playback`（`PlaybackFace`）；同值不写（`AssignIf`），`presence` / `chromeVisible` / `playbackNote` 不变不通知；`syncPlayerHidden` 把窗口不可见同步给播放器，`refreshPointerPolling` 让窗口桥接重判指针轮询 |
+| `Shared/Stage/StageModel+Catalog.swift` | Shared | 目录加载：重新加载、翻页、补拉到出现可见房间、确认页；记录最近取回的目录供收藏比对；常规目录先安装并起播，按口味定向的候选并发拉取（各自 6 秒超时）、完成后并入当前位置之后；全站搜索的临时列表（`searchSite`，回车且本地无匹配时触发，重新加载时结束搜索）；新开播用站点的新开播筛选；冷启动只等首页（`fetchOpening`）：猜你喜欢 / 新开播的后续页由 `catalogRestTask` 在后台顺序续拉（`CatalogRest`），经 `mergePageAfterCurrent` 并入当前项之后，失败只记日志、不换房不起播；定向候选等续页并完后再发；换来源、重新加载、全站搜索时取消续页 |
+| `Shared/Stage/StageModel+Playback.swift` | Shared | 起播链：解析流地址、取档、重试与重新解析、预取下一个、失败自动跳过（先请求房间状态取 `hls_source`、拿不到再走 ajax 与侧车，见 `StreamSourcing`，并记录起播来源日志；暂时离开停留 60 秒只重试一次（`AwayRetry`）；到列表尽头时保留原失败原因并说明，不占连续次数）；普通 403 / 503 与质询分开，只有质询才弹确认页（先停掉当前播放；等待期间被换房取代时恢复侧车），连续质询经 `ChallengeGate` 限次，达到上限改为提示并跳过；起播同一时间只保留一个任务（`playTask`），新的划动 / 选择 / 重试取消旧的解析，取消按取消处理，不当网络故障；起播前等本地中继监听就绪，不就绪则提示并停下，不把低延迟主列表交给 AVPlayer |
+| `Shared/Stage/StageModel+Quality.swift` | Shared | 离开后降画质：计时、取档、重建播放项 |
+| `Shared/Stage/StageModel+Dwell.swift` | Shared | 停留结算（带来源）、口味画像写入、热门关联前置、常看收藏提示（点「收藏」或关闭才记账，超时不记，本次停留不重复弹，指针回到窗口才显示） |
+| `Shared/Stage/StageModel+Taste.swift` | Shared | 推荐理由查询、口味面板操作（加强 / 不想看 / 恢复 / 移除 / 暂停 / 重置 / 清除；改标签后立即对当前位置之后重排并更新推荐理由）、对当前房间不感兴趣 |
+| `Shared/Stage/StageModel+Curation.swift` | Shared | 收藏、屏蔽、名单提交与换房 |
+| `Shared/Stage/StageModel+Favorites.swift` | Shared | 收藏来源：解析全部收藏的在线状态（目录与缓存优先，其余逐个查；同一时间只有一批，直连被拦后经侧车重查）、刷新、离线收藏的上次开播时间按需补查、点击切换（清掉会挡住目标的搜索条件）、手动添加、导出导入（数据在模型里，`exportFavoritesData()` / `importFavorites(_:)`；macOS 文件面板在 `App/StageModel+Mac.swift`） |
+| `Shared/Playback/PlayerController.swift` | Shared | AVPlayer 封装（起播看门狗、卡住看门狗：到点时若缓冲末端仍在增长或续期进行中则重新计时，不消耗重试；重试、暂停恢复、开播音轨日志）；静音时不选独立音轨并通知中继停刷音频清单（`MuteAudioPolicy`）；停播且窗口不可见满 30 秒释放播放项与中继源（`setHidden` / `releasePausedSource`，日志 `paused-release`）；每个媒体项首次真正播放记一条 `playing-started`（Release 也有，探针以它为起播时刻） |
 | `Shared/Relay/PlaylistRelay.swift` | Shared（SwiftPM 目标 `VelaRelay`） | 本地 HLS 中继，多源：每个源按 id 各有列表、循环与在途请求，刷新与静音标志记在 `RelaySourceTable`（最多两个源，再登记淘汰最旧的）；`localURL(...audioSuppressed:)` 登记新源并返回 `(id, url)`，`setRefreshing` / `setAudioSuppressed` / `deactivate` / `isRenewing` 都带 `source:`；监听代次（`start` 与 `stopListener` 各加一，旧监听回调与新连接先核对代次），`stopListener` 取消监听、已登记连接与应答任务并清空源表；`allowStart` 关闭时不起监听（macOS 恒开）；本地地址统一由 `localBase(port:)` 与 `RelayHost.name` 生成；internal `init(session:)` 供测试注入上游会话。每个源：起播选一次档、视频与音轨各自后台刷新、按完整分片进展判新鲜（超宽限先有界挂起等待再 503）、本地主列表；续期换过子列表地址后，每一路下一次成功取回直接采纳新列表（`addressChanged`）；从不 302 到上游；`waitUntilListening` 供起播前等监听就绪；静音且播放器能空选音轨时（`setAudioSuppressed`）停掉音频清单的后台刷新，不取消在途、不清已缓存列表，播放器来要 `audio.m3u8` 仍按需取；取消静音立即恢复刷新；`deactivate(source:)` 只丢掉该源状态 |
-| `App/SiteSidecar.swift` | App | 离屏 WKWebView（闲置 30 秒销毁，`SidecarIdlePolicy`；只拆视图，默认数据仓库里的通关 cookie 保留，下次使用重建）：站点要求确认时代为请求流地址与收藏状态（`SidecarHTTPClient`）；清理旧会话期间先等清理完成 |
-| `App/URLSessionHTTPClient.swift` | App | `HTTPClient` 的 URLSession 实现（ephemeral，不收发 cookie，请求超时 12 秒；不等待网络恢复，断网立刻失败，界面给出「网络不通」与重试） |
-| `App/LegacyLoginCleanup.swift` | App | 启动时一次性清掉旧版本遗留的钥匙串会话与网页 sessionid cookie（cookie 删除完成后才写完成标记） |
-| `App/SettingsStore.swift` | App | UserDefaults（suite `com.vela.stage`）设置项（`muted` 键不存在时视为静音，存过的值保留） |
+| `Shared/Playback/SiteSidecar.swift` | Shared | 离屏 WKWebView（闲置 30 秒销毁，`SidecarIdlePolicy`；只拆视图，默认数据仓库里的通关 cookie 保留，下次使用重建）：站点要求确认时代为请求流地址与收藏状态（`SidecarHTTPClient`）；清理旧会话期间先等清理完成；宿主视图由注入的 `host`（`SidecarHost`；macOS 版在 `App/SidecarHost+Mac.swift`，由 `WindowBridge` 经 `hold(window:)` 设置窗口）挂载，加载页面前经注入的 `beforeLoad`（默认等 `LegacyLoginCleanup.waitUntilDone()`） |
+| `Shared/Playback/URLSessionHTTPClient.swift` | Shared | `HTTPClient` 的 URLSession 实现（ephemeral，不收发 cookie，请求超时 12 秒；不等待网络恢复，断网立刻失败，界面给出「网络不通」与重试） |
+| `Shared/Stage/LegacyLoginCleanup.swift` | Shared | 启动时一次性清掉旧版本遗留的钥匙串会话与网页 sessionid cookie（cookie 删除完成后才写完成标记） |
+| `Shared/Stage/SettingsStore.swift` | Shared | UserDefaults（suite `com.vela.stage`）设置项（`muted` 键不存在时视为静音，存过的值保留） |
 | `App/BossKey.swift` | App | `GlobalHotKey` 全局热键；`SystemActivity` 锁屏 / 睡眠 / 切换用户监听 |
 | `App/WindowBridge.swift` | App | 窗口配置（层级、透明度、穿透；减弱动态效果时淡入淡出直接到位；窗口底色始终透明，22pt 自定义圆角之外不露黑底）、指针轮询、滚轮与键盘切房（无修饰键快捷键有弹层、在输入、年龄确认前一律不触发，与「播放」菜单的无修饰键等效键共用 `ShortcutGate`）、画面左键拖动移窗（按下后移动超过 3.5 点才开始拖；控件、自定义样式按钮上按下一律不拖，判定见 `WindowDragPolicy`）、顶栏拖动条；指针轮询是否开由 `PointerPolling.needed` 判定（休眠、老板键、App 隐藏时停）；`apply` 只在窗口层级、集合行为、点击穿透、缩放比真正变化时写入 |
 | `App/ClickableRegion.swift` | App | 可点区域登记：按钮样式把背后垫一个不接收鼠标事件的标记视图（`ClickableRegionView`），拖窗判定收集它们在窗口里的区域，排除 SwiftUI 自定义样式按钮（`ChampagneButton`、`QuietButtonStyle`） |
-| `App/PreferenceHealth.swift` | App | 启动读偏好文件的结局翻成提示：坏文件已另存为备份，或备份失败进入只读（保存被跳过，日志区分于普通写盘失败） |
+| `Shared/Stage/PreferenceHealth.swift` | Shared | 启动读偏好文件的结局翻成提示：坏文件已另存为备份，或备份失败进入只读（保存被跳过，日志区分于普通写盘失败） |
 | `App/StageView.swift` | App | 根视图：舞台、状态提示（空列表按原因区分）、首次操作提示（三行、可关闭）、顶栏显隐、弹层装配 |
 | `App/PagerView.swift` | App | 当前房间画面容器（滚轮 / 键盘切房，不再拖动翻页） |
-| `App/RoomCanvas.swift` | App | 单个房间画面（铺满与否取 `StageModel.effectiveFill`）：模糊缩略图垫底（切房过渡；下载结果带房间标识，旧图不盖新图，未到时显示渐变）、播放层淡入、加载线、暂停标记与失败重试；`RoomThumbnailCache` 内存预取缩略图（`CGImageSource` 解成长边约 192 像素的小位图，不留原始 JPEG，按位图字节计费、上限约 2 MB、最多 20 张）；画面观察 `PlaybackFace` 而不是播放器，同值回调不整页重绘 |
-| `App/RoomCaption.swift` | App | 房间信息块（名字、标签、推荐理由）与 LIVE 圆点 `PulseDot`：只在「当前页、这一间正在播、信息可见」时脉冲，条件用作 `.id`，变假即拆掉旧视图；脉冲走同色同时长的 `CABasicAnimation`（`PulseDotView`），不再每帧标脏 SwiftUI；减弱动态效果时静止实心圆 |
+| `App/RoomCanvas.swift` | App | 单个房间画面（铺满与否取 `StageModel.effectiveFill`）：垫底 `SwapBackdrop`（定义在 `Shared/Stage/SwapBackdrop.swift`，切房过渡）、播放层淡入、加载线、暂停标记与失败重试；macOS 版 `PlayerLayerView`（带 `fill`）也在本文件；画面观察 `PlaybackFace` 而不是播放器，同值回调不整页重绘 |
+| `Shared/Stage/RoomCaption.swift` | Shared | 房间信息块（名字、标签、推荐理由）与 LIVE 圆点 `PulseDot`：只在「当前页、这一间正在播、信息可见」时脉冲，条件用作 `.id`，变假即拆掉旧视图；圆点的平台图层 `PulseDotMark` 在 `App/PulseDot+Mac.swift`（`PulseDotView`，同色同时长的 `CABasicAnimation`，不再每帧标脏 SwiftUI）与 `iOS/PulseDot+Phone.swift`；减弱动态效果时静止实心圆 |
 | `App/ChromeView.swift` | App | 顶栏与筛选、透明度、音量面板；筛选面板标签输入下方的热门标签提示（`TagHints`） |
-| `App/TastePanel.swift` | App | 「我的口味」面板（只依赖显示数据与回调）：冷启动整理、标签列表、性别、页脚与二次确认 |
-| `App/TasteParts.swift` | App | 口味面板的行、强弱条、7 天命中率卡片 |
-| `App/TasteView.swift` | App | 口味面板的状态装配：画像汇总与回调；冷启动时按需取全站热门标签 |
+| `Shared/Stage/TastePanel.swift` | Shared | 「我的口味」面板（只依赖显示数据与回调）：冷启动整理、标签列表、性别、页脚与二次确认 |
+| `Shared/Stage/TasteParts.swift` | Shared | 口味面板的行、强弱条、7 天命中率卡片 |
+| `Shared/Stage/TasteView.swift` | Shared | 口味面板的状态装配：画像汇总与回调；冷启动时按需取全站热门标签 |
 | `App/HeartButton.swift` | App | 顶栏心形按钮：左键收藏 / 取消收藏当前房间，右键打开收藏夹；`PressSurface` / `PressView` 是覆盖在图标上的 AppKit 鼠标接管层 |
-| `App/CurationPanel.swift` | App | 收藏夹弹窗的状态装配：把收藏、状态缓存、上次开播时间、当前目录交给 `FavoritesBoard.make`，接上回调；打开时缓存过期则补查一次在线状态，再补查离线收藏的上次开播时间 |
-| `App/FavoritesPanel.swift` | App | 收藏夹弹窗（只依赖显示数据与回调）：标题与在线摘要、刷新、「收藏当前房间」主按钮、在线 / 其余分组、撤销移除、添加与「更多」菜单（导入、导出、屏蔽当前房间）、屏蔽名单入口 |
-| `App/FavoritesRows.swift` | App | 收藏夹的行：缩略图、在线行（整行点击观看，行尾常驻弱化的「移除」，悬停加强）、其余行（弱化、不可播放，状态文字始终保留、行尾同样常驻「移除」）、屏蔽名单二级页 |
+| `Shared/Stage/CurationPanel.swift` | Shared | 收藏夹弹窗的状态装配：把收藏、状态缓存、上次开播时间、当前目录交给 `FavoritesBoard.make`，接上回调；打开时缓存过期则补查一次在线状态，再补查离线收藏的上次开播时间；导入导出经 `exportFile` / `importFile` 回调接入（macOS 文件面板在 `App/StageModel+Mac.swift`，由 `ChromeView` 传入） |
+| `Shared/Stage/FavoritesPanel.swift` | Shared | 收藏夹弹窗（只依赖显示数据与回调）：标题与在线摘要、刷新、「收藏当前房间」主按钮、在线 / 其余分组、撤销移除、添加与「更多」菜单（导入、导出、屏蔽当前房间）、屏蔽名单入口 |
+| `Shared/Stage/FavoritesRows.swift` | Shared | 收藏夹的行：缩略图、在线行（整行点击观看，行尾常驻弱化的「移除」，悬停加强）、其余行（弱化、不可播放，状态文字始终保留、行尾同样常驻「移除」）、屏蔽名单二级页 |
 | `App/MenuBarFavorites.swift` | App | 菜单栏图标的弹出内容：在线收藏列表（数据同收藏夹，来自 `StageModel.favoritesBoard`）、摘要（`FavoritesBoard.menuSummary`）、刷新、打开收藏夹；缩略图走 `RoomThumbnailCache`；菜单窗口成为关键窗口时调用 `refreshFavoritesIfStale`（沿用冷却与单批查询，菜单关着不发请求）；`MenuBarVisibility.shared` 管图标开关（`SettingsStore.showMenuBar`，默认开） |
-| `App/ChallengeSheet.swift` | App | 站点确认访问的 WKWebView 弹层（高度随窗口收缩，`SheetLayout.challengeHeight`，网页区滚动、底部按钮常驻）、`WebKitWarmup` |
-| `App/AgeGateView.swift` | App | 首次 18 岁确认页与按钮样式 |
-| `App/Theme.swift` | App | 配色与界面中文文案 `Copy` |
+| `Shared/Stage/ChallengeSheet.swift` | Shared | 站点确认访问的共享内容 `ChallengeContent`（WKWebView 网页区滚动，底部「已完成，继续播放」按钮常驻；尺寸与配色由平台外壳决定）、`WebKitWarmup` |
+| `App/AgeGateView.swift` | App | 首次 18 岁确认页的 macOS 外壳（拖动条、窗口按钮），内容为共享的 `AgeGateContent` |
+| `Shared/Stage/Theme.swift` | Shared | 配色与界面中文文案 `Copy` |
+| `Shared/Stage/ButtonStyles.swift` | Shared | 通用按钮样式：安静按钮 `QuietButtonStyle`（按下变淡）与香槟色主按钮 `ChampagneButton`，可点范围经 `platformClickRegion()` 登记 |
+| `Shared/Stage/AgeGateContent.swift` | Shared | 年龄确认页的共享内容（文案与「已满 18 岁」「退出」两个按钮），窗口外壳由各平台包在外面 |
+| `Shared/Stage/RoomThumbnailCache.swift` | Shared | 房间缩略图内存缓存：存解码后的 `CGImage`（长边约 192 像素，按位图字节计费，约 2 MB，最多 20 张），预取与在途下载共用 |
+| `Shared/Stage/SwapBackdrop.swift` | Shared | 垫底：当前房间的模糊缩略图（无图时柔和渐变）；下载结果带房间标识，迟到的旧图不盖新图 |
+| `App/PlatformHooks+Mac.swift` | App | macOS 平台钩子：持有老板键 `GlobalHotKey`（⌃⌥⌘V）与 `SystemActivity`，订阅取消隐藏 / 隐藏 / 即将终止通知，提供 `appHidden`、`terminate`、`hide`、`unhide`、`revealMain`；`allowsCrop = true` |
+| `App/StageModel+Mac.swift` | App | macOS 专用模型入口：菜单栏收藏把主窗口带到前面（`revealMainWindow`），收藏导出导入的 `NSSavePanel` / `NSOpenPanel` 文件面板 |
+| `App/PulseDot+Mac.swift` | App | 脉冲圆点 `PulseDotMark` 的 macOS 图层实现（`PulseDotView`，`CABasicAnimation` 1.05 秒往复，不接收点击） |
+| `App/SiteWebView+Mac.swift` | App | 质询网页的 macOS 宿主（`NSViewRepresentable`，WKWebView 与 Safari UA，进度回报给进度条） |
+| `App/SidecarHost+Mac.swift` | App | 侧车的 macOS 宿主：弱持有主窗口，把离屏网页视图挂进内容视图；`SiteSidecar.hold(window:)` 由 `WindowBridge` 调用 |
+| `App/ChallengeSheet+Mac.swift` | App | 确认页的 macOS 外壳：固定宽 480，高度随窗口（`SheetLayout.challengeHeight`），深色外观，内容为共享的 `ChallengeContent` |
+| `iOS/ClickRegion+Phone.swift` | iOS | `platformClickRegion()` 的 iOS 版：原样返回，不登记可点区域（无拖窗判定） |
+| `iOS/PlatformHooks+Phone.swift` | iOS | 平台钩子占位：无老板键、菜单栏与应用隐藏，`allowsCrop = false`（画面恒不裁切），`startSystemHooks` 视为成功 |
+| `iOS/PulseDot+Phone.swift` | iOS | 脉冲圆点 `PulseDotMark` 的 iOS 图层实现（`PulseDotView`，外观与 macOS 版一致，不接收触摸） |
+| `iOS/SiteWebView+Phone.swift` | iOS | 质询网页的 iOS 宿主（`UIViewRepresentable`，配置与 macOS 版相同） |
+| `iOS/SidecarHost+Phone.swift` | iOS | 侧车的 iOS 宿主（占位）：弱持有场景窗口，把离屏网页视图挂进去 |
+| `iOS/PlayerLayerView+Phone.swift` | iOS | iOS 播放层：固定 `.resizeAspect`，没有 `fill` 参数，图层与背景透明，留边区露出 `SwapBackdrop` |
+| `iOS/VelaPhoneApp.swift` | iOS | iOS 目标 `VelaPhone` 的占位入口（`@main`，窗口内为文字占位） |
 | `Sources/VelaCore/Models.swift` | Core | `Room`、`Gender`、`Region`、`ShowState`、`RoomQuery`、人数与开播时长格式 |
 | `Sources/VelaCore/CatalogAPI.swift` | Core | 目录请求构造与解码（站点房间列表接口，`RoomListDecoder`；`new_cams`、`keywords` 参数）、多页候选池 `fetchPages`、质询识别；`CatalogWindow.shouldContinue`（还要不要续下一页，`fetchPages` 与后台续页共用）、`PageMerge`（`appended` 顺序翻页合并、`keepingCurrent` 后页并入时当前项及其之前保持原位） |
 | `Sources/VelaCore/SiteSearch.swift` | Core | 全站搜索：搜索词规整、回车与打字的触发规则（只在回车且本地无匹配时查）、一页结果整理成临时列表、搜索期间的停留归属 |
@@ -127,13 +153,15 @@ VelaApp ──> StageModel ──> StageView ──> PagerView ──> RoomCanva
                 │                          HTTPClient（URLSessionHTTPClient）
                 └─ StageModel           ──> PlaybackPolicy, Presence, PlaybackFace / AssignIf / StartupGate, MoveRules, PortraitFit, SiteSearch, TasteStore, PreferenceQuarantine（经三个存储）, ShortcutGate, AudioPolicy, EmptyListCopy,
                                            CurationStore, SettingsStore, URLSessionHTTPClient,
-                                           GlobalHotKey / SystemActivity (BossKey)
+                                           PlatformHooks（macOS 版 `App/PlatformHooks+Mac.swift` 持有 `GlobalHotKey`、`SystemActivity`）
 
 PlayerController ──> PlaybackPolicy, MuteAudioPolicy, RefreshTracker, PlaybackErrorCopy (Core)
                  ──> PlaylistRelay（Shared/Relay/PlaylistRelay.swift，SwiftPM 目标 VelaRelay）──> RelaySourceTable / RelayTrack, PlaylistLadder, StreamRendition, RelayFeed, RelayPolicy, RenewalPolicy, RenewalBudget, UserAgent (Core)
 SiteSidecar      ──> StreamDecoder, UserAgent, SidecarIdlePolicy (Core)
-WindowBridge     ──> StageModel, WheelInterpreter, WindowDragPolicy, PointerPolling (Core), SiteSidecar.hold, ClickableRegionView
-ChallengeSheet   ──> StageModel.retryAfterChallenge（站点确认完成后继续播放）
+WindowBridge     ──> StageModel, WheelInterpreter, WindowDragPolicy, PointerPolling (Core), SiteSidecar.hold（定义在 `App/SidecarHost+Mac.swift`）, ClickableRegionView
+ChallengeContent ──> StageModel.retryAfterChallenge（站点确认完成后继续播放；macOS 外壳 `App/ChallengeSheet+Mac.swift`）
+SwapBackdrop / MenuBarFavorites / StageModel+Playback ──> RoomThumbnailCache（`Shared/Stage/RoomThumbnailCache.swift`）
+平台适配（同名各一份，各只登记进自己的目标）：`PlatformHooks` / `platformClickRegion` / `PulseDotMark` / `SiteWebView` / `SidecarHost` / `PlayerLayerView`；macOS 版在 `App/*+Mac.swift`（`platformClickRegion` 在 `App/ClickableRegion.swift`，`PlayerLayerView` 在 `App/RoomCanvas.swift`），iOS 版在 `iOS/*+Phone.swift`
 
 Core 内部：CatalogAPI/StreamAPI ──> HTTP, Models, EndpointBackoff；StreamSourcing ──> FavoriteStatus（ChatContext）, StreamAPI, EndpointBackoff, UpstreamRenewal（RenewalPolicy.isCancellation）；
           FavoriteStatus/LastBroadcast ──> EndpointBackoff；Curation ──> Preferences（上限与文件读取）；
@@ -156,11 +184,11 @@ App 引用 Core，Core 不引用 App。`PlayerController` 与 `StageModel` 的�
 | GET | `/api/biocontext/<用户名>/` | 收藏夹里离线收藏的上次开播时间，不登录。响应含 `last_broadcast`、`time_since_last_broadcast`、`follower_count`、`location`、`about_me` 等，只用前两个：`last_broadcast` 按 ISO 8601、`yyyy-MM-dd HH:mm:ss`（UTC）或秒 / 毫秒级 Unix 时间解析，取不到时把 `time_since_last_broadcast` 当秒数（两个字段的实际格式未在真机核对）；未来的时间按现在算。404、401、403 + JSON 算「没有时间」，HTML 质询停止查询。只在打开收藏夹且缓存过期时查，单次超时 8 秒，并发上限 4，结果缓存 30 分钟 | `LastBroadcast.swift`（`BioContext`、`LastBroadcastFetcher`），`StageModel+Favorites.swift` 调用 |
 | GET | `/api/ts/hashtags/tag-table-data/?sort=-rc&page=1&g=&limit=20` | 全站热门标签（按房间数降序），用于口味面板冷启动整理与筛选面板的标签提示。响应 `{hashtags:[...], total}`，元素按 `hashtag` / `room_count` 解码（字段名未在真机核对，没有 `hashtag` 的项跳过）。只在打开口味面板（冷启动时）或筛选面板且缓存过期时取，成功缓存 6 小时，失败或被拦截 60 秒内不重试、不弹确认页，期间回退到当前在线房间的常见标签 | `HotTags.swift`（`HotTags`、`HotTagCache`），`StageModel+Taste.swift` 调用 |
 | POST | `/get_edge_hls_url_ajax/`（表单 `room_slug=<用户名>`） | 解析 HLS 主列表地址的备路：`chatvideocontext` 公开但 `hls_source` 为空、状态未知、请求失败、被质询、非 JSON 或退避中时才请求 | `StreamAPI.swift`（`StreamRequest`、`StreamDecoder.fetch`），`StageModel+Playback.swift` 调用 |
-| 同上（流地址、收藏状态） | 同路径，由侧车 WKWebView 内 `fetch(..., credentials: "include")` 发出（收藏状态为 GET `chatvideocontext`，10 秒超时） | 直连被质询（403 或质询页）后的备路；收藏查询被拦后同样改走侧车，复用确认后的通关状态 | `SiteSidecar.swift` |
+| 同上（流地址、收藏状态） | 同路径，由侧车 WKWebView 内 `fetch(..., credentials: "include")` 发出（收藏状态为 GET `chatvideocontext`，10 秒超时） | 直连被质询（403 或质询页）后的备路；收藏查询被拦后同样改走侧车，复用确认后的通关状态 | `Shared/Playback/SiteSidecar.swift` |
 | GET | 上一接口返回的 HLS 主列表 URL（`#EXT-X-STREAM-INF`） | 取各档带宽，选出视频子列表与它引用的音轨子列表（只在起播 / 换档 / 重新解析时取，30 秒内过期） | `StageModel+Playback.swift`（`selectRendition`）、`PlaylistRelay.selectedRendition` |
 | GET | 媒体列表 URL（LL-HLS） | 视频、音轨子列表由中继在后台各自刷新并改写（地址带 `session=`，按闲置过期，见第 10 节实测；持续请求则一直有效。撞上 403 时中继请上层续期，见第 10 节） | `PlaylistRelay.swift`（`PlaylistRelay.mediaPlaylist`） |
-| GET | `https://chaturbate.com/auth/login/?next=/`（侧车初始化页）、`https://chaturbate.com/`（确认访问页） | WKWebView 加载，用于通过站点确认 | `SiteSidecar.swift`、`ChallengeSheet.swift` |
-| GET | `https://thumb.live.mmcdn.com/riw/<用户名>.jpg`（直达房间的缩略图）与目录返回的缩略图 URL | 房间缩略图，`AsyncImage` 加载 | `Models.swift`、`RoomCanvas.swift` |
+| GET | `https://chaturbate.com/auth/login/?next=/`（侧车初始化页）、`https://chaturbate.com/`（确认访问页） | WKWebView 加载，用于通过站点确认 | `Shared/Playback/SiteSidecar.swift`、`Shared/Stage/ChallengeSheet.swift`（`ChallengeContent`；网页宿主 `App/SiteWebView+Mac.swift` / `iOS/SiteWebView+Phone.swift`） |
+| GET | `https://thumb.live.mmcdn.com/riw/<用户名>.jpg`（直达房间的缩略图）与目录返回的缩略图 URL | 房间缩略图，`AsyncImage` 加载 | `Models.swift`、`Shared/Stage/RoomThumbnailCache.swift` |
 | GET | `http://127.0.0.1:<随机端口>/<uuid>/{master,video,audio}.m3u8` | 本地中继，AVPlayer 的实际播放地址；仅本机 | `PlaylistRelay.swift` |
 <!-- /AUTO-MANAGED:api-table -->
 
@@ -312,7 +340,8 @@ xcodebuild -project Vela.xcodeproj -scheme Vela -destination 'platform=macOS' \
   -configuration Debug CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=NO build
 ```
 
-- CI：`.github/workflows/macos.yml`，每次 push 与 pull_request 在 `macos-latest` 上依次跑 `swift test` 与上面的 `xcodebuild`。
+- 构建 iOS 目标（模拟器，不签名）：`xcodebuild -project Vela.xcodeproj -scheme VelaPhone -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build`。
+- CI：`.github/workflows/macos.yml`，每次 push 与 pull_request 在 `macos-latest` 上并行跑三个作业：逻辑测试（`swift test`）、macOS 构建（Debug 与 Release 矩阵）、iOS 模拟器构建（有 `VelaPhone` scheme 时；有 `VelaPhoneTests` 目标时再跑测试）。
 - 新增或重命名 Swift 文件后，`swift test` 不会发现 pbxproj 漏登记，必须跑 xcodebuild。
 - Release 配置：仅 `ARCHS = arm64`、`DEAD_CODE_STRIPPING = YES`、`DEPLOYMENT_POSTPROCESSING = YES` 加 `STRIP_INSTALLED_PRODUCT = YES`（`STRIP_STYLE = non-global`）剥符号，保留 dSYM（`dwarf-with-dsym`）；安装包约 3.5 MB（原约 10.7 MB，见 `docs/PERF.md`）。Debug 配置不变。
 - 本机性能探针：`scripts/perf-probe.sh [--duration 秒] [--app 路径] [--build] [--scenario play|idle] [--idle-method lock|hide]`。后台隐藏启动 Release 包（`open -g -j -n`），静音播放后每 5 秒采样，末尾输出一行 JSON（同时写 `/tmp/vela-perf-result.json`）：`cpu_avg` / `cpu_p95`、`rss` / `footprint`、`wakeups_avg`、`threads`、`children_*` 与 `vtdecoder_cpu_avg`（硬解 XPC 单列）、`net_in_mb_per_min` 及 tcp / udp / 回环分列、`http_requests_per_min`、`startup_to_play_s`（以 `playing-started` 日志为起点）、`runtime_issues`、`app_size_mb`。`play` 场景为稳态播放；`idle` 场景先起播，再投递 `com.apple.screenIsLocked`（默认 `lock`，走 `SystemActivity` 与播放闸门）使 App 停播，10 秒后采样，结束前投递解锁。注意：脚本会临时用 `defaults write` 把 `com.vela.stage` 的 `ageConfirmed` 置为真、`muted` 置为静音，开始前备份整个偏好域，结束时原样恢复；已有 Vela 在运行时拒绝测量。基线、预算草案、热点清单与各轮优化实测在 `docs/PERF.md`。
