@@ -86,6 +86,7 @@
 		634BC02D414C020142CE76CB /* SkipTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkipTracker.swift; sourceTree = "<group>"; };
 		A1D0C0DE00000000000000F3 /* DeferredSaver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeferredSaver.swift; sourceTree = "<group>"; };
 		A1D0C0DE00000000000000F1 /* DwellTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DwellTracker.swift; sourceTree = "<group>"; };
+		AB5E1F7E57000000000000F1 /* SelfTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelfTest.swift; sourceTree = "<group>"; };
 		10FF6FC1C8486FB9F87FD37F /* BossKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BossKey.swift; sourceTree = "<group>"; };
 		6E46E2782D9B25FD5CED2CCD /* CurationPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CurationPanel.swift; sourceTree = "<group>"; };
 		AB10C0DE0300000000000F03 /* HeartButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartButton.swift; sourceTree = "<group>"; };
@@ -164,6 +165,7 @@
 				7735524504BC008F6F40497E /* VelaApp.swift */,
 				EE42CBE937AD0E08B79C6D94 /* WindowBridge.swift */,
 				10FF6FC1C8486FB9F87FD37F /* BossKey.swift */,
+				AB5E1F7E57000000000000F1 /* SelfTest.swift */,
 				AB10C0DE0300000000000F03 /* HeartButton.swift */,
 				AB10C0DE0900000000000F09 /* MenuBarFavorites.swift */,
 				AB12EF41E1B8274ADE013E7B /* ClickableRegion.swift */,
@@ -481,6 +483,7 @@
 				A1F0C0DE0000000000000012 /* RelayFeed.swift in Sources */,
 				A1F0C0DE0000000000000032 /* StreamRendition.swift in Sources */,
 				3C43146AB8F695AE9ED81CBB /* BossKey.swift in Sources */,
+				AB5E1F7E57000000000000B1 /* SelfTest.swift in Sources */,
 				8B3FC395F23C66899F2E2E5C /* CurationPanel.swift in Sources */,
 				AB10C0DE0300000000000B03 /* HeartButton.swift in Sources */,
 				AB10C0DE0400000000000B04 /* FavoritesRows.swift in Sources */,
@@ -765,6 +768,7 @@
 		EC9FF8F3BA1124F1BFDD042B /* SkipTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 634BC02D414C020142CE76CB /* SkipTracker.swift */; };
 		A1D0C0DE00000000000000F4 /* DeferredSaver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D0C0DE00000000000000F3 /* DeferredSaver.swift */; };
 		A1D0C0DE00000000000000F2 /* DwellTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D0C0DE00000000000000F1 /* DwellTracker.swift */; };
+		AB5E1F7E57000000000000B1 /* SelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB5E1F7E57000000000000F1 /* SelfTest.swift */; };
 		3C43146AB8F695AE9ED81CBB /* BossKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10FF6FC1C8486FB9F87FD37F /* BossKey.swift */; };
 		8B3FC395F23C66899F2E2E5C /* CurationPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E46E2782D9B25FD5CED2CCD /* CurationPanel.swift */; };
 		AB10C0DE0300000000000B03 /* HeartButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB10C0DE0300000000000F03 /* HeartButton.swift */; };
