@@ -575,3 +575,10 @@ Ready for execution
 - C3 的画中画音频输出类型定名为 `PipAudioOutput`（避免与 AudioTransition 移植来的 `AudioIntent` 同名）。
 - `parity.py` 必须：按组检查时把 `deferred:C9` 视为已登记；`--all` 时只要仍有未被 C9 消化的 deferred 即失败，并有负样本证明。00 合入后编排者核对，缺则在派 W1 前补。
 - C9 增加：`maxFileBytes` 收敛为一处（L0a `Prefs`），并加断言保证与 L0b 的引用一致。
+
+**修订 2.3（2026-11-18，agy 额度约束，编排者裁决）**
+实测额度：一次 claude-sonnet-4-6 云端任务（00 脚手架）就用掉 Claude/GPT 档约 41% 的 5 小时额度、20% 的周额度；Gemini 档基本未用。为不耗尽 Claude/GPT 额度，后续任务包一律改用 Gemini 档，Claude/GPT 只作某包连续两轮失败后的备选：
+- 复杂逻辑与并发（C3、C8、P1、P2、A2、A3、A5a、A5b、A7、B1、PiP1，以及回退包 R2）→ `gemini-4-hydrogen-high`（P1、C8、P2 用 `gemini-4-hydrogen-xhigh`）
+- 一般移植与界面（L0a、L0b、C2、C4、C5、C6a、C6c、R1、A6、B2）→ `gemini-4-carbon-high` 或 `gemini-4-argon-high`
+- 直译、配置、测试框架、端到端、文档（C6b、C7、T1、A1、A4、C9、B0、E1、E2、E3、D-A、D-B、D-C）→ `gemini-3.8-flash-high`（文档用 `gemini-3.8-flash-medium`）
+- 并发上限：同时在跑的 agy 云端任务不超过 4 个；每批派发前编排者核对额度（Gemini 5 小时额度用量 > 70% 时暂停派发，等重置）。
