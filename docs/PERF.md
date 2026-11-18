@@ -444,3 +444,19 @@ T18、T18b、T19 的实跑（2026-11-18，分支 `feat/ios-pr3`）。全程静�
 ### 哪些不代表真机
 
 模拟器用宿主机解码，cpu 与功耗绝对值不能外推，也不能证明 iPhone 三路硬解能力（修订 v2 H3 的结论边界）；真机三路持续播放由用户在 TestFlight 上确认。资源不足的降级与恢复路径只由单元测试覆盖，模拟器上触发不到 `decoderTemporarilyUnavailable`。热降档在三窗下的实跑没有做（`--perf-thermal` 注入），由 `LaneQualityTests` 与 `TripleLaneMediaTests` 覆盖。
+
+### PR #8 审计修复后的复测（代码 `999e8cf`）
+
+- **空主路**（iPhone 17 Pro，三路，`--perf-empty-primary 6`）：第 6 秒焦点交给第三路并屏蔽主路的房间，日志 `perf empty-primary primary=empty`；3 秒后副路向前划，`lane-rooms distinct=true lanes=3` 共 5 条、重复 0 条；回桌面 5 秒后服务端字节为 0、中继源 0 个。
+- **热降档完整序列**（`--perf-thermal serious@15,critical@25,fair@30`，前台 100 秒）：
+  - iPhone 三格（尺寸上限 1.696M）：serious `thermal limit steps=1`，各路换到 896k；critical `thermal step steps=2`，已是最低档不再换；fair 后满 60 秒 `thermal recover`，换回 1.696M（尺寸上限，不是不限）。
+  - iPad Pro 11（M5）三格（尺寸上限 3.096M）：serious 换到 1.696M，critical `thermal step` 后三路再换到 896k（修复前这一步不会发生），满 60 秒回升到 3.096M。
+- **G-mac**（同口径）：
+
+| 轮 | cpu_avg | footprint 均值 | 起播 | runtime_issues | 门 |
+|---|---|---|---|---|---|
+| 1（冷启动） | 1.38% | 36.3 MB | 2.29 秒 | 0 | **FAIL**（只有起播一项） |
+| 2 | 1.53% | 34.9 MB | 1.77 秒 | 0 | PASS |
+| 3 | 1.68% | 34.8 MB | 1.73 秒 | 0 | PASS |
+| 三轮中位数 | 1.53% | 34.9 MB | 1.77 秒 | 0 | 全部满足 |
+| idle | 0.0% | 31.6 MB | | 0 | PASS |
