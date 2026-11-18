@@ -1,10 +1,18 @@
 #!/bin/bash
-# Vela iOS Spike 模拟器探针：在 iOS 模拟器里静音起播，按宿主进程 pid 周期采样，输出一行 JSON。
-# 用法：scripts/perf-probe-ios.sh --app <.app> --bundle <id> --duration 秒 --scenario single|dual|background|pip
-#       [--launch-args "额外启动参数"] [--device 名称] [--out 文件] [--raw-dir 目录] [--bg-hold 秒]
-#       [--play-timeout 秒] [--wait-quiet 最多等待秒数] [--teardown]
+# Vela iOS 模拟器探针：在 iOS 模拟器里静音起播，按宿主进程 pid 周期采样，输出一行 JSON。
+# 用法：scripts/perf-probe-ios.sh --app <.app> [--bundle <id>] --duration 秒 --scenario single|dual|background|pip
+#       [--profile vela|spike] [--launch-args "额外启动参数"] [--device 名称] [--out 文件] [--raw-dir 目录] [--bg-hold 秒]
+#       [--play-timeout 秒] [--wait-quiet 最多等待秒数] [--stream-stats 文件] [--teardown]
 # 兼容 macOS 自带 bash 3.2。依赖：xcrun simctl、ps、top、footprint、nettop、python3。
-# 全程静音（Spike 的 AVPlayer.volume 恒为 0）；只 simctl boot，不打开 Simulator.app，不截屏、不点击。
+# 全程静音（正式 App 的 --perf-autoplay 强制静音；Spike 的 AVPlayer.volume 恒为 0）；只 simctl boot，不打开 Simulator.app，不截屏、不点击。
+# --profile vela（默认）：正式 App 的 Perf 构建，bundle 缺省 com.vela.stage.ios.perf，日志子系统 com.vela.stage，
+#   启动参数 --perf-autoplay，支持 single、dual、background 与 pip。dual 与 pip 加 --launch-args "--perf-stream <回环主列表> --perf-dual"
+#   用固定测试流（scripts/serve-test-stream.py，三个测试房间共用一个流，不访问真实站点）；不带 --perf-stream 就走真实目录。
+#   三路加 --launch-args "--perf-stream <地址> --perf-lanes 3"：期望三路首帧。
+#   --stream-stats：serve-test-stream.py --stats-file 写的文件；给了就按服务端字节判前台有流量、回桌面 5 秒后归零、
+#   画中画只剩一路（模拟器回环流量不进 nettop，读数恒 0，不能当证据）。
+#   正式 App 的画中画默认自动进入：pip 用 iPad 模拟器（DEVICE_MODEL），iPhone 模拟器不支持画中画，background 照旧全停。
+# --profile spike：旧 Spike 原型，bundle 缺省 com.vela.stage.spike，日志子系统 com.vela.stage.spike，场景参数如下。
 # 场景：
 #   single      单窗（--autoplay-single）
 #   dual        双窗（--autoplay-dual）
@@ -12,7 +20,8 @@
 #               等 5 秒后采样 --bg-hold 秒，再切回，测恢复首帧
 #   pip         同 background，但允许画中画（单窗；加 --launch-args "--autoplay-dual" 则双窗，只焦点路进 PiP）
 # 退出码：0 成功；1 环境/安装失败；2 用法错误；3 采样期间出现 macOS 探针或 Vela 进程（结果作废）；
-#         4 起播失败（未在超时内出画面，或解析/起播报错）；5 采样期间 App 进程退出；6 无样本或指标缺失。
+#         4 起播失败（未在超时内出画面，或解析/起播报错）；5 采样期间 App 进程退出；6 无样本或指标缺失；
+#         7 多路核对失败（路房间重复、后台仍留中继源、回桌面后服务端仍有字节、画中画期间不止一路联网，见分析器）。
 # 环境变量 DEVICE_UDID 可直接指定设备；DEVICE_MODEL 指定新建设备型号（默认 iPhone 17 Pro）。PROBE_FORCE_FAIL=nosamples|exit 仅供负样本自测。
 set -u
 
@@ -28,9 +37,10 @@ BG_HOLD=30
 PLAY_TIMEOUT=120
 WAIT_QUIET=0
 TEARDOWN=0
+STREAM_STATS=""
 INTERVAL=5
 SETTLE=5
-LOG_SUBSYSTEM=com.vela.stage.spike
+PROFILE=vela
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -38,6 +48,7 @@ while [ $# -gt 0 ]; do
         --bundle) BUNDLE="$2"; shift 2 ;;
         --duration) DURATION="$2"; shift 2 ;;
         --scenario) SCENARIO="$2"; shift 2 ;;
+        --profile) PROFILE="$2"; shift 2 ;;
         --launch-args) LAUNCH_ARGS="$2"; shift 2 ;;
         --device) DEVICE_NAME="$2"; shift 2 ;;
         --out) OUT_JSON="$2"; shift 2 ;;
@@ -45,14 +56,27 @@ while [ $# -gt 0 ]; do
         --bg-hold) BG_HOLD="$2"; shift 2 ;;
         --play-timeout) PLAY_TIMEOUT="$2"; shift 2 ;;
         --wait-quiet) WAIT_QUIET="$2"; shift 2 ;;
+        --stream-stats) STREAM_STATS="$2"; shift 2 ;;
         --teardown) TEARDOWN=1; shift ;;
-        -h|--help) sed -n 2,17p "$0"; exit 0 ;;
+        -h|--help) sed -n 2,20p "$0"; exit 0 ;;
         *) echo "未知参数: ${1}" >&2; exit 2 ;;
     esac
 done
 
 case "$SCENARIO" in single|dual|background|pip) ;; *) echo "--scenario 只能是 single|dual|background|pip" >&2; exit 2 ;; esac
-[ -n "$APP" ] && [ -n "$BUNDLE" ] || { echo "必须给 --app 与 --bundle" >&2; exit 2; }
+case "$PROFILE" in
+    vela)
+        LOG_SUBSYSTEM=com.vela.stage
+        BUNDLE="${BUNDLE:-com.vela.stage.ios.perf}"
+        case "$SCENARIO" in single|dual|background|pip) ;; *) echo "--profile vela 只支持 single|dual|background|pip" >&2; exit 2 ;; esac
+        ;;
+    spike)
+        LOG_SUBSYSTEM=com.vela.stage.spike
+        BUNDLE="${BUNDLE:-com.vela.stage.spike}"
+        ;;
+    *) echo "--profile 只能是 vela|spike" >&2; exit 2 ;;
+esac
+[ -n "$APP" ] || { echo "必须给 --app" >&2; exit 2; }
 case "$DURATION" in ''|*[!0-9]*) echo "--duration 必须是整数秒" >&2; exit 2 ;; esac
 [ -d "$APP" ] || { echo "找不到 App: ${APP}" >&2; exit 1; }
 
@@ -84,7 +108,7 @@ cleanup() {
         fi
     fi
     if [ -n "$RAW_DIR" ]; then
-        mkdir -p "$RAW_DIR" && cp "$WORK"/app-*.log "$WORK"/top.txt "$WORK"/meta.txt "$WORK"/samples.tsv "$WORK"/net.csv "$WORK"/phases.txt "$RAW_DIR"/ 2>/dev/null
+        mkdir -p "$RAW_DIR" && cp "$WORK"/app-*.log "$WORK"/top.txt "$WORK"/meta.txt "$WORK"/samples.tsv "$WORK"/net.csv "$WORK"/phases.txt "$WORK"/stream-stats.txt "$RAW_DIR"/ 2>/dev/null
     fi
     rm -rf "$WORK"
 }
@@ -139,18 +163,27 @@ xcrun simctl spawn "$UDID" log config --subsystem "$LOG_SUBSYSTEM" --mode level:
     || echo "WARN: log config 失败" >&2
 
 # 启动参数
-case "$SCENARIO" in
-    single) ARGS="--autoplay-single" ;;
-    dual) ARGS="--autoplay-dual" ;;
-    background) ARGS="--autoplay-single --no-pip" ;;
-    pip) ARGS="--autoplay-single" ;;
-esac
+if [ "$PROFILE" = vela ]; then
+    ARGS="--perf-autoplay"
+    [ "$SCENARIO" = dual ] && ARGS="$ARGS --perf-dual"
+else
+    case "$SCENARIO" in
+        single) ARGS="--autoplay-single" ;;
+        dual) ARGS="--autoplay-dual" ;;
+        background) ARGS="--autoplay-single --no-pip" ;;
+        pip) ARGS="--autoplay-single" ;;
+    esac
+fi
 # 额外参数：带 --autoplay-dual 则去掉单窗参数
 if [ -n "$LAUNCH_ARGS" ]; then
     case "$LAUNCH_ARGS" in *--autoplay-dual*) ARGS="" ;; esac
     ARGS="$ARGS $LAUNCH_ARGS"
 fi
-case "$ARGS" in *--autoplay-dual*) EXPECT=2 ;; *) EXPECT=1 ;; esac
+case "$ARGS" in
+    *"--perf-lanes 3"*) EXPECT=3 ;;
+    *"--perf-lanes 2"*|*--autoplay-dual*|*--perf-dual*) EXPECT=2 ;;
+    *) EXPECT=1 ;;
+esac
 
 STREAM="$WORK/stream.log"
 : >"$STREAM"
@@ -258,7 +291,8 @@ xcrun simctl spawn "$UDID" log show --start "$START_STR" --info --debug --style 
 cp "$STREAM" "$WORK/app-stream.log"
 cp "$SHOW" "$WORK/app-show.log"
 
-printf 'scenario=%s\nexpect=%s\nt0=%s\ntbg=%s\ntres=%s\n' "$SCENARIO" "$EXPECT" "$T0" "$T_BG" "$T_RESUME" >"$WORK/meta.txt"
+[ -n "$STREAM_STATS" ] && [ -f "$STREAM_STATS" ] && cp "$STREAM_STATS" "$WORK/stream-stats.txt"
+printf 'scenario=%s\nexpect=%s\nt0=%s\ntbg=%s\ntres=%s\nsubsystem=%s\n' "$SCENARIO" "$EXPECT" "$T0" "$T_BG" "$T_RESUME" "$LOG_SUBSYSTEM" >"$WORK/meta.txt"
 python3 -I "$(dirname "$0")/perf-probe-ios-analyze.py" "$WORK" >"$WORK/result.json"
 RC=$?
 cp "$WORK/result.json" "$OUT_JSON"

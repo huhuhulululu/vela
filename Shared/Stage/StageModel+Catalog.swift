@@ -31,8 +31,13 @@ struct CatalogRest: Sendable {
 @MainActor
 extension StageModel {
     /// `keepingSearchTask`：全站搜索落空后恢复原来源时用，本次重载不取消调用它的搜索任务。
+    /// 在可取消的子任务里跑，挂起时整段取消（§3.1）。
     func reload(keepingSearchTask: Bool = false) async {
-        guard ageConfirmed else { return }
+        await trackShared { [weak self] in await self?.reloadTracked(keepingSearchTask: keepingSearchTask) }
+    }
+
+    private func reloadTracked(keepingSearchTask: Bool) async {
+        guard ageConfirmed, let life = sharedToken() else { return }
         endSiteSearch(cancelTask: !keepingSearchTask)
         loadGeneration += 1
         let token = loadGeneration
@@ -46,7 +51,7 @@ extension StageModel {
         skips.reset()
         do {
             let fetched = try await fetchOpening()
-            guard token == loadGeneration else { return }
+            guard token == loadGeneration, lifecycleAllows(.beforeCommit, life) else { return }
             challengeGate.reset()
             let raw = fetched.page
             updateCandidates(fetched.regular, replacing: true)
@@ -74,7 +79,7 @@ extension StageModel {
             await requestPlayAndWait()
         } catch CatalogFailure.challenge, SidecarError.challenge {
             // 只有正文是质询页才弹确认页；普通 403 / 503 走下面的失败分支。
-            guard token == loadGeneration else { return }
+            guard token == loadGeneration, lifecycleAllows(.beforeCommit, life) else { return }
             paging.restore(previousPaging)
             if allowChallengePrompt() {
                 challengeResume = .reload
@@ -83,7 +88,7 @@ extension StageModel {
                 failReload("站点连续要求确认，稍后再试")
             }
         } catch {
-            guard token == loadGeneration else { return }
+            guard token == loadGeneration, lifecycleAllows(.beforeCommit, life) else { return }
             // 列表没被替换：游标回到最后一次成功加载的位置，不留在清零后的 0。
             paging.restore(previousPaging)
             log.error("catalog failed")
@@ -107,6 +112,7 @@ extension StageModel {
         siteSearchTask?.cancel()
         invalidateCatalogRest()
         let epoch = searchEpoch.begin()
+        wiring.lastSiteSearch = (keyword, fallback)
         siteSearchTask = Task { await searchSite(keyword, fallback: fallback, epoch: epoch) }
     }
 
@@ -124,7 +130,7 @@ extension StageModel {
     /// 成功、失败、质询三个分支都先核对操作代次，被作废的旧搜索不改任何状态。
     private func searchSite(_ keyword: String, fallback: Room?, epoch: Int) async {
         defer { if searchEpoch.isCurrent(epoch) { siteSearchTask = nil } }
-        guard searchEpoch.canStart(epoch, cancelled: Task.isCancelled), ageConfirmed else { return }
+        guard searchEpoch.canStart(epoch, cancelled: Task.isCancelled), ageConfirmed, let life = sharedToken() else { return }
         loadGeneration += 1
         let token = loadGeneration
         invalidateCatalogRest()
@@ -132,7 +138,7 @@ extension StageModel {
         searchEpoch.claimLoading(epoch)
         do {
             let raw = try await catalogAPI.fetch(SiteSearch.query(keyword))
-            guard token == loadGeneration, searchEpoch.isCurrent(epoch) else { return }
+            guard token == loadGeneration, searchEpoch.isCurrent(epoch), lifecycleAllows(.beforeCommit, life) else { return }
             if searchEpoch.releaseLoading(token: epoch) { loading = false }
             challengeGate.reset()
             let page = SiteSearch.page(raw.rooms, blocked: curation.blockedSet)
@@ -147,7 +153,7 @@ extension StageModel {
             }
             requestPlay()
         } catch CatalogFailure.challenge {
-            guard token == loadGeneration, searchEpoch.isCurrent(epoch) else { return }
+            guard token == loadGeneration, searchEpoch.isCurrent(epoch), lifecycleAllows(.beforeCommit, life) else { return }
             guard allowChallengePrompt() else {
                 if searchEpoch.releaseLoading(token: epoch) { loading = false }
                 showToast("站点连续要求确认，全站搜索稍后再试")
@@ -157,7 +163,7 @@ extension StageModel {
             _ = searchEpoch.releaseLoading(token: epoch) // presentCatalogChallenge 自己会结束加载中
             presentCatalogChallenge()
         } catch {
-            guard token == loadGeneration, searchEpoch.isCurrent(epoch) else { return }
+            guard token == loadGeneration, searchEpoch.isCurrent(epoch), lifecycleAllows(.beforeCommit, life) else { return }
             if searchEpoch.releaseLoading(token: epoch) { loading = false }
             log.error("site search failed")
             await siteSearchMissed(keyword, fallback: fallback, failed: true, epoch: epoch)
@@ -179,9 +185,7 @@ extension StageModel {
         case .abandon:
             return
         case .direct(let room):
-            updateFeed { $0.insertDirect(room) }
-            showFilters = false
-            requestPlay()
+            applyDirectSearchHit(room)
         case .notify(let message):
             showToast(message)
         }
@@ -218,7 +222,12 @@ extension StageModel {
         }
     }
 
+    /// 在可取消的子任务里跑，挂起时整段取消（§3.1）。
     func loadMoreIfNeeded() async {
+        await trackShared { [weak self] in await self?.loadMoreTracked() }
+    }
+
+    private func loadMoreTracked() async {
         let token = loadGeneration
         await loadPage()
         // 翻页期间可见房间被屏蔽光、或整页被屏蔽：继续翻到可看的房间；起播由 loadPage 完成时统一触发。
@@ -228,7 +237,7 @@ extension StageModel {
 
     @discardableResult
     func loadPage() async -> PageOutcome {
-        guard ageConfirmed, feed.shouldLoadMore(), !loading else { return .skipped }
+        guard ageConfirmed, feed.shouldLoadMore(at: furthestLaneUsername), !loading, let life = sharedToken() else { return .skipped }
         let token = loadGeneration
         // 按列表代次占位：旧来源残留的请求不会挡住新来源的补拉。
         guard loadSlot.acquire(generation: token) else { return .busy }
@@ -236,7 +245,7 @@ extension StageModel {
         let offset = loadedOffset
         do {
             let fetched = try await fetchPage(offset: offset)
-            guard token == loadGeneration else { return .skipped }
+            guard token == loadGeneration, lifecycleAllows(.beforeCommit, life) else { return .skipped }
             challengeGate.reset()
             let raw = fetched.page
             updateCandidates(fetched.regular, replacing: false)
@@ -255,8 +264,8 @@ extension StageModel {
             }
             return .loaded
         } catch {
-            // 被作废的旧请求失败不留痕迹：不记日志、不弹提示。
-            guard token == loadGeneration else { return .skipped }
+            // 被作废的旧请求（含挂起时取消的）失败不留痕迹：不记日志、不弹提示。
+            guard token == loadGeneration, lifecycleAllows(.beforeCommit, life) else { return .skipped }
             log.error("page failed")
             showToast("没能加载更多房间")
             return .failed
@@ -323,6 +332,7 @@ extension StageModel {
     /// 占住这一代的翻页位，避免用户滑到末尾时和续页抢同一个偏移。
     /// 猜你喜欢的定向候选等续页结束后再发，稀有度按已经并入的常规页算；中途被作废则不发。
     private func followCatalogRest(_ rest: CatalogRest, pageSize: Int, token: Int) async {
+        guard let life = sharedToken() else { return }
         guard loadSlot.acquire(generation: token) else {
             guard !Task.isCancelled, token == loadGeneration, source == .guess else { return }
             launchTargeted(TargetedPlan(base: rest.query, rarity: tagRarity), token: token)
@@ -336,7 +346,7 @@ extension StageModel {
             fetched: fetched, pages: rest.pages, lastCount: last.rooms.count,
             pageSize: pageSize, nextOffset: last.nextOffset, total: last.total
         ) {
-            guard !Task.isCancelled, token == loadGeneration else { return }
+            guard !Task.isCancelled, token == loadGeneration, lifecycleAllows(.beforeRequest, life) else { return }
             query.offset = last.nextOffset
             let page: CatalogPage
             do {
@@ -346,7 +356,7 @@ extension StageModel {
                 log.error("catalog rest page failed")
                 break
             }
-            guard !Task.isCancelled, token == loadGeneration else { return }
+            guard !Task.isCancelled, token == loadGeneration, lifecycleAllows(.beforeCommit, life) else { return }
             let offset = query.offset
             if page.rooms.isEmpty {
                 updateFeed(intent: .merge) { $0.mergePageAfterCurrent(page, from: offset) { $0 } }
@@ -386,10 +396,10 @@ extension StageModel {
     private func mergeTargeted(_ plan: TargetedPlan, token: Int) async {
         let tags = TasteTargeting.favoriteTags(taste: taste, now: Date(), rarity: plan.rarity)
         let queries = TasteTargeting.queries(for: tags, base: plan.base)
-        guard !queries.isEmpty else { return }
+        guard !queries.isEmpty, let life = sharedToken() else { return }
         let api = catalogAPI
         let pages = await TimedFanOut.run(queries, timeout: Self.targetedTimeout) { try await api.fetchPages($0, pages: 1).rooms }
-        guard !Task.isCancelled, token == loadGeneration, source == .guess else { return }
+        guard !Task.isCancelled, token == loadGeneration, source == .guess, lifecycleAllows(.beforeCommit, life) else { return }
         for page in pages where page == nil { log.error("targeted page failed") }
         let rooms = TasteTargeting.merging([], extra: pages.compactMap { $0 })
         guard !rooms.isEmpty else { return }

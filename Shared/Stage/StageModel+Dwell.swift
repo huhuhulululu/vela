@@ -4,10 +4,10 @@ import os
 @MainActor
 extension StageModel {
     /// 当前房间变了：结算上一个房间的停留，新房间等播放真正起来再计时，满阈值后做热门关联。
-    func currentRoomChanged(on given: PlaybackLane? = nil) {
+    func currentRoomChanged(on given: PlaybackLane? = nil, reason: LaneSettlement.EndReason = .swipe) {
         let lane = given ?? primary
         lane.relatedTask?.cancel()
-        record(lane.dwell.switchTo(room(of: lane), now: Date()), from: lane)
+        record(lane.dwell.switchTo(room(of: lane), now: Date()), from: lane, reason: reason)
         lane.dwellSource = SiteSearch.dwellSource(loaded: loadedSource, searching: siteSearch != nil)
         suggestSnoozed.removeAll()
         lane.dwell.setLedgerExcluded(taste.paused, now: Date())
@@ -16,17 +16,18 @@ extension StageModel {
         scheduleRelated(on: lane)
     }
 
-    func endView() {
+    func endView(reason: LaneSettlement.EndReason = .swipe) {
         for lane in lanes {
             lane.relatedTask?.cancel()
-            record(lane.dwell.finish(now: Date()), from: lane)
+            record(lane.dwell.finish(now: Date()), from: lane, reason: reason)
         }
     }
 
-    /// 停留只在「允许播放，且这一路当前房间的播放项此刻真在播」时计时；状态变化时顺带重排关联任务。
+    /// 停留只在「允许播放、用户在看（iOS 只有 `.active`，§2 `attentive`），且这一路当前房间的播放项此刻真在播」时计时；
+    /// 状态变化时顺带重排关联任务。
     func updateDwellActive(on given: PlaybackLane? = nil) {
         let lane = given ?? primary
-        let active = PlaybackPolicy.dwellActive(
+        let active = platform.attentive && PlaybackPolicy.dwellActive(
             allowed: laneAllowed(lane), playing: lane.playingName, current: name(of: lane)
         )
         guard active != lane.dwell.isActive else {
@@ -43,12 +44,12 @@ extension StageModel {
     }
 
     /// 暂停、缓冲、隐藏时不排唤醒（`.idle`），恢复计时后由 `updateDwellActive` 重排。
-    /// 热门关联只看主路（焦点路，§4.3）。
+    /// 热门关联只看焦点路（§4.3）。
     func scheduleRelated(on given: PlaybackLane? = nil) {
         let lane = given ?? primary
         lane.relatedTask?.cancel()
         lane.relatedTask = nil
-        guard lane.id == .primary, let username = name(of: lane) else { return }
+        guard lane.id == focusLane, let username = name(of: lane) else { return }
         switch lane.dwell.relatedPlan(for: username, now: Date()) {
         case .none, .idle:
             return
@@ -64,16 +65,40 @@ extension StageModel {
         }
     }
 
-    func record(_ settled: DwellTracker.Settled?, from lane: PlaybackLane) {
+    /// 一段停留的结算（§4.3）：原始秒、加权秒（焦点段 1.0、非焦点段 0.5）、焦点秒，连同本路自己的来源与结束原因。
+    /// 单窗焦点恒在这一路，三个秒数相等，与原来按总秒数记账的结果一致。
+    func settlement(
+        for settled: DwellTracker.Settled, lane: PlaybackLane, reason: LaneSettlement.EndReason
+    ) -> LaneSettlement {
+        let focused = min(settled.focusedDwell, settled.dwell)
+        return LaneSettlement.settle(
+            lane: lane.id.role, username: settled.room.username, source: lane.dwellSource,
+            spans: [
+                .init(seconds: focused, focused: true),
+                .init(seconds: settled.dwell - focused, focused: false)
+            ],
+            endReason: reason, userInitiated: reason == .swipe || reason == .notInterested || reason == .block
+        )
+    }
+
+    func record(_ settled: DwellTracker.Settled?, from lane: PlaybackLane, reason: LaneSettlement.EndReason = .swipe) {
         guard let settled else { return }
         let now = Date()
         let instant = now.timeIntervalSince1970
-        taste = taste.recording(room: settled.room, watched: settled.dwell, source: lane.dwellSource, now: now, rarity: tagRarity)
+        let result = settlement(for: settled, lane: lane, reason: reason)
+        // 焦点路上还没出画面就被划走（0 秒）仍是每日命中率里的一次落空：与单窗原来的口径一致。
+        var daily: TimeInterval? = result.countsDaily ? result.dailySeconds : nil
+        if daily == nil, lane.id == focusLane, settled.dwell <= 0, !result.resumesAsNewDwell { daily = 0 }
+        taste = taste.recording(
+            room: settled.room, learnSeconds: result.learnsTaste ? result.learnSeconds : nil, daily: daily,
+            source: result.source, now: now, rarity: tagRarity
+        )
         tasteSaver.schedule(taste)
-        // 账本只记真实开始时刻起、且去掉暂停学习时段的秒数；与实时提示判定同一口径。
+        // 账本只记真实开始时刻起、且去掉暂停学习时段的秒数；与实时提示判定同一口径。非焦点时间折半。
         guard settled.ledgerSeconds > 0, let start = settled.start else { return }
+        let ratio = settled.dwell > 0 ? result.weightedSeconds / settled.dwell : 1
         watchLedger = watchLedger.recording(
-            username: settled.room.username, seconds: settled.ledgerSeconds,
+            username: settled.room.username, seconds: settled.ledgerSeconds * ratio,
             start: start.timeIntervalSince1970, now: instant
         )
         watchLedgerSaver.schedule(watchLedger)
@@ -82,10 +107,11 @@ extension StageModel {
     // MARK: 收藏提示
 
     /// 学习未暂停、且当前停留没被作废（清除偏好、不感兴趣、屏蔽）时，才允许记账提示。
-    private var suggestAllowed: Bool { !taste.paused && !dwell.isDiscarded }
+    private var suggestAllowed: Bool { !taste.paused && !focusPlaybackLane.dwell.isDiscarded }
 
     func checkFavoriteSuggest(now: Date) {
-        guard suggestAllowed, favoriteSuggest == nil, let room = feed.current, dwell.isActive else { return }
+        let dwell = focusPlaybackLane.dwell
+        guard suggestAllowed, favoriteSuggest == nil, let room = focusRoom, dwell.isActive else { return }
         // 点击穿透期间按钮点不到：不显示也不开始计时，等指针回到窗口（`notePointer`）再显示；
         // 本次停留里已超时消失过的不重复弹。
         guard SuggestRules.canPresent(
@@ -109,7 +135,8 @@ extension StageModel {
     func scheduleFavoriteSuggestWake() {
         favoriteSuggestWakeTask?.cancel()
         favoriteSuggestWakeTask = nil
-        guard suggestAllowed, favoriteSuggest == nil, let room = feed.current, dwell.isActive,
+        let dwell = focusPlaybackLane.dwell
+        guard suggestAllowed, favoriteSuggest == nil, let room = focusRoom, dwell.isActive,
               let spell = dwell.startedAt else { return }
         let now = Date()
         let live = dwell.ledgerDwell(now: now)
@@ -136,7 +163,7 @@ extension StageModel {
             try? await Task.sleep(nanoseconds: UInt64((wait + 0.05) * 1_000_000_000))
             guard !Task.isCancelled else { return }
             await MainActor.run {
-                guard let self, WatchLedger.key(self.feed.currentUsername ?? "") == name else { return }
+                guard let self, WatchLedger.key(self.focusRoom?.username ?? "") == name else { return }
                 self.checkFavoriteSuggest(now: Date())
                 self.scheduleFavoriteSuggestWake()
             }
@@ -166,7 +193,7 @@ extension StageModel {
     }
 
     func dismissFavoriteSuggestIfMismatch() {
-        guard let prompt = favoriteSuggest, let current = feed.currentUsername else {
+        guard let prompt = favoriteSuggest, let current = focusRoom?.username else {
             favoriteSuggest = nil
             favoriteSuggestTask?.cancel()
             return
@@ -178,7 +205,7 @@ extension StageModel {
     }
 
     func acceptFavoriteSuggest() {
-        guard let prompt = favoriteSuggest, let room = feed.current,
+        guard let prompt = favoriteSuggest, let room = focusRoom,
               WatchLedger.key(room.username) == prompt.username else { return }
         endFavoriteSuggest(.accepted)
         guard !curation.isFavorite(room.username) else { return }
@@ -206,12 +233,14 @@ extension StageModel {
         }
     }
 
-    /// 只在猜你喜欢模式、且仍停留在原房间时，把相近的未看房间挪到紧随其后；已划过的位置不动。
+    /// 只在猜你喜欢模式、且焦点路仍停留在原房间时，把相近的未看房间挪到紧随这一间之后；已划过的位置不动。
+    /// 双窗里按焦点路的房间与位置来，不是主路的。
     func promoteRelated(to username: String) {
-        guard source == .guess, let room = feed.current, room.username == username else { return }
-        let ahead = Array(feed.rooms.dropFirst(feed.index + 1))
+        guard source == .guess, let room = focusRoom, room.username == username,
+              let at = feed.rooms.firstIndex(where: { $0.username == username }) else { return }
+        let ahead = Array(feed.rooms.dropFirst(at + 1))
         let names = Recommender.related(to: room, among: ahead, taste: taste)
         guard !names.isEmpty else { return }
-        updateFeed(intent: .merge) { $0.promoteAfterCurrent(names) }
+        updateFeed(intent: .merge) { $0.promoteAfter(anchor: username, names) }
     }
 }

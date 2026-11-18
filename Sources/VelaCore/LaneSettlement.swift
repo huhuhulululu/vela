@@ -1,9 +1,27 @@
 import Foundation
 
-/// 竖屏双窗的一路。单窗只用 `.primary`。
-public enum PlaybackLaneRole: Equatable, Sendable, Hashable {
+/// 竖屏多路的一路。单窗只用 `.primary`。与 `LaneID` 一一对应（`LaneID.role` / `PlaybackLaneRole.laneID`）。
+public enum PlaybackLaneRole: Equatable, Sendable, Hashable, CaseIterable {
     case primary
     case secondary
+    case tertiary
+
+    public var laneID: LaneID {
+        switch self {
+        case .primary: return .primary
+        case .secondary: return .secondary
+        case .tertiary: return .tertiary
+        }
+    }
+
+    /// 日志里的路标签。
+    public var label: String {
+        switch self {
+        case .primary: return "primary"
+        case .secondary: return "secondary"
+        case .tertiary: return "tertiary"
+        }
+    }
 }
 
 /// 一路停留的结算。学习用加权秒，每日命中率只用焦点秒，账本记加权秒。
@@ -25,7 +43,7 @@ public struct LaneSettlement: Equatable, Sendable {
         case autoSkip
         case block
         case background
-        case dualOff
+        case layoutChange
         case sourceChange
         case failed
         case notInterested
@@ -52,7 +70,7 @@ public struct LaneSettlement: Equatable, Sendable {
         rawSeconds < Preferences.skipBelow ? rawSeconds : weightedSeconds
     }
 
-    /// 这一段要不要进每日命中率。没有焦点时间不进；`.background` 与 `.dualOff` 不记落空，够长的命中仍然计。
+    /// 这一段要不要进每日命中率。没有焦点时间不进；`.background` 与 `.layoutChange` 不记落空，够长的命中仍然计。
     public var countsDaily: Bool {
         if focusedSeconds <= 0 { return false }
         if Self.dropsMisses(endReason), Feedback.dailyOutcome(watched: focusedSeconds) == false { return false }
@@ -64,7 +82,7 @@ public struct LaneSettlement: Equatable, Sendable {
 
     /// 这两种结束不算用户划走。回前台后另开一段停留。
     public var resumesAsNewDwell: Bool {
-        endReason == .background || endReason == .dualOff
+        endReason == .background || endReason == .layoutChange
     }
 
     /// 热门关联只看焦点路。
@@ -111,7 +129,7 @@ public struct LaneSettlement: Equatable, Sendable {
     }
 
     private static func dropsMisses(_ reason: EndReason) -> Bool {
-        reason == .background || reason == .dualOff
+        reason == .background || reason == .layoutChange
     }
 
     private static func finite(_ seconds: TimeInterval) -> TimeInterval {

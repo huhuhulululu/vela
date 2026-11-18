@@ -126,6 +126,8 @@ public enum AudioIntent: Equatable, Sendable {
     case interruptionBegan(wasSuspended: Bool)
     case interruptionEnded
     case route(AudioRouteReason)
+    /// 首次起播前按当前静音状态落实会话（§3.3、7b）：静音时播放类别 + 混音并激活，出声时同取消静音。不写设置。
+    case prepare(muted: Bool)
 }
 
 /// 一次转换的步骤和结束后的运行时状态。`writesSettings == false` 时调用方不得把静音写进设置。
@@ -191,13 +193,17 @@ public enum AudioTransition {
             let keepSession = reason == .mute && AudioSessionPolicy.keepsSessionActiveWhenMuting(
                 pictureInPicturePlaying: pictureInPictureActive
             )
-            return silence(
+            var planned = silence(
                 detach: detach,
                 notifyOthers: AudioSessionPolicy.deactivatesNotifyingOthers(on: reason),
                 writesSettings: reason == .mute,
                 pausesPlayback: false,
                 keepSessionActive: keepSession
             )
+            // 进后台、最后一路停播只是释放会话：不改运行时的静音意图，下次起播按它重新准备会话。
+            // 只有用户的再静音才把运行时改成静音。
+            planned.preservesAudibleLane = reason != .mute
+            return planned
         case .interruptionBegan(let wasSuspended):
             if AudioSessionPolicy.ignoresInterruptionBegan(wasSuspended: wasSuspended) {
                 return hold(detach: detach, ignored: true)
@@ -219,6 +225,8 @@ public enum AudioTransition {
                 detach: detach, ignored: false,
                 resumesAudible: AudioSessionPolicy.resumesAudibleAfterInterruption
             )
+        case .prepare(let muted):
+            return prepare(muted: muted, focus: focus, detach: detach)
         case .route(let reason):
             let decision = AudioSessionPolicy.routeDecision(reason)
             guard decision.mutes else { return hold(detach: detach, ignored: false, pausesPlayback: decision.pauses) }
@@ -304,6 +312,33 @@ public enum AudioTransition {
             ignored: false,
             resumesAudible: false,
             attemptsAudible: true
+        )
+    }
+
+    private static func prepare(muted: Bool, focus: PlaybackLaneRole, detach: [PlaybackLaneRole]) -> AudioTransitionPlan {
+        guard muted else {
+            // 出声：与取消静音同样的步骤；设置里本来就是出声，不再写一遍。
+            var plan = unmute(focus, focus: focus, currentlyAudible: nil, detach: detach)
+            plan.writesSettings = false
+            return plan
+        }
+        let quiet = AudioSessionPolicy.configuration(audible: false)
+        var steps: [AudioTransitionStep] = [.muteAllLanes, .setCategory(quiet.category, mode: quiet.mode)]
+        if !quiet.options.isEmpty {
+            steps.append(.setSessionOptions(quiet.options))
+        }
+        steps.append(.setActive(true, notifyOthersOnDeactivation: false))
+        return AudioTransitionPlan(
+            steps: steps,
+            audibleLane: nil,
+            preservesAudibleLane: false,
+            detachAudio: detach,
+            writesSettings: false,
+            notice: nil,
+            pausesPlayback: false,
+            ignored: false,
+            resumesAudible: false,
+            attemptsAudible: false
         )
     }
 

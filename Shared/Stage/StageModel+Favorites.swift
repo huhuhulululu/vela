@@ -15,9 +15,12 @@ extension StageModel {
     /// 同一时间只有一批查询：新请求取消在途批次，等它收尾后再开新批（并发不叠加）；
     /// 被取代的调用方拿到最新一批的结果，旧批次不写回缓存，`favoritesChecking` 只在最后一批结束时关闭。
     func resolveFavorites() async -> FavoriteResolution {
+        // 挂起期间（iOS 后台）不查，也不动补查冷却。
+        guard sharedToken() != nil else { return FavoriteResolution(statuses: [:], challenged: false) }
         favoritesChecking = true
         let result = await favoriteRunner.run { [self] id in await runFavoriteBatch(id) }
         if !favoriteRunner.isRunning { favoritesChecking = false }
+        guard sharedToken() != nil else { return result }
         noteFavoriteOutcome(result)
         return result
     }
@@ -33,20 +36,21 @@ extension StageModel {
     }
 
     private func runFavoriteBatch(_ id: Int) async -> FavoriteResolution {
+        let life = sharedToken()
         let plan = FavoriteResolver.plan(
             favorites: curation.favorites, catalog: knownCatalog, cache: favoriteStatus, now: Date()
         )
         var statuses = plan.resolved
         var fetched: [String: FavoriteStatus] = [:]
         var challenged = false
-        if !plan.pending.isEmpty {
+        if !plan.pending.isEmpty, lifecycleAllows(.beforeRequest, life) {
             let result = await fetchFavoriteStatuses(plan.pending)
             fetched = result.statuses
             statuses.merge(fetched) { _, new in new }
             challenged = result.challenged
         }
         let incomplete = FavoriteResolver.hasUnresolved(pending: plan.pending, statuses: fetched)
-        guard favoriteRunner.isCurrent(id), !Task.isCancelled else {
+        guard favoriteRunner.isCurrent(id), !Task.isCancelled, lifecycleAllows(.beforeCommit, life) else {
             return FavoriteResolution(statuses: statuses, challenged: challenged, incomplete: incomplete)
         }
         // 写回时基于此刻的缓存（不是批次开始时的快照），免得盖掉期间被重置或更新的结果。
@@ -98,7 +102,7 @@ extension StageModel {
     /// 只补查没有新鲜结果的收藏（添加、导入之后用），被拦截时走确认流程。
     func checkFavorites() async {
         let result = await resolveFavorites()
-        guard result.challenged else { return }
+        guard result.challenged, sharedToken() != nil else { return }
         guard allowChallengePrompt() else {
             showToast("站点连续要求确认，收藏状态稍后再查")
             return
@@ -118,15 +122,22 @@ extension StageModel {
 
     /// 打开收藏夹时用：离线的收藏没有 30 分钟内的上次开播时间才查（并发 4，同一时间一批）。
     /// 被站点拦截时不弹确认页；失败或被拦截后 60 秒内不再自动补查。
+    /// 在可取消的子任务里跑，挂起时整段取消（§3.1）。
     func refreshLastBroadcastsIfStale() async {
+        await trackShared { [weak self] in await self?.refreshLastBroadcastsTracked() }
+    }
+
+    private func refreshLastBroadcastsTracked() async {
         let now = Date()
         let offline = curation.favorites.filter { favoriteStatus.status(for: $0) == .offline }
         let pending = lastBroadcasts.pending(offline, now: now)
-        guard !lastBroadcastChecking, !pending.isEmpty, lastBroadcastRetry.allowsAutoCheck(now: now) else { return }
+        guard !lastBroadcastChecking, !pending.isEmpty, lastBroadcastRetry.allowsAutoCheck(now: now),
+              let life = sharedToken() else { return }
         lastBroadcastChecking = true
         let client: any HTTPClient = now < sidecarUntil ? SidecarHTTPClient(sidecar: sidecar) : http
         let result = await LastBroadcastFetcher(client: client).fetch(pending)
         lastBroadcastChecking = false
+        guard lifecycleAllows(.beforeCommit, life), !Task.isCancelled else { return }
         lastBroadcasts = lastBroadcasts.storing(result.found, at: Date()).pruned(keeping: curation.favorites)
         if result.challenged || result.found.count < pending.count {
             lastBroadcastRetry.recordFailure(at: Date())
@@ -145,9 +156,11 @@ extension StageModel {
         cancelSiteSearch()
         dismissSurfaces()
         // 搜索条件会挡住目标时清掉它，确保播放的就是点击的房间。
+        let before = feed.currentUsername
         updateFeed(intent: .reveal(room.username)) { _ = $0.reveal(room) }
         if siteSearch == nil, feed.query.text != searchText { searchText = feed.query.text }
-        requestPlay()
+        // 目标正在副路播放时只切了焦点（§4.1），主路不重新起播。
+        if lanes.count == 1 || feed.currentUsername != before { requestPlay() }
     }
 
     /// 收藏夹弹窗与菜单栏共用的数据：收藏名单、状态缓存、当前目录整理成的看板。

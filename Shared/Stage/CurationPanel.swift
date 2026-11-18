@@ -6,16 +6,24 @@ struct CurationPanel: View {
     /// 导出、导入走平台回调：macOS 弹文件面板，iOS 用 `.fileExporter` / `.fileImporter`。
     var exportFile: () -> Void
     var importFile: () -> Void
+    /// 面板宽度：macOS 固定 `Theme.panelWidth`；iOS 按可用宽度自适应（与口味面板一致）。
+    var width: CGFloat? = CurationPanel.platformWidth
+
+    #if os(iOS)
+    static let platformWidth: CGFloat? = nil
+    #else
+    static let platformWidth: CGFloat? = Theme.panelWidth
+    #endif
 
     var body: some View {
         FavoritesPanel(
-            current: model.feed.current.map { ($0.displayName, model.currentIsFavorite) },
+            current: model.focusRoom.map { ($0.displayName, model.currentIsFavorite) },
             board: board,
             blocked: model.curation.blocked,
             checking: model.favoritesChecking,
             listMaxHeight: Theme.favoritesListHeight(windowHeight: model.pointHeight),
-            toggleCurrent: { model.toggleFavorite(model.target()) },
-            blockCurrent: { model.blockCurrent(model.target()) },
+            toggleCurrent: { model.toggleFavorite(model.focusTarget()) },
+            blockCurrent: { model.blockCurrent(model.focusTarget()) },
             play: { model.playFavorite($0) },
             removeFavorite: { model.removeFavorite($0) },
             restoreFavorite: { model.restoreFavorite($0) },
@@ -29,7 +37,8 @@ struct CurationPanel: View {
                 }
             },
             exportFile: exportFile,
-            importFile: importFile
+            importFile: importFile,
+            width: width
         )
         .task {
             await model.refreshFavoritesIfStale()

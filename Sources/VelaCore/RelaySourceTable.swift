@@ -8,10 +8,10 @@ public enum RelayTrack: Equatable, Sendable, CaseIterable {
 
 /// 多源中继的登记表。每个源自己的刷新与静音标志互不影响。
 ///
-/// 双窗最多两路，所以表里最多 `maxSources` 个源。再登记一个新 id 时淘汰最先登记的那个，
+/// 竖屏最多三路，所以表里最多 `maxSources` 个源。再登记一个新 id 时淘汰最先登记的那个，
 /// 把被淘汰的 id 交回去，让调用方停掉它的循环。重复登记同一个 id 只更新静音标志，不改先后，也不淘汰别人。
 public struct RelaySourceTable: Equatable, Sendable {
-    public static let maxSources = 2
+    public static let maxSources = LaneID.maxCount
 
     private struct Source: Equatable, Sendable {
         var refreshing: Bool
@@ -23,6 +23,9 @@ public struct RelaySourceTable: Equatable, Sendable {
     private var sources: [String: Source] = [:]
 
     public init() {}
+
+    /// 此刻登记着的源数（日志与实跑核对用）。
+    public var count: Int { order.count }
 
     /// 登记一个源。返回被淘汰的 id；没有淘汰时返回 nil。新源默认不在刷新。
     public mutating func register(id: String, audioSuppressed: Bool) -> String? {

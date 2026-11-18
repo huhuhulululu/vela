@@ -1,5 +1,9 @@
 import XCTest
+#if SWIFT_PACKAGE
 @testable import VelaCore
+#else
+@testable import VelaPhone
+#endif
 
 /// 播放失败分类。损坏码流按房间重试；只有双窗副路的解码器暂时不可用才降级。
 final class PlaybackFailureClassifierTests: XCTestCase {
@@ -98,5 +102,18 @@ final class PlaybackFailureClassifierTests: XCTestCase {
             PlaybackFailureClassifier.classify(chain: sample, context: markedSecondary),
             .roomRetry
         )
+    }
+}
+
+/// 资源不足的自动重试是有限次指数退避（审计 medium）：60、120、240 秒后各重试一次，之后不再自动重试。
+final class DegradedRetryBackoffTests: XCTestCase {
+    func testBackoffIsFiniteAndDoubling() {
+        XCTAssertEqual(PlaybackFailureClassifier.degradedRetryDelays, [60, 120, 240])
+        XCTAssertEqual(PlaybackFailureClassifier.degradedRetryDelay(after: 0), 60)
+        XCTAssertEqual(PlaybackFailureClassifier.degradedRetryDelay(after: 1), 120)
+        XCTAssertEqual(PlaybackFailureClassifier.degradedRetryDelay(after: 2), 240)
+        XCTAssertNil(PlaybackFailureClassifier.degradedRetryDelay(after: 3), "三次后停止自动重试")
+        XCTAssertNil(PlaybackFailureClassifier.degradedRetryDelay(after: 99))
+        XCTAssertNil(PlaybackFailureClassifier.degradedRetryDelay(after: -1))
     }
 }

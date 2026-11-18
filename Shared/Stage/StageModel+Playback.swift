@@ -35,7 +35,7 @@ extension StageModel {
     /// 重试目标那一路。点下去之后那一路换了房间或换了一次播放就放弃。
     func retryPlayback(_ target: RoomTarget?) {
         guard let lane = matchedLane(target) else { return }
-        lane.degradedHold.release(.retry)
+        releaseDegradedHold(lane, .retry)
         lane.skips.reset()
         if let username = name(of: lane) {
             prepared.remove(username)
@@ -47,6 +47,8 @@ extension StageModel {
     /// 取消按取消处理，不当网络故障。
     func requestPlay(on given: PlaybackLane? = nil) {
         let lane = given ?? primary
+        // 横屏时被释放的路不起播；回竖屏由 `setLandscape` 重新请求。
+        guard lane.visible else { return }
         lane.playTask?.cancel()
         lane.playTask = Task { await playCurrent(on: lane) }
     }
@@ -54,6 +56,7 @@ extension StageModel {
     /// 同 `requestPlay`，并等这一轮结束（目录加载与刷新要在起播结束后继续收尾）。
     func requestPlayAndWait(isRetry: Bool = false, on given: PlaybackLane? = nil) async {
         let lane = given ?? primary
+        guard lane.visible else { return }
         lane.playTask?.cancel()
         let task = Task { await playCurrent(isRetry: isRetry, on: lane) }
         lane.playTask = task
@@ -74,6 +77,7 @@ extension StageModel {
         }
         lane.dwell.markFailed()
         lane.state = .failed
+        noteLaneStopped()
         // Swiping away on every stall turns a hiccup into a freeze. Stay on the room and show why.
         let note = lane.player.lastError ?? "画面中断了"
         lane.playerNote = note
@@ -96,7 +100,7 @@ extension StageModel {
             guard let self else { return }
             // 排队的任务执行时房间或代次已变就放弃，免得废掉新房间的请求、误耗重试预算；
             // 放弃也要清掉待刷新，旧项不能被永远挡住（取代它的起播会自己换项）。
-            guard lane.playGeneration == generation, self.name(of: lane) == username else {
+            guard lane.playGeneration == generation, self.name(of: lane) == username, self.laneToken(lane) != nil else {
                 lane.player.refreshFinished(reason: nil, report: false)
                 return
             }
@@ -111,6 +115,8 @@ extension StageModel {
     func playCurrent(isRetry: Bool = false, on given: PlaybackLane? = nil) async {
         let lane = given ?? primary
         guard ageConfirmed else { return }
+        // 挂起期间（iOS 后台）不起播，回前台由生命周期重新起播。macOS 恒放行。
+        guard let life = laneToken(lane) else { return }
         lane.playGeneration += 1
         let token = lane.playGeneration
         lane.skipTask?.cancel()
@@ -119,7 +125,7 @@ extension StageModel {
         // 没有失败文案时再赋 nil 也会发 objectWillChange，起播瞬间多一次整树失效。
         AssignIf.changed(from: lane.playbackNote, to: nil as String?) { lane.playbackNote = $0 }
         guard let room = room(of: lane) else {
-            lane.player.stop()
+            stopLane(lane)
             lane.state = .empty
             if lane.id == .primary { idleStart.markIdle() }
             return
@@ -128,25 +134,29 @@ extension StageModel {
         if lane.id == .primary { idleStart.clear() }
         lane.awayRetry.enter(room.username)
         do {
-            let cap = playbackCap()
-            guard let target = try await playTarget(for: room.username, cap: cap, token: token, lane: lane) else { return }
+            let cap = playbackCap(on: lane)
+            guard let target = try await playTarget(for: room.username, cap: cap, token: token, lane: lane, life: life) else { return }
             guard token == lane.playGeneration, !Task.isCancelled else { return }
-            guard await relayReady(token: token, lane: lane) else { return }
+            guard await relayReady(token: token, lane: lane, life: life) else { return }
+            guard lifecycleAllows(.beforeRelayRegister, life) else { return }
             startPlayback(room: room, target: target, cap: cap, isRetry: isRetry, lane: lane)
         } catch {
+            // 挂起时被取消的请求不是故障：不提示、不跳过。
+            guard lifecycleAllows(.beforeCommit, life) else { return }
             await handlePlayFailure(error, token: token, lane: lane)
         }
     }
 
     /// 本地中继的端口没绑好时短暂等监听就绪：低延迟主列表直接交给 AVPlayer 会卡住甚至不起播。
     /// 返回 true 才可起播；失败时已提示并停播，期间被取代或中继被挂起则静默返回 false。
-    private func relayReady(token: Int, lane: PlaybackLane) async -> Bool {
+    private func relayReady(token: Int, lane: PlaybackLane, life: LifecycleEpoch.Token) async -> Bool {
+        guard lifecycleAllows(.beforeRelayStart, life) else { return false }
         let listening = await PlaylistRelay.shared.waitUntilListening()
         guard token == lane.playGeneration, !Task.isCancelled else { return false }
         guard listening else {
             // 中继被挂起（不允许起监听）时不是故障：静默放弃，恢复后由生命周期重新起播。macOS 恒允许，不会走到这里。
             guard PlaylistRelay.shared.allowStart else { return false }
-            lane.player.stop()
+            stopLane(lane)
             lane.playbackNote = "本地中继没能启动，暂时无法播放"
             chromeVisible = true
             log.error("relay not listening")
@@ -165,7 +175,7 @@ extension StageModel {
             await presentPlaybackChallenge(token: token, lane: lane)
         case is EndpointBackedOff:
             // 退避窗口内没发请求：不是这一间不可播。留在当前房间，窗口结束后再解析，不跳房、不耗 SkipTracker。
-            lane.player.stop()
+            stopLane(lane)
             lane.playbackNote = EndpointBackoff.pendingNote(playbackAllowed: allowed)
             chromeVisible = true
             lane.dwell.markFailed()
@@ -174,11 +184,11 @@ extension StageModel {
             }
         case StreamDecodeError.unavailable:
             // 普通 403 / 503（限流、关播、地区封锁）：不是质询，不弹确认页，走现有的提示与自动跳过。
-            lane.player.stop()
+            stopLane(lane)
             lane.playbackNote = Copy.failure(.unavailable)
             scheduleSkip(token: token, on: lane)
         default:
-            lane.player.stop()
+            stopLane(lane)
             if NetworkFailure.isOffline(error) {
                 // 断网：说清楚并停在这一间等重试；连跳几间只会各失败一遍。
                 lane.playbackNote = NetworkFailure.message
@@ -193,7 +203,7 @@ extension StageModel {
 
     private func presentPlaybackChallenge(token: Int, lane: PlaybackLane) async {
         // 无论弹不弹确认页，先停掉当前播放：确认页下面不能继续放上一间的声音。
-        lane.player.stop()
+        stopLane(lane)
         guard allowChallengePrompt() else {
             // 连续质询已达上限：不再弹确认页，提示后按失败处理自动跳过。
             lane.playbackNote = "站点连续要求确认，这一间先跳过"
@@ -223,27 +233,30 @@ extension StageModel {
     /// 取播放地址：命中预取缓存（子列表，同档位上限）就直接用，省掉解析与取主列表两次往返；
     /// 否则解析主列表再选档。缓存里的地址若 403 / 失败，由播放器的一次重试走 `refreshCurrent` 清缓存重新解析。
     /// 解析后不可播放时已处理（停播、提示、安排跳过），返回 nil。
-    private func playTarget(for username: String, cap: Double, token: Int, lane: PlaybackLane) async throws -> PlayTarget? {
-        #if os(macOS) && (DEBUG || PERF_PROBE)
+    private func playTarget(
+        for username: String, cap: Double, token: Int, lane: PlaybackLane, life: LifecycleEpoch.Token
+    ) async throws -> PlayTarget? {
+        #if (os(macOS) && (DEBUG || PERF_PROBE)) || (os(iOS) && PERF_PROBE)
         if let fixed = perfStreamTarget(for: username) { return fixed }
         #endif
         if let cached = prepared.fresh(username, cap: cap, now: Date()) {
             return PlayTarget(master: nil, playable: cached)
         }
+        guard lifecycleAllows(.beforeRequest, life) else { return nil }
         let sourced = try await resolveSourced(username)
         let ticket = sourced.ticket
-        guard token == lane.playGeneration, !Task.isCancelled else { return nil }
+        guard token == lane.playGeneration, !Task.isCancelled, lifecycleAllows(.beforeCommit, life) else { return nil }
         challengeGate.reset()
         // 事件日志只记来源，不记地址。
         let origin = sourced.origin.rawValue
         Self.playbackLog.info("start-source \(origin, privacy: .public)")
         guard ticket.isPlayable, let master = ticket.url else {
-            lane.player.stop()
+            stopLane(lane)
             noteUnplayable(ticket.failure, username: username, token: token, lane: lane)
             return nil
         }
         let playable = await selectRendition(master: master, cap: cap)
-        guard token == lane.playGeneration, !Task.isCancelled else { return nil }
+        guard token == lane.playGeneration, !Task.isCancelled, lifecycleAllows(.beforeCommit, life) else { return nil }
         if !playable.isUnselected { prepared.set(playable, cap: cap, for: username, now: Date()) }
         return PlayTarget(master: master, playable: playable)
     }
@@ -286,21 +299,64 @@ extension StageModel {
         }
     }
 
-    private func startPlayback(room: Room, target: PlayTarget, cap: Double, isRetry: Bool, lane: PlaybackLane) {
+    func startPlayback(room: Room, target: PlayTarget, cap: Double, isRetry: Bool, lane: PlaybackLane) {
+        // 首次起播前先落实音频会话（iOS；macOS 没有控制器，不做事）。
+        prepareAudioSession()
         lane.awayRetry.clear()
         lane.currentMaster = target.master
         lane.currentPlayable = target.playable
         lane.currentCap = cap
+        // 每路起播的档位上限（-1 为不封顶）：双窗两路都应是 -1，热降档时才是有限值（§4.4）。
+        Self.playbackLog.info("lane-start lane=\(Self.label(lane.id.role), privacy: .public) cap=\(cap.isFinite ? Int(cap) : -1)")
         lane.player.play(
             rendition: target.playable, username: room.username, peakBitrate: cap,
             allowed: laneAllowed(lane), isRetry: isRetry
         )
-        lane.player.setVolume(volume, muted: muted)
-        lane.quality.reset(tier: cap.isFinite ? .low : .full, now: Date())
+        pushVolume(to: lane)
+        // 只有「离开后降画质」才算低档；多路的尺寸上限与热上限是有限值但不是低档，否则画质状态机会无谓地「升回」并重建播放项。
+        lane.quality.reset(tier: restingCapped ? .low : .full, now: Date())
         lane.qualitySignature = ""
         applyPower()
         scheduleChromeHide()
-        Task { await prefetchAhead(on: lane) }
+        startPrefetch(on: lane)
+        // 解析与等中继期间热状态或画面尺寸可能变了：起播用的 cap 是更早读的，就绪后补一次换档。
+        if needsCapSync(lane) { retier(lane) }
+    }
+
+    /// 起播成功后预取下一间。任务登记在这一路上，挂起与取消本路工作时一并取消（§3.1）。
+    /// 预取按共享工作校验生命周期：挂起期间（含画中画只放行一路）一律不预取。
+    func startPrefetch(on lane: PlaybackLane) {
+        lane.prefetchTask?.cancel()
+        lane.prefetchTask = nil
+        // 预取只跟主路：双窗时两路各预取同一间「下一个房间」只会多花一份请求。
+        guard lane.id == .primary, sharedToken() != nil else { return }
+        lane.prefetchTask = Task { [weak self, weak lane] in
+            guard let self, let lane else { return }
+            await self.prefetchAhead(on: lane)
+        }
+    }
+
+    /// 停掉一路（没有房间、解析失败、进入访问确认等）。若各路都已停播，释放音频会话（§3.3「最后一路停播」）。
+    func stopLane(_ lane: PlaybackLane) {
+        lane.player.stop()
+        noteLaneStopped()
+    }
+
+    /// 失败的路原播放项恢复在播（不经重新起播）：状态回到在播，按当前静音意图重新准备会话并同步各路音量。
+    /// 恢复策略是「允许原项恢复」：超时与看门狗失败不拆播放项，画面能自己回来就接着播，失败信息随之清掉。
+    func laneRecovered(_ lane: PlaybackLane) {
+        lane.state = .playing
+        Self.playbackLog.info("lane recovered lane=\(Self.label(lane.id.role), privacy: .public)")
+        prepareAudioSession()
+        for each in lanes { pushVolume(to: each) }
+    }
+
+    /// 没有哪一路还在出画面（都没有播放项，或都已失败）时，经音频控制器停用会话。macOS 没有控制器，不做事。
+    func noteLaneStopped() {
+        guard let audioFocus else { return }
+        let anyLive = lanes.contains { $0.player.hasItem && $0.state != .failed }
+        guard !anyLive, let outcome = audioFocus.releaseAfterLastLaneStopped() else { return }
+        applyAudioOutcome(outcome)
     }
 
     func resolve(_ username: String) async throws -> StreamTicket {
@@ -348,13 +404,15 @@ extension StageModel {
     /// Watching uses the top rung. Window-height caps were selecting 540p and 720p, so the
     /// picture stayed soft. Power saving, when enabled, still starts a room on the bottom rung
     /// after the pointer has left.
-    func playbackCap() -> Double {
-        let resting = restSavesPower && !resolvedPresence().engaged
-        if resting {
-            return PowerPolicy.peakBitrate(pixelHeight: pixelHeight, resting: true)
-        }
-        return .infinity
+    /// 多路时再叠上这一路的尺寸上限与热上限（§4.4，ios-triple 修订 v2 H2）。
+    func playbackCap(on lane: PlaybackLane? = nil) -> Double {
+        let base = restingCapped ? PowerPolicy.peakBitrate(pixelHeight: pixelHeight, resting: true) : Double.infinity
+        guard let lane else { return base }
+        return min(base, laneCap(for: lane))
     }
+
+    /// 离开后降画质此刻生效（开着省电且指针不在）：起播上限里有省电档。
+    var restingCapped: Bool { restSavesPower && !resolvedPresence().engaged }
 
     /// The master playlist is low-latency HLS. AVPlayer stalls and sometimes never starts on it.
     /// Pick one rung: its video media playlist plus the separate audio rendition it references
@@ -375,15 +433,21 @@ extension StageModel {
     }
 
     /// 预取下一个房间：解析并选好档位，缓存子列表地址（主列表 30 秒就过期，不存）。
+    /// 为别的房间发请求，属于共享工作：用共享作用域的 token，画中画只放行焦点路时也不预取。
     func prefetchAhead(on given: PlaybackLane? = nil) async {
         let lane = given ?? primary
         let token = lane.playGeneration
-        let cap = playbackCap()
+        let cap = playbackCap(on: lane)
+        guard let life = sharedToken() else { return }
         guard let next = feed.prefetchUsernames().first, prepared.fresh(next, cap: cap, now: Date()) == nil else { return }
+        #if (os(macOS) && (DEBUG || PERF_PROBE)) || (os(iOS) && PERF_PROBE)
+        if next.hasPrefix(PerfStream.username) { return }
+        #endif
+        guard lifecycleAllows(.beforeRequest, life), !Task.isCancelled else { return }
         guard let ticket = try? await resolve(next), ticket.isPlayable, let master = ticket.url else { return }
-        guard token == lane.playGeneration else { return }
+        guard token == lane.playGeneration, !Task.isCancelled, lifecycleAllows(.beforeRequest, life) else { return }
         let playable = await selectRendition(master: master, cap: cap)
-        guard token == lane.playGeneration, !playable.isUnselected else { return }
+        guard token == lane.playGeneration, !Task.isCancelled, !playable.isUnselected, lifecycleAllows(.beforeCommit, life) else { return }
         prepared.set(playable, cap: cap, for: next, now: Date())
         RoomThumbnailCache.shared.prefetch(url: feed.rooms.first { $0.username == next }?.thumbnailURL)
     }
@@ -393,10 +457,12 @@ extension StageModel {
     func renewRendition(_ username: String, cap: Double, on given: PlaybackLane? = nil) async -> StreamRendition? {
         let lane = given ?? primary
         let token = lane.playGeneration
+        // 挂起期间不续期：画中画那一路仍放行。
+        guard let life = laneToken(lane) else { return nil }
         // 网络偶发抖动（大陆线路会掉包）时多试一次，免得一次失败就让 AVPlayer 看到 503。
         for attempt in 1...2 {
-            if let renewed = await renewRenditionOnce(username, cap: cap, token: token, lane: lane) { return renewed }
-            guard attempt < 2, renewalIsCurrent(username, token, lane) else { break }
+            if let renewed = await renewRenditionOnce(username, cap: cap, token: token, lane: lane, life: life) { return renewed }
+            guard attempt < 2, renewalIsCurrent(username, token, lane), lifecycleAllows(.beforeRequest, life) else { break }
             try? await Task.sleep(nanoseconds: 400_000_000)
         }
         return nil
@@ -410,11 +476,17 @@ extension StageModel {
         )
     }
 
-    private func renewRenditionOnce(_ username: String, cap: Double, token: Int, lane: PlaybackLane) async -> StreamRendition? {
-        guard renewalIsCurrent(username, token, lane) else {
+    private func renewRenditionOnce(
+        _ username: String, cap: Double, token: Int, lane: PlaybackLane, life: LifecycleEpoch.Token
+    ) async -> StreamRendition? {
+        guard renewalIsCurrent(username, token, lane), lifecycleAllows(.beforeRequest, life) else {
             Self.playbackLog.info("renew-abort room-changed")
             return nil
         }
+        #if (os(macOS) && (DEBUG || PERF_PROBE)) || (os(iOS) && PERF_PROBE)
+        // 固定测试流不会 403，也不能为它请求真实站点。
+        if username.hasPrefix(PerfStream.username) { return nil }
+        #endif
         guard let ticket = try? await resolve(username), ticket.isPlayable, let master = ticket.url else {
             Self.playbackLog.info("renew-abort resolve")
             return nil
@@ -424,7 +496,7 @@ extension StageModel {
             return nil
         }
         let playable = await selectRendition(master: master, cap: cap)
-        guard !playable.isUnselected, renewalIsCurrent(username, token, lane) else {
+        guard !playable.isUnselected, renewalIsCurrent(username, token, lane), lifecycleAllows(.beforeCommit, life) else {
             Self.playbackLog.info("renew-abort select")
             return nil
         }

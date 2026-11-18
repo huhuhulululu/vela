@@ -3,6 +3,23 @@ import Combine
 import Foundation
 import os
 
+/// 音频转换的唯一执行者（iOS：`AudioFocusController`）。装上之后，播放器的音量与静音只经它设置；macOS 不装，走原有路径。
+@MainActor
+protocol AudioFocusing: AnyObject {
+    /// 本次转换的焦点路。
+    var focusRole: PlaybackLaneRole { get }
+    /// 按意图排步骤并有序执行；调用方再用 `StageModel.applyAudioOutcome` 落实运行时状态、设置与提示。
+    func perform(_ intent: AudioIntent) -> AudioOutcome
+    /// 不动会话，只把模型当前的音量与静音同步给一路（新路接入、起播、拖音量条）。
+    func syncVolume(to lane: PlaybackLane)
+    /// 起播前按当前静音状态做一次初始转换；会话已按配置激活着返回 nil。
+    func prepareSession(muted: Bool) -> AudioOutcome?
+    /// 最后一路停播后停用会话、通知他人恢复；会话本来没激活（或画中画还在播）返回 nil。
+    func releaseAfterLastLaneStopped() -> AudioOutcome?
+    /// 双窗切焦点：出声时先静音旧的出声路，再确认会话，最后才让新焦点路出声；静音时不动会话，返回 nil。
+    func switchFocus(to role: PlaybackLaneRole) -> AudioOutcome?
+}
+
 @MainActor
 final class StageModel: ObservableObject {
     typealias Source = FeedSource
@@ -64,10 +81,37 @@ final class StageModel: ObservableObject {
     /// 站点确认页完成后要接着做的事：被确认打断的目录加载或收藏查询。nil 表示只恢复播放。
     var challengeResume: ChallengeResume?
 
-    /// 每路播放的状态（§4.2）。macOS 恒为只有主路；iOS 双窗时再加副路。
+    /// 每路播放的状态（§4.2）。macOS 恒为只有主路；iOS 竖屏按路数再加副路、第三路（最多 3 路）。
     let primary = PlaybackLane(id: .primary)
     var secondary: PlaybackLane?
-    var lanes: [PlaybackLane] { secondary.map { [primary, $0] } ?? [primary] }
+    var tertiary: PlaybackLane?
+    /// 多路共享的「最近划走」（只在内存里，列表重载与来源切换不清）。
+    var recentSkips = RecentSkips()
+    /// 逻辑路，按 P → S → T。横屏与画中画只临时释放播放资源，不改这里。
+    var lanes: [PlaybackLane] { [primary] + [secondary, tertiary].compactMap { $0 } }
+    /// 焦点路：声音、收藏提示、热门关联、画中画都跟随它（§4.2、§4.3）。单窗恒为主路。
+    @Published var focusLane: LaneID = .primary
+    /// 逻辑路数（`lanes.count` 的可观察镜像，只在 `StageModel+Lanes` 里写）。用户的选择另存在 `settings.laneCount`，临时少开不覆盖它。
+    @Published var laneCount = 1
+    /// 多于一路（原「双窗开着」）。
+    var dualWindow: Bool { laneCount > 1 }
+    /// 竖屏放得下三格（每格不低于 160 点，修订 v2 M12）。由界面量到舞台高度后更新。
+    @Published var threeLanesFit = true
+    /// 竖屏实测的舞台尺寸，格子还没布局时据此估算选档（不发布）。没量到为 `.zero`。
+    var portraitStageSize: CGSize = .zero
+    /// 路数此刻改不了（画中画启动中或进行中）。界面据此禁用路数菜单并说明原因。
+    @Published var laneCountLocked = false
+    /// 资源不足自动重试的退避（测试缩短）。
+    var degradedRetryDelays = PlaybackFailureClassifier.degradedRetryDelays
+    /// 手机横屏：双窗只显示焦点路，非焦点路释放（§4.2）。
+    @Published var landscape = false
+    /// 画中画正在显示（或启动）：双窗只留焦点路，另一路释放，退出后恢复（修订 A2 的 T18b）。
+    var pipSolo = false
+    /// 设备热状态下的画质上限（§4.4，裁决 3）：平时不封顶，`.serious` 及以上按画面实际显示高度降档，回到 `.fair` 并满 60 秒回升。
+    var laneQuality = LaneQuality()
+    var thermalState = PhoneThermalState.nominal
+    var thermalRecoveryTask: Task<Void, Never>?
+    var thermalObserver: NSObjectProtocol?
     /// 每路 `objectWillChange` 转发到模型：原来模型上的 `@Published` 字段搬进路之后，界面失效时机不变。
     var laneForwarders: [LaneID: AnyCancellable] = [:]
     let sidecar = SiteSidecar()
@@ -105,6 +149,8 @@ final class StageModel: ObservableObject {
     /// 在途全站搜索及其操作代次（见 `SearchEpoch`）。
     var siteSearchTask: Task<Void, Never>?
     var searchEpoch = SearchEpoch()
+    /// 统一挂起（iOS 前后台，§3.1）的代次与现场，见 `LifecycleWiring.swift`。macOS 从不挂起。
+    var wiring = LifecycleWiring()
     let tasteSaver: DeferredSaver<Taste>
     let tasteStore: TasteStore
     let curationSaver: DeferredSaver<Curation>
@@ -113,6 +159,7 @@ final class StageModel: ObservableObject {
     @Published var watchLedger = WatchLedger()
     /// 平台钩子：老板键、系统活跃度、应用通知与隐藏 / 终止。macOS 与 iOS 各有一份同名实现。
     let platform = PlatformHooks()
+    var audioFocus: AudioFocusing?
     /// 播放闸门或 App 隐藏变化后，让窗口桥接重判指针轮询。`BridgeView` 挂上时登记。
     var refreshPointerPolling: (() -> Void)?
     /// 口味画像：停留结算、收藏、面板操作都更新它；只存本机。
@@ -169,20 +216,23 @@ final class StageModel: ObservableObject {
         startupNotices = notices
         for text in notices { log.error("preference file unreadable: \(text, privacy: .public)") }
         loadSettings()
+        platform.attachAudio(to: self)
         for lane in lanes { attach(lane) }
         installObservers()
+        restoreLanesIfRemembered()
+        startThermalObserving()
         kickoffCatalogIfConfirmed()
     }
 
     private func loadSettings() {
         ageConfirmed = settings.ageConfirmed
         pinned = settings.pinned
-        presence = Presence(
+        presence = platform.adjustedPresence(Presence(
             conditionalOpacity: settings.conditionalOpacity,
             clickThrough: settings.clickThrough,
             restingOpacity: settings.restingOpacity,
             engagedOpacity: settings.engagedOpacity
-        )
+        ))
         restSavesPower = settings.restSavesPower
         publicOnly = settings.publicOnly
         fitFill = settings.fitFill
@@ -258,8 +308,8 @@ final class StageModel: ObservableObject {
 
     /// 「播放」菜单的重试：有当前房间就重新解析起播，没有（空列表）就重新加载目录。
     func retryFromMenu() {
-        if feed.current != nil {
-            retryPlayback(target())
+        if focusRoom != nil {
+            retryPlayback(focusTarget())
         } else {
             Task { await retry() }
         }
@@ -293,6 +343,10 @@ final class StageModel: ObservableObject {
         hintVisible = !settings.hintSeen
         announceStartupNotices()
         // 初始化时已经领过目录请求就不再发；未确认年龄的路径不会领到这里。
+        #if os(iOS) && PERF_PROBE
+        // 性能探针的固定测试流：不加载真实目录。
+        if startPerfStreamIfRequested() { return }
+        #endif
         guard startupGate.claimCatalog(ageConfirmed: true) else { return }
         Task { await reload() }
     }
@@ -343,16 +397,23 @@ final class StageModel: ObservableObject {
         move(delta, userInitiated: true, on: lane)
     }
 
-    /// 移动一路。主路的落点由 FeedStore 选，副路由 `LaneSelection` 选（两路不重复）。
+    /// 移动一路。主路的落点由 FeedStore 选，其余各路由 `LaneSelection` 选（各路不重复）。
     @discardableResult
     func move(_ delta: Int, userInitiated: Bool = false, on given: PlaybackLane? = nil) -> Bool {
         let lane = given ?? primary
         let before = name(of: lane)
-        updateFeed(intent: .move(lane.id, delta)) { if lane.id == .primary { $0.step(delta) } }
+        updateFeed(intent: .move(lane.id, delta), endReason: userInitiated ? .swipe : .autoSkip) {
+            if lane.id == .primary { $0.step(delta) }
+        }
         guard name(of: lane) != before else { return false }
+        if lanes.count > 1, let before {
+            recentSkips.record(before, at: Date())
+            lane.previousRoom = before
+        }
         lane.manuallyPaused = MoveRules.pausedAfterMove(manuallyPaused: lane.manuallyPaused, userInitiated: userInitiated)
         if hintVisible { dismissHint() }
-        requestPlay(on: lane)
+        // 非主路换房由 `settleLane` 在 `updateFeed` 里已经请求起播。
+        if lane.id == .primary { requestPlay(on: lane) }
         Task { await loadMoreIfNeeded() }
         return true
     }
@@ -367,6 +428,8 @@ final class StageModel: ObservableObject {
         lane.readyName = username
         notePortrait(username, on: lane)
         if readyChanged { refreshQuality(on: lane) }
+        // 起播时补的换档发生在首帧之前，播放器会拒绝（`retier` 要求画面已就绪）：就绪时再补一次，上限没变则什么都不做。
+        if readyChanged, username != nil, username == name(of: lane), needsCapSync(lane) { retier(lane) }
     }
 
     /// 播放器此刻真在播的房间变了（缓冲、暂停、失败都会让它变空）：回放成功清连续跳过计数，停留计时随之启停。
@@ -374,6 +437,10 @@ final class StageModel: ObservableObject {
     func notePlaying(_ username: String?, on given: PlaybackLane? = nil) {
         let lane = given ?? primary
         lane.playback.setPlaying(username)
+        if let username, username == name(of: lane), lane.state == .failed {
+            // 超时或看门狗报失败后原播放项又自己播起来：失败时已静音并释放了会话，这里恢复。
+            laneRecovered(lane)
+        }
         guard username != lane.playingName else {
             // 仍是这一间在播：只补上「播放成功」该清的标记。重排停留会把收藏提示的等待任务取消再造一份。
             if let username, username == name(of: lane) {
@@ -387,6 +454,7 @@ final class StageModel: ObservableObject {
             lane.skips.reset()
             lane.dwell.clearFailure()
             lane.state = .playing
+            lane.degradedRetries = 0
         }
         updateDwellActive(on: lane)
         refreshQuality(on: lane)
@@ -560,6 +628,15 @@ final class StageModel: ObservableObject {
     }
 
     func toggleMute() {
+        if let audioFocus {
+            let unmuting = muted
+            if unmuting, volume <= 0 {
+                volume = AudioPolicy.volumeOnUnmute(current: volume)
+                settings.volume = volume
+            }
+            applyAudioOutcome(audioFocus.perform(unmuting ? .unmute(audioFocus.focusRole) : .deactivate(.mute)))
+            return
+        }
         muted.toggle()
         // 音量被拉到 0 之后取消静音：回到一个较小的非零值，否则喇叭变了声音还是没有。
         if !muted, volume <= 0 {
@@ -573,10 +650,45 @@ final class StageModel: ObservableObject {
 
     func setVolume(_ value: Double) {
         volume = min(max(value, 0), 1)
+        if let audioFocus {
+            settings.volume = volume
+            let wantsMuted = volume == 0
+            if wantsMuted != muted {
+                applyAudioOutcome(audioFocus.perform(wantsMuted ? .deactivate(.mute) : .unmute(audioFocus.focusRole)))
+            } else {
+                for lane in lanes { audioFocus.syncVolume(to: lane) }
+            }
+            return
+        }
         if volume == 0 { muted = true } else { muted = false }
         settings.volume = volume
         settings.muted = muted
         for lane in lanes { lane.player.setVolume(volume, muted: muted) }
+    }
+
+    /// 首次起播前落实音频会话（§3.3、7b）：经音频控制器按当前静音状态执行一次初始转换。没有控制器（macOS）时不做事。
+    func prepareAudioSession() {
+        guard let audioFocus, let outcome = audioFocus.prepareSession(muted: muted) else { return }
+        applyAudioOutcome(outcome)
+    }
+
+    /// 落实一次音频转换的结果：运行时静音状态、是否写进设置、失败提示。
+    func applyAudioOutcome(_ outcome: AudioOutcome) {
+        if let after = outcome.mutedAfter {
+            muted = after
+            if outcome.writesSettings { settings.muted = after }
+        }
+        if let notice = outcome.notice { showToast(notice) }
+        applyPower()
+    }
+
+    /// 把当前音量与静音交给一路：装了音频控制器就经它，否则直接设给播放器。
+    func pushVolume(to lane: PlaybackLane) {
+        if let audioFocus {
+            audioFocus.syncVolume(to: lane)
+        } else {
+            lane.player.setVolume(volume, muted: muted)
+        }
     }
 
     func shiftVolume(_ delta: Double) {
@@ -594,6 +706,15 @@ final class StageModel: ObservableObject {
         }
         lane.manuallyPaused.toggle()
         applyPower()
+        resumeReleasedLaneIfNeeded(lane)
+    }
+
+    /// 取消暂停时播放项已被释放、播放器也没有自己的恢复可做（iOS 回前台时已清掉，§3.2）：由 Stage 层重新起播。
+    /// 播放器还记着恢复（macOS 暂停满 30 秒释放后）时它会自己重新解析，这里不重复。
+    private func resumeReleasedLaneIfNeeded(_ lane: PlaybackLane) {
+        guard laneAllowed(lane), !lane.player.hasItem, !lane.player.refreshPending,
+              lane.playTask == nil, name(of: lane) != nil, laneToken(lane) != nil else { return }
+        requestPlay(on: lane)
     }
 
 
@@ -689,6 +810,7 @@ final class StageModel: ObservableObject {
     func updateFeed(
         installing: Source? = nil,
         intent: LaneSelection.Intent = .filter,
+        endReason: LaneSettlement.EndReason? = nil,
         _ body: (inout FeedStore) -> Void
     ) {
         var copy = feed
@@ -704,15 +826,25 @@ final class StageModel: ObservableObject {
         primary.username = feed.currentUsername
         let sourceChanged = installing.map { $0 != loadedSource } ?? false
         loadedSource = ListOrigin.dwell(loaded: loadedSource, installing: installing)
+        let reason = endReason ?? (sourceChanged ? .sourceChange : .swipe)
         if DwellTracker.shouldSettle(before: before, after: feed.current?.username, sourceChanged: sourceChanged) {
-            currentRoomChanged(on: primary)
+            currentRoomChanged(on: primary, reason: reason)
         }
-        if let secondary { settleSecondary(secondary, outcome: outcome) }
+        for lane in lanes where lane.id != .primary {
+            settleLane(lane, outcome: outcome, reason: reason, sourceChanged: sourceChanged)
+        }
+        // 空主路（另一路占着唯一的房间）恢复成某个房间时，前后的 `feed.current` 都回落到同一间，变更检测看不到换房：
+        // 主路停留还没有房间就补初始化，否则这段观看永远不计时。
+        if primary.dwell.room == nil, room(of: primary) != nil { currentRoomChanged(on: primary, reason: reason) }
+        // 目标在另一路播放时 `LaneSelection` 只切焦点（§4.1）。
+        if lanes.count > 1, outcome.focus != focusLane { setFocus(outcome.focus) }
+        logLaneRooms()
     }
 
     func updatePresence(_ body: (inout Presence) -> Void) {
         var copy = presence
         body(&copy)
+        copy = platform.adjustedPresence(copy)
         // 整份写回时内容没变也会发 objectWillChange。滑块停在原值、指针状态没变都不该把整棵树标脏。
         AssignIf.changed(from: presence, to: copy) { presence = $0 }
     }

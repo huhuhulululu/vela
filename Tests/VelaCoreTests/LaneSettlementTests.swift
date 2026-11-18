@@ -1,5 +1,9 @@
 import XCTest
+#if SWIFT_PACKAGE
 @testable import VelaCore
+#else
+@testable import VelaPhone
+#endif
 
 final class LaneSettlementTests: XCTestCase {
     let now = Date(timeIntervalSince1970: 1_800_000_000)
@@ -112,9 +116,9 @@ final class LaneSettlementTests: XCTestCase {
         XCTAssertTrue(LaneSettlement.tracksHotRelated(isFocusLane: true))
     }
 
-    /// 显式不记账：.background / .dualOff 的落空段不学习、不进每日统计，只留「已看过」标记。
+    /// 显式不记账：.background / .layoutChange 的落空段不学习、不进每日统计，只留「已看过」标记。
     func testBackgroundAndDualOffDoNotLearnExplicitly() {
-        for end in [LaneSettlement.EndReason.background, .dualOff] {
+        for end in [LaneSettlement.EndReason.background, .layoutChange] {
             let short = settle([span(2, focused: true)], end: end)
             XCTAssertFalse(short.learnsTaste, "\(end)")
             XCTAssertFalse(short.countsDaily, "\(end)")
@@ -136,7 +140,7 @@ final class LaneSettlementTests: XCTestCase {
         let swipe = settle([span(2, focused: true)], end: .swipe, userInitiated: true)
         let background = settle([span(2, focused: true)], end: .background)
         let autoSkip = settle([span(2, focused: true)], end: .autoSkip)
-        let dualOff = settle([span(2, focused: true)], end: .dualOff)
+        let layoutChange = settle([span(2, focused: true)], end: .layoutChange)
         let blocked = settle([span(2, focused: true)], end: .block, userInitiated: true)
         let atThree = settle([span(3, focused: true)], end: .swipe, userInitiated: true)
 
@@ -154,10 +158,10 @@ final class LaneSettlementTests: XCTestCase {
         XCTAssertEqual(miss(autoTaste, "x"), 0, accuracy: 1e-9)
         XCTAssertEqual(dailyMisses(autoTaste), 1)
 
-        let dualTaste = dualOff.recording(into: Taste(), room: room("a", tags: ["x"]), now: now)
+        let dualTaste = layoutChange.recording(into: Taste(), room: room("a", tags: ["x"]), now: now)
         XCTAssertEqual(miss(dualTaste, "x"), 0, accuracy: 1e-9)
         XCTAssertEqual(dailyMisses(dualTaste), 0)
-        XCTAssertTrue(dualOff.resumesAsNewDwell)
+        XCTAssertTrue(layoutChange.resumesAsNewDwell)
 
         let blockedTaste = blocked.recording(into: Taste(), room: room("a", tags: ["x"]), now: now)
         XCTAssertEqual(miss(blockedTaste, "x"), 0, accuracy: 1e-9)

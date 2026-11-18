@@ -23,6 +23,8 @@ struct FavoritesPanel: View {
     var refresh: () -> Void
     var exportFile: () -> Void
     var importFile: () -> Void
+    /// macOS 弹层固定宽度；iOS sheet 传 nil：最宽不超过 `Theme.panelWidth`，窄窗格（iPad 分屏 320 点）随可用宽度收窄。
+    var width: CGFloat? = Theme.panelWidth
 
     @State private var page = Page.list
     @State private var draft = ""
@@ -40,7 +42,8 @@ struct FavoritesPanel: View {
             }
         }
         .padding(Theme.panelPadding)
-        .frame(width: Theme.panelWidth)
+        .frame(width: width)
+        .frame(maxWidth: width == nil ? Theme.panelWidth : nil)
     }
 
     private var listPage: some View {
@@ -130,7 +133,7 @@ struct FavoritesPanel: View {
     private var emptyState: some View {
         VStack(spacing: 6) {
             Text("还没有收藏").font(Theme.titleFont)
-            Text("在房间里单击心形，或按 ⌘D 收藏")
+            Text(Self.emptyHint)
                 .font(Theme.captionFont)
                 .foregroundStyle(Theme.textSecondary)
         }
@@ -264,4 +267,13 @@ struct FavoritesPanel: View {
         .menuIndicator(.hidden)
         .fixedSize()
     }
+}
+
+extension FavoritesPanel {
+    /// 空收藏夹的提示。macOS 有单击与 ⌘D，iOS 只说轻点。
+    #if os(macOS)
+    static let emptyHint = "在房间里单击心形，或按 ⌘D 收藏"
+    #else
+    static let emptyHint = "在房间里轻点心形收藏"
+    #endif
 }

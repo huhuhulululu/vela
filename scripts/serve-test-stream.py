@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """把 make-test-stream.sh 生成的点播 HLS 当作直播窗口提供出来（仅标准库，运行：python3 -I scripts/serve-test-stream.py ...）。
 
-用法：serve-test-stream.py <流目录> --port-file <文件> [开关]
+用法：serve-test-stream.py <流目录> --port-file <文件> [--stats-file <文件>] [开关]
 只绑 127.0.0.1 的系统分配端口，端口号写入 --port-file（先写临时名再改名，读到即完整）；收到 SIGTERM/SIGINT 即退出。
 主列表原样提供；媒体列表按墙钟生成滑动窗口（3 个分片、MEDIA-SEQUENCE 随时间递增），分片文件循环使用，
 回绕处加 EXT-X-DISCONTINUITY 并维护 DISCONTINUITY-SEQUENCE，音视频两路窗口同步。
+
+--stats-file：每个成功响应追加一行「墙钟秒 字节数 文件名」。模拟器里回环流量不进 nettop，
+iOS 实跑用它按时间窗统计「有没有联网、联了多少」（回桌面后应为 0，画中画只剩一路）。
 
 开关全部默认关闭（macOS 的固定流探针不带这些参数，行为与以前相同）：
   --catalog-fixtures [目录]  同时提供合成目录与取流接口。省略目录时用仓库里的 android/tools/fixtures。
@@ -63,6 +66,7 @@ class Options(object):
         self.rotate_uri = False
         self.challenge = False
         self.request_log = None
+        self.stats_file = None
 
 
 def parse_args(argv):
@@ -101,6 +105,11 @@ def parse_args(argv):
             opts.rotate_uri = True
         elif a == "--challenge":
             opts.challenge = True
+        elif a == "--stats-file":
+            i += 1
+            if i >= len(args):
+                raise UsageError(__doc__)
+            opts.stats_file = args[i]
         elif a == "--request-log":
             i += 1
             if i >= len(args):
@@ -461,6 +470,18 @@ class Gate(object):
         self.lock = threading.Lock()
 
 
+class StatsLog:
+    """响应统计：追加写，一行一个请求，多线程安全。"""
+
+    def __init__(self, path):
+        self.path = path
+        self.lock = threading.Lock()
+
+    def record(self, name, nbytes):
+        with self.lock, open(self.path, "a") as f:
+            f.write("%.3f %d %s\n" % (time.time(), nbytes, name))
+
+
 class RequestLog(object):
     def __init__(self, path):
         self.path = path
@@ -500,7 +521,7 @@ def _safe_name(name):
     return True
 
 
-def make_handler(stream, opts, catalog, gate, reqlog):
+def make_handler(stream, opts, catalog, gate, reqlog, stats=None):
     import http.server
 
     class H(http.server.BaseHTTPRequestHandler):
@@ -529,9 +550,9 @@ def make_handler(stream, opts, catalog, gate, reqlog):
             except Exception:
                 status, ctype, body = 500, "text/plain; charset=utf-8", b"error\n"
             reqlog.write(method, path, status, len(body))
-            self._send(status, ctype, body)
+            self._send(status, ctype, body, path)
 
-        def _send(self, status, ctype, body):
+        def _send(self, status, ctype, body, path=""):
             self.send_response(status)
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(body)))
@@ -541,7 +562,9 @@ def make_handler(stream, opts, catalog, gate, reqlog):
             try:
                 self.wfile.write(body)
             except OSError:
-                pass
+                return
+            if stats and status == 200:
+                stats.record(path.rsplit("/", 1)[-1], len(body))
 
         def _dispatch(self, method, path, query, raw):
             control = self._control(path)
@@ -758,7 +781,8 @@ def build_server(opts, catalog):
         stream.sessions.clock = stream.clock
     gate = Gate()
     reqlog = RequestLog(opts.request_log)
-    handler = make_handler(stream, opts, catalog, gate, reqlog)
+    stats = StatsLog(opts.stats_file) if opts.stats_file else None
+    handler = make_handler(stream, opts, catalog, gate, reqlog, stats)
     server = _LocalServer(("127.0.0.1", 0), handler)
     server.daemon_threads = True
     return server

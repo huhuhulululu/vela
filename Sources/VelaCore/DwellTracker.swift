@@ -8,6 +8,8 @@ public struct DwellTracker: Equatable, Sendable {
         public let dwell: TimeInterval
         /// 计入观看账本的秒数：`dwell` 去掉「暂停学习」期间的那一段（`setLedgerExcluded`）。
         public let ledgerSeconds: TimeInterval
+        /// `dwell` 里焦点在这一路的秒数（§4.3）。单窗恒等于 `dwell`。
+        public let focusedDwell: TimeInterval
         /// 本次观看真正开始的时刻（首次开始实际播放），没播放过为 nil。
         public let start: Date?
     }
@@ -23,6 +25,10 @@ public struct DwellTracker: Equatable, Sendable {
     /// 已被排除出账本的累计秒数，与进行中的排除段起点（那时的累计值）。
     private var excluded: TimeInterval = 0
     private var exclusionMark: TimeInterval?
+    /// 焦点是否在这一路。默认在（单窗恒如此）；双窗里由 Stage 层按焦点路写入，换房间时保持。
+    private var focused = true
+    private var focusedAccumulated: TimeInterval = 0
+    private var focusedSince: Date?
 
     public init() {}
 
@@ -44,6 +50,8 @@ public struct DwellTracker: Equatable, Sendable {
         startedAt = nil
         excluded = 0
         exclusionMark = nil
+        focusedAccumulated = 0
+        focusedSince = nil
         return done
     }
 
@@ -58,11 +66,36 @@ public struct DwellTracker: Equatable, Sendable {
     public mutating func setActive(_ active: Bool, now: Date) {
         guard room != nil else { return }
         if active {
-            if activeSince == nil { activeSince = now }
+            if activeSince == nil {
+                activeSince = now
+                if focused { focusedSince = now }
+            }
             if startedAt == nil { startedAt = now }
         } else if let since = activeSince {
             accumulated += max(0, now.timeIntervalSince(since))
             activeSince = nil
+            closeFocusedSpan(now: now)
+        }
+    }
+
+    /// 焦点进入或离开这一路。正在计时时把已走的秒数按旧口径切开；没在计时只改标志。重复设置同一值无副作用。
+    public mutating func setFocused(_ next: Bool, now: Date) {
+        guard next != focused else { return }
+        if activeSince != nil {
+            if next { focusedSince = now } else { closeFocusedSpan(now: now) }
+        }
+        focused = next
+    }
+
+    /// 焦点在这一路的实时秒数（含当前在播段）。
+    public func focusedDwell(now: Date) -> TimeInterval {
+        focusedAccumulated + (focusedSince.map { max(0, now.timeIntervalSince($0)) } ?? 0)
+    }
+
+    private mutating func closeFocusedSpan(now: Date) {
+        if let since = focusedSince {
+            focusedAccumulated += max(0, now.timeIntervalSince(since))
+            focusedSince = nil
         }
     }
 
@@ -119,7 +152,10 @@ public struct DwellTracker: Equatable, Sendable {
 
     private func settled(now: Date) -> Settled? {
         guard let room, !failed, !discarded else { return nil }
-        return Settled(room: room, dwell: dwell(now: now), ledgerSeconds: ledgerDwell(now: now), start: startedAt)
+        return Settled(
+            room: room, dwell: dwell(now: now), ledgerSeconds: ledgerDwell(now: now),
+            focusedDwell: min(dwell(now: now), focusedDwell(now: now)), start: startedAt
+        )
     }
 }
 

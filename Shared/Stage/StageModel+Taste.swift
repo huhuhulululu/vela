@@ -21,25 +21,34 @@ extension StageModel {
     var tagHints: [String] { HotTags.filterHints(hot: hotTags.fresh(now: Date()), rooms: feed.catalog) }
 
     /// 缓存过期（且不在失败冷却里）才取一次全站热门标签；失败或被站点拦截只记下，界面照用回退，不弹确认页。
+    /// 在可取消的子任务里跑，挂起时整段取消（§3.1）。
     func loadHotTagsIfStale() async {
-        guard !hotTagsLoading, hotTags.needsFetch(now: Date()) else { return }
+        await trackShared { [weak self] in await self?.loadHotTagsTracked() }
+    }
+
+    private func loadHotTagsTracked() async {
+        guard !hotTagsLoading, hotTags.needsFetch(now: Date()), let life = sharedToken() else { return }
         hotTagsLoading = true
+        defer { hotTagsLoading = false }
         do {
             let result = try await http.send(HotTags.request())
+            guard lifecycleAllows(.beforeCommit, life) else { return }
             let tags = try HotTags.decode(status: result.status, data: result.data)
             hotTags = hotTags.storing(tags, at: Date())
         } catch {
+            // 挂起时被取消的请求不算失败，不进失败冷却。
+            guard lifecycleAllows(.beforeCommit, life) else { return }
             log.error("hot tags failed")
             hotTags = hotTags.recordingFailure(at: Date())
         }
-        hotTagsLoading = false
     }
 
     private func commitTaste(_ next: Taste) {
         let previous = taste
         taste = next
         tasteSaver.schedule(next)
-        dwell.setLedgerExcluded(next.paused, now: Date())
+        // 暂停与恢复学习对每一路的停留都生效，副路的账本排除段也要同步。
+        for lane in lanes { lane.dwell.setLedgerExcluded(next.paused, now: Date()) }
         syncHiddenFilter(previous: previous)
         refreshReasons()
     }
@@ -49,7 +58,9 @@ extension StageModel {
         guard previous.vetoedKeys != taste.vetoedKeys, source == .guess, loadedSource == .guess else { return }
         let before = feed.current?.username
         // 当前房间因被过滤而换走：不记正向停留信号。
-        if let room = feed.current, taste.isVetoed(room) { dwell.discard() }
+        for lane in lanes {
+            if let room = room(of: lane), taste.isVetoed(room) { lane.dwell.discard() }
+        }
         let blocked = curation.blockedSet
         let only = allowedNames(for: curation)
         let hidden = taste.vetoedKeys
@@ -112,9 +123,9 @@ extension StageModel {
         showToast("口味画像已重置")
     }
 
-    /// 清掉画像、最近看过、旧版偏好文件，并作废当前房间的停留（否则它离开时又会写回一条）。
+    /// 清掉画像、最近看过、旧版偏好文件，并作废每一路当前房间的停留（否则它离开时又会写回一条）。
     func clearAllPreferences() {
-        dwell.discard()
+        for lane in lanes { lane.dwell.discard() }
         commitTaste(taste.erased())
         tasteSaver.flush()
         tasteStore.eraseLegacy()

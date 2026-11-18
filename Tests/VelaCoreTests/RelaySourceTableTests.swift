@@ -1,5 +1,9 @@
 import XCTest
+#if SWIFT_PACKAGE
 @testable import VelaCore
+#else
+@testable import VelaPhone
+#endif
 
 /// 中继多源表。标志按源 id 分开；超过 `maxSources` 淘汰最先注册的；清空后查询一律为假。
 final class RelaySourceTableTests: XCTestCase {
@@ -58,12 +62,15 @@ final class RelaySourceTableTests: XCTestCase {
         XCTAssertTrue(table.isAudioSuppressed(id: "b"))
     }
 
-    /// 上限 2。第三个新源淘汰最先注册的那个；重复登记不占新名额，也不改先后。
-    func testThirdSourceEvictsTheOldest() {
-        XCTAssertEqual(RelaySourceTable.maxSources, 2)
+    /// 上限等于路数上限 3（ios-triple）。三路各一个源同时在；第四个新源淘汰最先注册的那个；重复登记不占新名额，也不改先后。
+    func testFourthSourceEvictsTheOldest() {
+        XCTAssertEqual(RelaySourceTable.maxSources, 3)
+        XCTAssertEqual(RelaySourceTable.maxSources, LaneID.maxCount)
         var table = RelaySourceTable()
         XCTAssertNil(table.register(id: "oldest", audioSuppressed: true))
         XCTAssertNil(table.register(id: "middle", audioSuppressed: false))
+        XCTAssertNil(table.register(id: "third", audioSuppressed: true), "三路同时在不淘汰")
+        XCTAssertEqual(table.count, 3)
         table.setRefreshing(true, id: "oldest")
         table.setRefreshing(true, id: "middle")
         // 碰过最旧的源，也不该变成最新。

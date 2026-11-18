@@ -95,6 +95,8 @@ final class PlayerController: ObservableObject {
     #endif
 
     var hasItem: Bool { player.currentItem != nil }
+    /// 正在等外面重新解析当前房间（恢复或失败重试）。生命周期快照用。
+    var refreshPending: Bool { refresh.pending }
 
     init() {
         PlaylistRelay.shared.start()
@@ -551,6 +553,13 @@ final class PlayerController: ObservableObject {
         Self.log.info("suspend-now lane=\(self.laneLabel, privacy: .public)")
     }
 
+    /// 回前台由 Stage 层重新起播（§3.2）：丢掉 `suspendNow` 补写的暂停起点。
+    /// 否则闸门重开时播放器会自己按 `lastPlay` 再走一遍重新解析，与 Stage 的起播撞车。已有播放项时不动。
+    func forgetSuspendedResume() {
+        guard !hasItem else { return }
+        pausedAt = nil
+    }
+
     // MARK: 首帧
 
     /// 每个新播放项重新计时：结束上一段未完成的 signpost，再开一段。
@@ -713,7 +722,7 @@ final class PlayerController: ObservableObject {
     }
 
     /// 错误本身与各层 underlying error 的 (domain, code)，供归类成中文文案。
-    private static func errorChain(_ error: Error?) -> [(domain: String, code: Int)] {
+    static func errorChain(_ error: Error?) -> [(domain: String, code: Int)] {
         var chain: [(domain: String, code: Int)] = []
         var current = error as NSError?
         while let e = current, chain.count < 6 {

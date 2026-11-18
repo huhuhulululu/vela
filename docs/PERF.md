@@ -260,6 +260,224 @@ PR0 实验（计划修订 A1 / A2：不用真机，全程模拟器）。实验�
 
 负样本（`docs/spike/negative-tests.txt`）：无样本退出码 6、采样中进程退出 5、起播超时 4、参数错 2、App 不存在 1，全部按预期非 0。
 
+## iOS 单窗（模拟器）
+
+T16 按计划修订 A1 改在模拟器上做（2026-11-17，分支 `feat/ios-pr2`，合入 T14、T15 与 `feat/ios` 第一阶段审计修复之后）。全程静音、只 `simctl boot`、不截屏不点击，所有结论来自日志与宿主进程指标。
+
+### 方法与环境
+
+- 构建：`VelaPhone` 的 Perf 配置（bundle `com.vela.stage.ios.perf`，`PERF_PROBE`），`-sdk iphonesimulator CODE_SIGNING_ALLOWED=NO`；启动参数 `--perf-autoplay`（只在内存里视为已确认年龄并强制静音，`VelaPhoneApp` 在首次 `bootstrap()` 前调用 `PerfEntry.applyLaunchArguments`）。
+- 设备：iPhone 17 Pro 模拟器、iPad Pro 11 英寸（M5）模拟器，iOS 26.2，宿主同前。经 `ssh localhost` 回环运行，开跑前等本机无 perf-probe / selftest / 其他 xcodebuild / Vela / 模拟器实验。
+- 探针：`scripts/perf-probe-ios.sh --profile vela --scenario background --duration 60 --bg-hold 30`（`--profile vela` 为本次新增：日志子系统 `com.vela.stage`，起播判据 `first-frame lane=<id>`；旧 Spike 用 `--profile spike`）。前台 60 秒采样（每 5 秒），随后 `simctl launch com.apple.Preferences` 挤到后台，5 秒后采 30 秒，再切回测恢复首帧。
+- 直播是真实网络，两台设备起播的房间与档位不同（iPhone 这轮 1080p，iPad 这轮 720p）；正式 App 不打所选档位日志，`net_ratio` 无法计算。
+
+### 首轮结果（`cd80e2e`）
+
+| 项 | iPhone 17 Pro | iPad Pro 11（M5） | 结论 |
+|---|---|---|---|
+| 起播 | 首帧 0.50 秒（新播放项起计）；启动到首帧 2.02 秒 | 0.71 秒；2.42 秒 | 出现 `first-frame lane=primary`；启动到首帧在草案 ≤ 2.5 秒内 |
+| 画面比例（日志判定） | `display-check` 2 条，`gravity=resizeAspect`，`presentation=1920x1080 bounds=1554x874 videoRect=1554x874 uncropped=true` | 2 条，`presentation=1280x720 bounds=2151x1210 videoRect=2151x1210 uncropped=true` | 日志判定全部通过，**但实际画面被裁切**，见下「发现的问题」1（已修复，复测见下） |
+| 资源：前台单窗 60 秒 | cpu 平均 18.2%（p95 22.0%），footprint 74.2 MB（峰值 75），线程 29，下行 35.7 MB/min，上行 12.9 KB/min | cpu 10.3%（p95 13.7%），footprint 54.0 MB，线程 24，下行 20.7 MB/min | footprint 在单窗草案 ≤ 82 MB 内；cpu 无档位日志，无法按每 Mbps 归一 |
+| 后台 5 秒后（30 秒窗口） | cpu 0.2%，非回环与回环流量 0，线程 29→8，footprint 37 MB | cpu 0.35%（峰 0.5%），流量 0，线程 24→8，footprint 38 MB | 通过：cpu ≤ 0.5%、流量 = 0；窗口内零中继请求 |
+| 后台日志顺序 | `epoch suspend allowing=none` → `lane suspend lane=primary` → `audio step mute all` → `audio step category=playback mix=true` → `audio step active=false notify=true` → `audio deactivated` → `relay listener stopped` | 同左 | 通过：lane suspend、audio deactivated、relay listener stopped 依次出现，`setActive(false, notifyOthersOnDeactivation)` |
+| 恢复 | `epoch resume`、`lane resume lane=primary activity=playing`，新首帧距切回 1.33 秒 | 同左，1.99 秒 | 通过 |
+| 音频会话类别 | 前台全程没有任何 `audio step` 行；第一次设类别是在进后台时 | 同左 | **未通过**，见「发现的问题」2 |
+| 画中画 | 不适用 | 无 `pip` 日志，回桌面走整体挂起 | iOS 画中画（T15b）尚未接入，本轮只验证了「无画中画时进后台全停」 |
+
+### 发现的问题（首轮，均已修复）
+
+1. **画面实际被裁切（违反裁决 5），且 `display-check` 判不出来。** 竖屏窗格是 402x874（iPhone）与 834x1210（iPad），首轮日志里播放层 `bounds` 却是 1554x874 与 2151x1210：宽度正好等于「按 16:9 铺满高度」。根因：垫底 `SwapBackdrop` 用 `scaledToFill()` 且外层 `.frame(maxWidth: .infinity, maxHeight: .infinity)` 在子视图比提议大时取子视图尺寸，把整个 `ZStack` 撑到缩略图铺满后的大小，播放层跟着变大，再被 `.clipped()` 裁掉两侧。`display-check` 只拿 `videoRect` 和播放层自己的 `bounds` 比，所以照样报 `uncropped=true`。**修复**（`e71d050`）：`SwapBackdrop` 改为 `Color.clear` 打底、图放叠加层再裁掉，只取父视图给的尺寸（两端共用；macOS `RoomCanvas` 同一根因，窗口比例与缩略图不同时同样会撑大，一并消除，铺满开关不变）；`PhoneRoomPage` 把垫底移到 `.background`。`display-check` 改以页面容器为准：`bounds` 是窗格尺寸，新增 `layer=`（播放层 bounds），`videoRect` 换算到窗格坐标；播放层与窗格任一边相差超过 1 点即 `uncropped=false`，分析脚本另出 `layer_matches_all`。回归测试 `PhoneRoomPageLayoutTests` 在旧布局下量到 1554 / 2151 而失败。
+2. **前台起播时没有设音频会话类别。** 冷启动静音起播（含 `--perf-autoplay`）不经过 `AudioFocusController`，前台会话停在系统默认类别。**修复**（`daf5890`）：Core 新增 `AudioIntent.prepare(muted:)`，`StageModel.startPlayback` 开头经 `AudioFocusController.prepareSession(muted:)` 执行一次（静音：`playback` + `moviePlayback` + `mixWithOthers` 并激活；出声：`playback` 不混音）。
+3. 口味面板页眉「偏好只保存在这台 Mac 上」等共享文案。**修复**（`a7c44e7`）：页眉与访问确认页改为两端通用，收藏夹空状态与收藏来源空列表按平台显示（iOS 不再出现「单击 / ⌘D」）。
+
+### 修复后复测（2026-11-17，`a7c44e7`）
+
+同上方法与设备（Perf 构建、`--perf-autoplay`、`scripts/perf-probe-ios.sh --profile vela --scenario background --duration 60 --bg-hold 30`，`ssh localhost` 回环），每台设备 3 轮。三轮都起到 1080p 房间（直播房间每轮不同）。
+
+| 项 | iPhone 17 Pro（3 轮） | iPad Pro 11（M5）（3 轮） | 结论 |
+|---|---|---|---|
+| 画面比例 | 每轮 `display-check` 2 条，全部 `gravity=resizeAspect presentation=1920x1080 bounds=402x874 layer=402x874 videoRect=402x226 uncropped=true` | 全部 `bounds=834x1210 layer=834x1210 videoRect=834x469 uncropped=true` | 通过：播放层等于窗格，横屏流上下留边、完整显示；`layer_matches_all=true`、`uncropped_all=true` |
+| 前台音频 | 每轮 `audio prepare muted=true` → `audio step mute all` → `audio step category=playback mix=true` → `audio step active=true notify=false`，均在 `display-check` 与 `first-frame` 之前 | 同左 | 通过：首帧前已是静音配置（混音并激活）。`setCategory` 在主线程耗时约 70 到 200 毫秒 |
+| 起播 | 新播放项首帧 1.29 / 1.25 / 1.09 秒；启动到首帧 3.50 / 3.18 / 3.19 秒 | 1.03 / 0.62 / 1.03 秒；2.93 / 2.83 / 2.98 秒 | 都比首轮（iPhone 2.02、iPad 2.42 秒）慢，超出草案 ≤ 2.5 秒；对照见下，不归因于本次改动 |
+| 资源：前台 60 秒 | cpu 平均 14.4 / 16.2 / 16.8%（p95 ≤ 26.1%），footprint 77.0 / 75.9 / 69.5 MB（峰值 ≤ 78），线程 23 到 25，下行约 34 到 35 MB/min | cpu 26.2 / 17.0 / 15.6%（p95 ≤ 37.3%），footprint 81.3 / 76.2 / 76.2 MB（峰值 82），下行 34.5 到 49.6 MB/min | footprint 在单窗草案 ≤ 82 MB 内，但 iPad 第 1 轮峰值正好贴上限（首轮 iPad 是 720p、54 MB，本轮 1080p） |
+| 后台 5 秒后（30 秒窗口） | cpu 0.2%，流量 0，线程 →8 或 9，footprint 38 到 39 MB | cpu 0.18 到 0.28%，流量 0，线程 →8 或 9，footprint 39 到 43 MB | 通过，未退化 |
+| 后台日志顺序 | 与首轮相同：`epoch suspend` → `lane suspend` → `audio step mute all` → `category=playback mix=true` → `active=false notify=true` → `audio deactivated` → `relay listener stopped`，`bg_order_ok=true` | 同左 | 通过 |
+| 恢复 | `epoch resume`、`lane resume lane=primary activity=playing`，新首帧距切回 1.44 / 1.72 / 1.44 秒 | 2.05 / 1.87 / 1.85 秒 | 通过，与首轮（1.33、1.99 秒）同一水平 |
+
+**起播对照**：为判断启动到首帧变慢是否来自本次改动，同一时段在 iPhone 17 Pro 上交替跑首轮构建（`cd80e2e`）与修复后构建，`--scenario single --duration 20` 各 2 轮：旧构建启动到首帧 3.51 / 2.65 秒（新播放项首帧 0.84 / 0.95 秒），新构建 3.21 / 3.23 秒（0.72 / 0.87 秒）。旧构建此刻同样超过 2.5 秒，差异在轮间波动以内，变慢来自网络时段（直播 CDN），不是本次改动；但样本少，初始转换在主线程的 70 到 200 毫秒是确定的新增开销，若真机上起播紧张，可考虑把会话设置挪出主线程。
+
+### 画中画（T15b，2026-11-18，`c4c7aef`）
+
+按修订 A3 改口径：画中画在 iPad 模拟器上验，iPhone 模拟器只验「不支持时不崩、回桌面照旧全停」。Perf 构建、`--perf-autoplay`（静音）、单窗，`scripts/perf-probe-ios.sh --profile vela`，`ssh localhost` 回环，每台 1 轮（新建设备，跑完删除）。画中画期间另用 `nettop -L 1 -p <宿主 pid>` 每 10 秒取一次逐连接快照。
+
+| 项 | iPad Pro 13-inch（M5）`--scenario pip --duration 30 --bg-hold 40` | iPhone 17 Pro `--scenario background --duration 30 --bg-hold 30` | 结论 |
+|---|---|---|---|
+| 前台 | 首帧 0.55 秒（启动到首帧 4.06 秒），房间流 960x540，`display-check bounds=1032x1376 layer=1032x1376 videoRect=1032x581 uncropped=true`；cpu 平均 4.5%，footprint 45.8 MB，下行 11.3 MB/min | 首帧 0.89 秒，cpu 11.7%，footprint 76.3 MB，下行 35.3 MB/min（1080p 房间） | 直播房间每轮不同，两台数字不可横比 |
+| 回桌面 | `simctl launch com.apple.Preferences` 后：`pip started` → `epoch suspend allowing=primary` → `pip continue lane=primary state=active`；无 `pip failed`、无 `pip fallback-stop` | 日志 `pip unsupported`（控制器未创建，按钮不出现）；`epoch suspend allowing=none` → `lane suspend` → `audio step … active=false notify=true` → `audio deactivated` → `relay listener stopped`，`bg_order_ok=true`，无崩溃 | 通过 |
+| 后台期间音频 | 进入画中画时（静音）`audio step mute all` → `category=playback mix=true` → `active=true notify=false`，没有 `audio deactivated`、没有 `relay listener stopped` | 见上 | 通过：静音画中画保持 `playback + mixWithOthers` 会话 |
+| 后台资源（5 秒后的窗口） | cpu 平均 7.7%（最高 9.6%），footprint 46.9 MB，线程 25，下行 10.7 MB/min（与前台同一水平，即仍只这一路） | cpu 0.2%，下行 0，footprint 40.2 MB | iPad 画中画里继续播；iPhone 全停 |
+| 只一路联网 | 逐连接快照 3 次：持续增长的只有直播 CDN 的两条连接（分片连接 10.3 → 12.3 → 14.2 MB；清单连接 31.7 → 37.8 → 43.7 KB，每 10 秒约 6 KB，即中继按节拍拉子列表），目录与侧车的两条连接字节数不变；本地中继监听 `127.0.0.1` 一直在 | — | 通过：画中画期间只有画中画那一路在联网，中继持续供应清单；全程 `fetch-failed`、`serve-503`、续期失败均为 0 |
+| 切回 App | `epoch resume` → `lane resume lane=primary activity=playing` → `pip stopped restore=true`（回前台时主动退出画中画），新首帧距切回 1.59 秒 | 新首帧距切回 1.58 秒 | 通过 |
+
+未在本轮实跑的路径（由 `PictureInPictureWiringTests` 用桩覆盖）：3 秒内未进入画中画的回退全停、启动失败、后台里用户关掉画中画、自动进入开关关闭。模拟器上的画中画小窗本身不代表真机的解码与功耗。
+
+### 第二阶段审计修复后复测（2026-11-18，分支 `fix/pr2-audit`，`5c82665`）
+
+修复三方审计的 11 条发现之后（预取登记与取消、侧车加载前复查、后台与最后一路停播不改静音意图、迟到的画中画 willStart、旧恢复入口、iOS Presence、inactive 停留、收藏夹窄屏、Linux 文案、停用失败重试）的回归实跑。Perf 构建、`--perf-autoplay`（静音）、单窗，`scripts/perf-probe-ios.sh --profile vela --duration 30 --bg-hold 30 --teardown`，`ssh localhost` 回环，每台 1 轮，新建设备跑完删除；开跑前确认本机无其他 perf-probe / selftest / xcodebuild。
+
+| 项 | iPhone 17 Pro `--scenario background` | iPad Pro 11（M5）`--scenario pip` | 结论 |
+|---|---|---|---|
+| 前台 | 首帧 1.36 秒，cpu 18.2%，footprint 72.3 MB | 首帧 0.52 秒，cpu 7.2%，footprint 55.0 MB | 直播房间每轮不同，数字不横比 |
+| 后台 5 秒后（30 秒窗口） | cpu 0.23%，非回环与回环流量 0，footprint 40.2 MB；`bg_order_ok=true`（`epoch suspend allowing=none` → `lane suspend` → `audio step … active=false notify=true` → `audio deactivated` → `relay listener stopped`） | 画中画继续：下行 21.9 MB/min（只这一路），逐连接快照里后台窗口内**没有任何新连接**，字节增长的只有直播 CDN 那一条；目录、侧车连接不动 | 通过：后台无预取请求、无站点解析 |
+| 后台侧车与解析 | 日志里 `start-source` 只出现在启动与切回之后，后台窗口内 0 条；无侧车加载 | 同左 | 通过 |
+| 回前台 | `epoch resume` 之后先 `audio prepare muted=true` → `category=playback mix=true` → `active=true`（会话在后台已停用，`sessionPrepared` 复位后按当前静音状态重新准备），新首帧距切回 3.74 秒 | `pip stopped restore=true`，新首帧距切回 1.56 秒 | 通过；iPhone 这轮恢复比前几轮（1.4 到 1.7 秒）慢，单样本、活直播，未复测 |
+
+未在本轮实跑的项：
+- iPad「关掉自动进入画中画后回桌面全停」：试过启动参数 `-pipAutoEnter NO`，设置存在 `com.vela.stage` 套件里，参数域不生效，iPad 照样进了画中画；全停路径由 iPhone 这轮与 `PictureInPictureWiringTests` 覆盖。
+- 出声相关（后台再回前台、最后一路停播、停用失败重试）：Perf 构建强制静音，不点击就无法出声，按要求只做单元测试（`AudioFocusControllerTests`）。
+- 控制栏 2.4 秒收起：用状态断言 `LifecycleWiringTests.testChromeHidesAfterActivityTimeout` 验证。
+
+### 哪些不代表真机
+
+同「iOS Spike（模拟器）」一节：解码在 Mac 上，cpu 与功耗绝对值不能外推；网络是本机到直播 CDN。
+
+## iOS 双窗（模拟器，PR3）
+
+T18、T18b、T19 的实跑（2026-11-18，分支 `feat/ios-pr3`）。全程静音、只 `simctl boot`、不截屏不点击，结论来自日志、宿主进程指标与固定流服务端的响应字节。**用固定测试流，不访问真实站点**：`scripts/make-test-stream.sh` 生成合成 HLS（1080p，平均 3.10 Mbps，视频档加独立音轨），`scripts/serve-test-stream.py <目录> --port-file F --stats-file S` 在 127.0.0.1 提供并逐响应记录「时间 字节 文件名」；App 用 `--perf-stream <回环主列表> --perf-dual`（Perf 构建，两个测试房间 `perf-stream`、`perf-stream-2` 共用一个流，两路都走正常的中继与 `PlayerController`）。
+
+### 方法与环境
+
+- 构建：`VelaPhone` 的 Perf 配置，`-sdk iphonesimulator CODE_SIGNING_ALLOWED=NO`；设备为本次新建的 iPhone 17 与 iPad Pro 11 英寸（M5）模拟器（iOS 26.2），跑完删除；探针 `scripts/perf-probe-ios.sh --profile vela`，经 `ssh localhost` 回环运行。
+- **联网按服务端统计，不按 nettop**：模拟器里 App 的回环流量不进 `nettop -p`，探针的 `net_in`、`net_loopback` 在这些运行里恒为 0，不能当「没联网」的证据（这是空成功的典型）。前台有流量、回桌面后归零，才说明服务端统计有效；下表的前台行就是正对照。
+- 两路所选档位带宽之和（固定流平均 3.10 Mbps × 2）约 44.4 MB/min；流量比 = 实测 ÷ 44.4。分析器的 `overlap_ratio` 依赖 Spike 的健康日志，正式 App 没有这类日志，读数 0.0 不代表重叠为 0，不引用；两路同时在播由两路首帧都出现、服务端流量约为单路两倍佐证。
+
+### 结果
+
+| 项 | iPhone 17（`--scenario background`，前台 40 秒，后台 20 秒） | iPad Pro 11（M5）（`--scenario pip`，前台 30 秒，后台 20 秒） | 结论 |
+|---|---|---|---|
+| 两路首帧 | 两路都 0.58 秒（`first-frame lane=primary` 与 `lane=secondary`） | 0.25、0.28 秒 | 通过 |
+| 两路房间不重复 | `lane-rooms distinct=true` 2 条，`distinct=false` 0 条（`lane_rooms_dup=0`） | 同左 | 通过（选房逻辑另有 `DualWindowTests` 的八类场景） |
+| 画面比例 | 每格窗格 402x436，播放层 `layer=402x436`，`videoRect=402x226`，`gravity=resizeAspect`，`display-check` 4 条全部 `uncropped=true`（`layer_matches_all=true`） | 窗格 834x604，`videoRect=834x469`，4 条全部 `uncropped=true` | 通过：横屏流在半屏里上下留边、完整显示，没有裁切 |
+| 起播档位 | 两路 `lane-start cap=-1`（不封顶） | 同左，回前台恢复的两路同样 `cap=-1` | 通过（裁决 3，S12） |
+| 前台资源（服务端字节） | 45.2 MB/min，流量比 1.02；cpu 27.7%，footprint 115.4 MB（峰值 118），线程 36 | 45.7 MB/min，流量比 1.03；cpu 27.5%，footprint 115.8 MB | 通过：流量比 ≤ 1.15。cpu 是模拟器进程里两路 1080p 软件路径的开销，不外推真机 |
+| 回桌面 | 无画中画（iPhone 模拟器不支持）：服务端字节切走后第 1 秒起恒为 0（20 秒窗口 0 请求），bg cpu 0.2%，线程 8，`bg_order_ok=true`（`lane suspend` → 音频停用 → `relay listener stopped`） | 画中画 `pip started`，只留焦点路：服务端 21.5 MB/min（前台的 47%，约一路），bg cpu 15.9%，`pip continue lane=primary state=active`；另一路 `suspend-now lane=secondary` | 通过（S15：只有一路联网） |
+| 回前台 | `epoch resume`，两路 `lane resume`，首帧距切回 1.0 秒 | `pip stopped restore=true`，两路恢复，首帧距切回 1.3 秒 | 通过：回 App 恢复双窗 |
+
+另一轮 iPad `--scenario background`（前台 30 秒，后台 20 秒）同样进画中画：服务端 19.4 MB/min（前台 45.9），`pip started`，`lane-rooms` 与 `display-check` 同上；iPad 上没有「无画中画」的全停实跑（关掉自动进入的启动参数不生效，见上节），全停路径由 iPhone 这轮和 `DualPictureInPictureTests` 覆盖。
+
+### 热降档与回升（iPhone，`--perf-thermal serious@40,fair@70`，150 秒）
+
+模拟器没有真实热状态，用启动参数注入；回升等待是真实的 60 秒。
+
+| 时刻 | 日志 | 说明 |
+|---|---|---|
+| 起播 | `lane-start lane=secondary cap=-1`、`lane-start lane=primary cap=-1` | 两路最高档 |
+| +40 秒 | `thermal limit state=2`，`thermal-cap lane=primary cap=1696000`，`thermal-cap lane=secondary cap=1696000`，随后两路 `thermal-retier cap=1696000` | 降档：每路画面 221 点 × 3 = 663 像素，查到 1.696M 档 |
+| +70 秒注入 fair | 无 | 回落不立刻升 |
+| +130 秒 | `thermal recover state=1`，两路 `thermal-cap cap=-1`，随后 `thermal-retier cap=-1` | 满 60 秒才回升（04:37:02 注入 fair，04:38:02 回升） |
+
+固定流只有一个档位（约 3.5 Mbps），换档后选到的子列表不变，不能在带宽上看到降档效果；这里验证的是逻辑与时序（上限、换档请求、60 秒迟滞），带宽效果由 `LaneQualityTests`（`PowerPolicy` 查档）与 PERF「iOS Spike」的 E9 覆盖。
+
+### 画中画对照实验（ADR-007）
+
+| 组 | 配置 | 结果 |
+|---|---|---|
+| A（两轮）| 只给焦点路挂一个控制器，回桌面 | `pip started`；后台服务端 21.6、21.5 MB/min |
+| B | 同 A，进入时不先释放另一路 | `pip started`；后台前 5 秒 40.6 MB/min（两路），随后 23.0 |
+| C | 每一路都挂控制器 | `willStart` 后无 `didStart`、无 `failed`；全停并关小窗，之后 0 请求、cpu 0.3% |
+| D1 / D2 | 前台手动启动：单控制器 / 每路一个 | D1 `pip started`；D2 `pip attach` 两次，调用后没有任何回调 |
+
+### G-mac（macOS 主体不退化，固定流，Release，静音）
+
+`scripts/perf-probe.sh --build --fixed-stream --duration 60`（首轮构建）与同参数各轮，`ssh localhost` 回环；idle 为 `--scenario idle --duration 60`。判定 `python3 -I scripts/perf_gate.py docs/perf-baseline-fixed.json <结果> [--scenario idle]`。开跑时本机没有别的 perf-probe、xcodebuild、Vela 与模拟器实验，只有一台别处启动、空闲的模拟器在 Booted 状态（CPU 0%，不是本次所建，未动）。
+
+| 轮 | cpu_avg | footprint 均值 | 起播 | wakeups | runtime_issues | 门 |
+|---|---|---|---|---|---|---|
+| 1（构建后第一轮，冷启动） | 1.89% | 36.9 MB | 2.34 秒 | 0.0 | 0 | **FAIL**（只有起播一项：2.34 > 基线中位数 1.22 + 1.0；其余项通过） |
+| 2 | 1.82% | 35.9 MB | 1.74 秒 | 0.0 | 0 | PASS |
+| 3 | 1.82% | 36.3 MB | 1.72 秒 | 0.0 | 0 | PASS |
+| 4（补一轮） | 1.77% | 36.1 MB | 1.74 秒 | 0.0 | 0 | PASS |
+| 前三轮中位数 | 1.82% | 36.3 MB | 1.74 秒 | | 0 | 全部满足（基线 cpu 2.71%、footprint 36.3 MB、起播 1.22 秒） |
+| idle（60 秒） | 0.0% | 31.4 MB | | 0.0 | 0 | PASS（cpu ≤ 0.1%、wakeups ≤ 2/s、流量 0） |
+
+首轮冷启动偏慢与 ADR-005 记过的现象一致，按约定以三轮中位数为准并如实列出。本轮 cpu 低于基线的 2.71%，基线是另一时段、另一机器负载下的 5 轮中位数，这里只说明没有退化，不作改进的结论。
+
+## iOS 三窗（模拟器，ios-triple）
+
+计划 `docs/plans/ios-triple.md` 修订 v2 的 T-3、T-4 实跑（2026-11-18，分支 `feat/ios-triple`，代码 `1808479`）。全程静音、只 `simctl boot`、不截屏不点击；设备为本次新建的 iPhone 17 Pro 与 iPad Pro 11 英寸（M5）模拟器（iOS 26.2），跑完删除。探针 `scripts/perf-probe-ios.sh --profile vela --stream-stats <服务端统计>`，经 `ssh localhost` 回环运行，开跑前确认本机没有别的 perf-probe、xcodebuild 与 Vela。
+
+### 方法
+
+- **多档固定流**：`scripts/make-test-stream.sh <目录> 240 ladder` 生成 1080p 3000k、720p 1200k、540p 600k 三档（主列表 BANDWIDTH 3.45M / 1.48M / 0.73M，共用一条静音音轨），`serve-test-stream.py --stats-file` 在 127.0.0.1 提供并逐响应记录。App 用 `--perf-stream <回环主列表> --perf-lanes 3`（三个测试房间共用一个流，各走正常的中继与 `PlayerController`）。所选档位按服务端收到的分片文件名统计（`seg_0` 1080p、`seg_1` 720p、`seg_2` 540p）。
+- **判定**：分析器（`scripts/perf-probe-ios-analyze.py`）读日志与服务端统计，要求三路首帧、`lane-rooms` 无重复且 `lanes=3`、`display-check` 全部 `uncropped=true` 且播放层等于窗格、前台服务端有字节；无画中画时回桌面 5 秒后服务端字节为 0、后台中继源数为 0；画中画时后台中继源数为 1、按视频列表请求率估算的联网路数不超过 1.5。不满足退出码 7。负样本 `scripts/test_perf_probe_ios_analyze.py`（缺第三路首帧、第三路重复、后台留源、后台仍有字节、画中画两路联网、服务端统计为空）全部判失败。
+
+### 结果
+
+| 项 | iPhone 17 Pro（`--scenario background`，前台 40 秒，后台 20 秒） | iPad Pro 11（M5）（`--scenario pip`，前台 40 秒，后台 20 秒） |
+|---|---|---|
+| 三格首帧 | 0.89、0.92、0.98 秒（primary / secondary / tertiary） | 0.51、0.61、0.61 秒 |
+| 各路两两不同 | `lane-rooms distinct=true lanes=3` 2 条，重复 0 条 | 同左 |
+| 每格尺寸与画面 | 窗格 402x290 点，`videoRect` 402x226，`gravity=resizeAspect`，`display-check` 6 条全部 `uncropped=true`，播放层等于窗格 | 窗格 834x402 点，`videoRect` 715x402（左右留边），7 条全部 `uncropped=true` |
+| 选档（尺寸上限） | 三路 `lane-start cap=1696000`，前台分片全部是 720p，服务端 25.9 MB/min | 三路 `cap=3096000`，前台全部 720p，27.0 MB/min |
+| 前台资源 | cpu 14.9%，footprint 95.2 MB | cpu 14.2%，footprint 94.6 MB |
+| 回桌面 | 无画中画（iPhone 模拟器不支持）：5 秒后到切回前服务端字节为 0（另一轮测得最后一个请求在切走后 2.1 秒）；`relay sources=0`；bg cpu 0.25%；`bg_order_ok=true` | `pip started`、`pip continue lane=primary`，另两路 `suspend-now`；后台中继源 1 个，联网路数估算 1.08（前台三路 85.5 次视频列表 / 分，后台 30.9 次）；后台 24.9 MB/min，全是 1080p 分片：小窗只显示一路，尺寸上限回到不限 |
+| 回前台 | 三路 `lane resume`，首帧距切回 0.88 秒 | `pip stopped restore=true`，三路恢复，首帧距切回 1.36 秒 |
+
+对照（同一多档流、同一 iPhone 17 Pro，`--perf-lanes 2`，前台 30 秒，代码 `b8d82cf`）：两路窗格 402x436、画面 402x226，前台分片全部是 1080p，服务端 44.7 MB/min。即两路维持最高档（裁决 3），三路按格子选到 720p，下行约为两路的 58%。
+
+实跑发现并已修复的两处（各有回归测试）：起播时把有限的上限当成「离开降画质」的低档，约 8 秒后每路无谓重建一次播放项（`22ad45b`）；iPad 冷启动时格子还没布局就起播，三路先按最低档 896k 起播再换档（`1808479`，改按舞台尺寸推算格子）。上表为修复后的数字，两台设备上都不再出现 `quality -> full` 重建与冷启动换档。
+
+### G-mac（macOS 主体不退化，固定流，Release，静音）
+
+`scripts/perf-probe.sh --build --fixed-stream --duration 60`（每轮都带 `--build`，首轮为构建后冷启动），`ssh localhost` 回环；idle 为 `--scenario idle --duration 60`。判定 `python3 -I scripts/perf_gate.py docs/perf-baseline-fixed.json <结果> [--scenario idle]`。G-mac 用默认单档固定流，与基线同口径。代码 `1808479`。
+
+| 轮 | cpu_avg | footprint 均值 | 起播 | wakeups | runtime_issues | 门 |
+|---|---|---|---|---|---|---|
+| 1（构建后第一轮，冷启动） | 2.13% | 36.7 MB | 2.35 秒 | 0.0 | 0 | **FAIL**（只有起播一项：2.35 > 基线中位数 1.22 + 1.0；其余项通过） |
+| 2 | 1.96% | 36.2 MB | 1.74 秒 | 0.0 | 0 | PASS |
+| 3 | 2.00% | 36.0 MB | 1.73 秒 | 0.0 | 0 | PASS |
+| 三轮中位数 | 2.00% | 36.2 MB | 1.74 秒 | | 0 | 全部满足（基线 cpu 2.71%、footprint 36.3 MB、起播 1.22 秒；app 3.9 MB ≤ 3.7 + 0.3） |
+| idle（60 秒） | 0.0% | 31.8 MB | | 0.0 | 0 | PASS（cpu ≤ 0.1%、wakeups ≤ 2/s、流量 0） |
+
+首轮冷启动偏慢与 ADR-005 及 PR3 记过的现象一致，按约定以三轮中位数为准并如实列出。同一天在 `b8d82cf` 上先跑过一组（中位数 cpu 1.33%、footprint 35.9 MB、起播 1.71 秒，首轮同样只有起播一项 FAIL），结论相同。
+
+### 哪些不代表真机
+
+模拟器用宿主机解码，cpu 与功耗绝对值不能外推，也不能证明 iPhone 三路硬解能力（修订 v2 H3 的结论边界）；真机三路持续播放由用户在 TestFlight 上确认。资源不足的降级与恢复路径只由单元测试覆盖，模拟器上触发不到 `decoderTemporarilyUnavailable`。热降档在三窗下的实跑没有做（`--perf-thermal` 注入），由 `LaneQualityTests` 与 `TripleLaneMediaTests` 覆盖。
+
+### PR #8 审计修复后的复测（代码 `999e8cf`）
+
+- **空主路**（iPhone 17 Pro，三路，`--perf-empty-primary 6`）：第 6 秒焦点交给第三路并屏蔽主路的房间，日志 `perf empty-primary primary=empty`；3 秒后副路向前划，`lane-rooms distinct=true lanes=3` 共 5 条、重复 0 条；回桌面 5 秒后服务端字节为 0、中继源 0 个。
+- **热降档完整序列**（`--perf-thermal serious@15,critical@25,fair@30`，前台 100 秒）：
+  - iPhone 三格（尺寸上限 1.696M）：serious `thermal limit steps=1`，各路换到 896k；critical `thermal step steps=2`，已是最低档不再换；fair 后满 60 秒 `thermal recover`，换回 1.696M（尺寸上限，不是不限）。
+  - iPad Pro 11（M5）三格（尺寸上限 3.096M）：serious 换到 1.696M，critical `thermal step` 后三路再换到 896k（修复前这一步不会发生），满 60 秒回升到 3.096M。
+- **G-mac**（同口径）：
+
+| 轮 | cpu_avg | footprint 均值 | 起播 | runtime_issues | 门 |
+|---|---|---|---|---|---|
+| 1（冷启动） | 1.38% | 36.3 MB | 2.29 秒 | 0 | **FAIL**（只有起播一项） |
+| 2 | 1.53% | 34.9 MB | 1.77 秒 | 0 | PASS |
+| 3 | 1.68% | 34.8 MB | 1.73 秒 | 0 | PASS |
+| 三轮中位数 | 1.53% | 34.9 MB | 1.77 秒 | 0 | 全部满足 |
+| idle | 0.0% | 31.6 MB | | 0 | PASS |
+
+## 真机诊断（MetricKit，`fix/triple-followups`）
+
+为拿到真机耗电与发热数据，iOS 订阅 MetricKit 每日投递的指标与诊断，只存本机最近 7 天（ADR-009）。模拟器没有真实 payload，只验空态。
+
+- **Release 体积**（`VelaPhone` Release，`-sdk iphoneos` 真机 arm64、不签名，HEAD 快照构建）：加诊断前（`18c6aef`）`.app` 3304 KB、主二进制 2,347,816 字节；加诊断后（`1a8623e`）3388 KB、2,434,720 字节；增量 +84 KB、主二进制 +86,904 字节（约 +3.7%）。
+- **模拟器打开诊断**（iPhone 17 Pro，iOS 26.2，新建并删除；Perf 构建 `--perf-autoplay --perf-open-diagnostics`，静音）：启动 3 秒后打开口味面板并展开「诊断」，日志 `diagnostics opened days=0`，显示空态；12 秒后进程仍在，没有新的崩溃报告。
+- **轻量**：没有新增定时器与常驻任务，订阅在启动时做一次，回调由系统投递并在串行队列落盘；界面只在展开时读一次文件、拼一次分享全文。
+- **G-mac**（`1a8623e`，同口径；诊断代码不进 macOS 目标）：
+
+| 轮 | cpu_avg | footprint 均值 | 起播 | runtime_issues | 门 |
+|---|---|---|---|---|---|
+| 1（冷启动） | 1.88% | 34.8 MB | 2.32 秒 | 0 | **FAIL**（只有起播一项） |
+| 2 | 1.97% | 35.9 MB | 1.76 秒 | 0 | PASS |
+| 3 | 1.90% | 35.9 MB | 1.81 秒 | 0 | PASS |
+| 三轮中位数 | 1.90% | 35.9 MB | 1.81 秒 | 0 | 全部满足 |
+| idle | 0.0% | 30.6 MB | | 0 | PASS |
+
 ## 安卓（里程碑 A，单窗）
 
 与上面的 macOS、iOS 数字分开。安卓不走 `scripts/perf-probe.sh`，也不用 G-mac 的门。这里只写代码里已经在跑的门，以及仓库里已经有的一次 JVM 测量。模拟器上的 PSS 与 CPU 没有入库，不编造。
@@ -307,3 +525,4 @@ PR0 实验（计划修订 A1 / A2：不用真机，全程模拟器）。实验�
 ### 还没有的基线
 
 仓库里没有模拟器资源采样的 JSON（作业写在结果目录，文件名 e2e-a-resources.json），也没有模拟器上的 PSS、CPU 中位数。计划写里程碑 A 的首测写入本文，之后按基线 +10% 做门。首测数字不在这棵树上，本文不编造，也不把「+10%」写成一个具体的 KB 或百分比。`android/PORTING.md` 文末的 `apk_bytes=667213` 是脚手架当时的空壳包，不是现在的 `:app`。体积门仍是 `android/tools/check-apk.sh` 的 5120 KB；等有一次当前 release 包的实测，再把字节数记进来。
+

@@ -51,6 +51,28 @@ final class SupersedingRunnerTests: XCTestCase {
         _ = await first.value
         XCTAssertFalse(runner.isRunning)
     }
+
+    /// iOS 挂起：`cancel()` 取消在途批次，批次看到取消后提前结束；之后的新批照常跑。
+    func testCancelStopsInflightBatchAndLaterRunsStillWork() async {
+        let runner = SupersedingRunner<Int>()
+        let probe = Probe()
+        let first = Task { @MainActor in
+            await runner.run { _ in
+                while !Task.isCancelled { try? await Task.sleep(nanoseconds: 2_000_000) }
+                probe.currentAtEnd[1] = Task.isCancelled
+                return -1
+            }
+        }
+        try? await Task.sleep(nanoseconds: 10_000_000)
+        XCTAssertTrue(runner.isRunning)
+        runner.cancel()
+        let cancelled = await first.value
+        XCTAssertEqual(cancelled, -1)
+        XCTAssertEqual(probe.currentAtEnd[1], true, "批次内看得到取消")
+        XCTAssertFalse(runner.isRunning)
+        let next = await runner.run { id in id * 10 }
+        XCTAssertEqual(next, 20, "取消后新批照常执行")
+    }
 }
 
 final class ReviewFixTests: XCTestCase {

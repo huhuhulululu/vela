@@ -1,5 +1,9 @@
 import XCTest
+#if SWIFT_PACKAGE
 @testable import VelaCore
+#else
+@testable import VelaPhone
+#endif
 
 final class LifecycleEpochTests: XCTestCase {
     /// §3.1：挂起后请求、提交、中继注册、中继启动四处都拒绝；恢复后旧代次仍作废。

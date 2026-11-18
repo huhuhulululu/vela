@@ -7,6 +7,10 @@ import Carbon.HIToolbox
 final class PlatformHooks {
     /// macOS 支持「铺满」：`effectiveFill` 照旧由 `fitFill` 与竖屏自动完整画面决定。
     let allowsCrop = true
+    /// macOS 不做双窗。
+    let supportsDual = false
+    /// macOS 没有双窗，焦点不会被锁。
+    var focusLocked: Bool { false }
 
     private let bossKey = GlobalHotKey()
     private var activity: SystemActivity?
@@ -15,6 +19,15 @@ final class PlatformHooks {
     private var terminationObserver: NSObjectProtocol?
 
     nonisolated init() {}
+
+    /// macOS 按设置：离开后淡出与点击穿透都可开。
+    func adjustedPresence(_ presence: Presence) -> Presence { presence }
+
+    /// macOS 窗口可见即在看，停留照常计时。
+    var attentive: Bool { true }
+
+    /// 没有音频转换执行者：macOS 的音量与静音由 `StageModel` 直接设给播放器。
+    func attachAudio(to stage: StageModel) {}
 
     /// App 是否被隐藏（老板键或 ⌘H）。
     var appHidden: Bool { NSApp.isHidden }

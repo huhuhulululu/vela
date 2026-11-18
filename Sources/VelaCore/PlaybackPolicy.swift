@@ -174,6 +174,10 @@ public struct DegradedHold: Equatable, Sendable {
         case retry
         case roomSwitch
         case foregroundResume
+        /// 焦点切到这一路（修订 v2 H3）。
+        case focusGained
+        /// 路数减少，解码负载降了。
+        case laneReduced
     }
 
     public private(set) var held = false
