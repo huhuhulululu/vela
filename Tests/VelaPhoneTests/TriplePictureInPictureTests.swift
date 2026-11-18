@@ -245,4 +245,31 @@ final class TriplePictureInPictureTests: XCTestCase {
         XCTAssertTrue(stage.primary.visible)
         XCTAssertNotNil(stage.tertiary!.playTask)
     }
+    // MARK: 审计 medium：画中画期间路数菜单禁用，结束后补判舞台尺寸
+
+    func testLaneCountLockIsPublishedAndStageFitIsReappliedAfterPictureInPicture() {
+        let (stage, _) = makeStage(focus: .secondary)
+        stage.notePortraitStageSize(CGSize(width: 402, height: 874))
+        XCTAssertFalse(stage.laneCountLocked)
+        event(.willStart, stage)
+        XCTAssertTrue(stage.laneCountLocked, "启动中就锁：界面据此禁用路数菜单并说明原因")
+        stage.notePortraitStageSize(CGSize(width: 300, height: 400))
+        XCTAssertEqual(stage.laneCount, 3, "画中画期间不改路数")
+        event(.didStart, stage)
+        XCTAssertTrue(stage.laneCountLocked)
+        event(.willStop, stage)
+        event(.didStop, stage)
+        XCTAssertFalse(stage.laneCountLocked)
+        XCTAssertEqual(stage.laneCount, 2, "小窗收掉后补一次判定：放不下三格就降到 2 路")
+        XCTAssertEqual(stage.settings.laneCount, 3, "临时降路不改用户选择")
+    }
+
+    func testFailedStartAlsoReleasesTheLock() {
+        let (stage, _) = makeStage()
+        event(.willStart, stage)
+        event(.failed("AVKitErrorDomain -1001"), stage)
+        XCTAssertFalse(stage.laneCountLocked)
+        stage.setLaneCount(2)
+        XCTAssertEqual(stage.laneCount, 2)
+    }
 }

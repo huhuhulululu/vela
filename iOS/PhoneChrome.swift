@@ -104,7 +104,10 @@ struct PhoneLanePicker: View {
                         Text(title(count))
                     }
                 }
-                .disabled(count > model.maxLaneCount)
+                .disabled(count > model.maxLaneCount || model.laneCountLocked)
+            }
+            if model.laneCountLocked {
+                Text("画中画进行中，结束后可调整路数")
             }
         } label: {
             Text("\(model.laneCount) 路")

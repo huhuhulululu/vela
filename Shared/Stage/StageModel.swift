@@ -99,6 +99,8 @@ final class StageModel: ObservableObject {
     @Published var threeLanesFit = true
     /// 舞台尺寸按竖屏方向（宽取短边、高取长边），格子还没布局时据此估算选档（不发布）。
     var portraitStageSize: CGSize = .zero
+    /// 路数此刻改不了（画中画启动中或进行中）。界面据此禁用路数菜单并说明原因。
+    @Published var laneCountLocked = false
     /// 资源不足自动重试的退避（测试缩短）。
     var degradedRetryDelays = PlaybackFailureClassifier.degradedRetryDelays
     /// 手机横屏：双窗只显示焦点路，非焦点路释放（§4.2）。

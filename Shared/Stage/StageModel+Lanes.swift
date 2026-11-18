@@ -84,17 +84,32 @@ extension StageModel {
         let fits = LaneLayout.fitsThreeLanes(stageHeight: Double(portrait.height))
         guard fits != threeLanesFit else { return }
         threeLanesFit = fits
-        if fits {
+        applyStageFit()
+    }
+
+    /// 按舞台能放几格调整逻辑路数：放不下就临时降，放得下按用户选择恢复。画中画期间改不了，结束时再补一次。
+    private func applyStageFit() {
+        guard !platform.focusLocked else { return }
+        if threeLanesFit {
             restoreLanesIfRemembered()
         } else if laneCount > maxLaneCount {
             setLaneCount(maxLaneCount, remember: false)
         }
     }
 
+    /// 画中画启动、进入、结束、失败时由平台钩子调用：同步路数锁（只在变化时写，界面据此禁用路数菜单），
+    /// 解锁时补一次舞台尺寸判定（画中画期间舞台变矮不会降路）。
+    func syncLaneCountLock() {
+        let locked = platform.focusLocked
+        guard locked != laneCountLocked else { return }
+        laneCountLocked = locked
+        if !locked { applyStageFit() }
+    }
+
     /// 启动时恢复上次的路数：不写设置，列表还没到时新路先空着，列表到达后由 `LaneSelection` 选房。
     func restoreLanesIfRemembered() {
         let remembered = min(settings.laneCount, maxLaneCount)
-        guard platform.supportsDual, remembered > laneCount else { return }
+        guard platform.supportsDual, !platform.focusLocked, remembered > laneCount else { return }
         openLanes(upTo: remembered)
     }
 
