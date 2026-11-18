@@ -441,4 +441,18 @@ final class TripleWindowTests: XCTestCase {
         XCTAssertEqual(names(stage), [nil, "bob", nil])
         assertDistinct(stage)
     }
+    // MARK: 审计 medium：扩路时已有的空路也要补位
+
+    /// 两路时主路在列表末尾、副路合法地为空（重载不绕回开头）；扩到三路时 `.fill` 给空着的副路也分了房间，必须一并提交。
+    func testExpandingFillsAnExistingEmptyLaneToo() {
+        let stage = makeStage(["alice", "bob", "carol"])
+        stage.setLaneCount(2)
+        stage.step(1, on: stage.primary)
+        install(stage, ["alice", "bob", "carol"])
+        XCTAssertEqual(names(stage), ["carol", nil, nil], "重载：主路在末尾，副路为空")
+        stage.setLaneCount(3)
+        XCTAssertEqual(names(stage), ["carol", "bob", "alice"], "副路与第三路都补上")
+        XCTAssertNotNil(stage.secondary!.playTask, "补上的副路起播")
+        assertDistinct(stage)
+    }
 }

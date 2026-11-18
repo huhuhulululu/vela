@@ -111,7 +111,10 @@ extension StageModel {
             before: laneSnapshot(of: feed), afterRooms: feed.rooms.map(\.username),
             proposedPrimary: feed.currentUsername, intent: .fill
         )
-        for lane in opened { settleLane(lane, outcome: outcome) }
+        // `.fill` 给所有空路分房：新开的路与原本就空着的非主路一并提交（有房间的路它不动）。
+        for lane in lanes where lane.id != .primary && (lane.username == nil || opened.contains { $0 === lane }) {
+            settleLane(lane, outcome: outcome)
+        }
         syncPlaybackFace()
         applyPower()
         logLaneRooms()
