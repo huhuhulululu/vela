@@ -333,6 +333,15 @@ extension StageModel {
         noteLaneStopped()
     }
 
+    /// 失败的路原播放项恢复在播（不经重新起播）：状态回到在播，按当前静音意图重新准备会话并同步各路音量。
+    /// 恢复策略是「允许原项恢复」：超时与看门狗失败不拆播放项，画面能自己回来就接着播，失败信息随之清掉。
+    func laneRecovered(_ lane: PlaybackLane) {
+        lane.state = .playing
+        Self.playbackLog.info("lane recovered lane=\(Self.label(lane.id.role), privacy: .public)")
+        prepareAudioSession()
+        for each in lanes { pushVolume(to: each) }
+    }
+
     /// 没有哪一路还在出画面（都没有播放项，或都已失败）时，经音频控制器停用会话。macOS 没有控制器，不做事。
     func noteLaneStopped() {
         guard let audioFocus else { return }

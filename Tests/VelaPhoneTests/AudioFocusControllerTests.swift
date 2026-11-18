@@ -297,4 +297,26 @@ final class AudioFocusControllerTests: XCTestCase {
         XCTAssertEqual(driver.calls.first, "active false notify=true", "起播前先补做停用：\(driver.calls)")
         XCTAssertFalse(controller.deactivationPending)
     }
+    /// 出声播放超时（或看门狗）置失败后，原播放项又自己恢复到在播：会话按当前静音意图重新准备、焦点路取消静音。
+    func testAudibleTimeoutThenOriginalItemRecoversRestoresSound() {
+        let (stage, _, driver) = make()
+        stage.updateFeed { $0.insertDirect(Room.direct(username: "alice")!) }
+        stage.toggleMute()
+        XCTAssertFalse(isMuted(stage))
+        stage.notePlaybackFailed(true, on: stage.primary)
+        XCTAssertEqual(driver.calls.last, "active false notify=true", "失败后释放会话：\(driver.calls)")
+        XCTAssertTrue(isMuted(stage))
+        XCTAssertFalse(stage.muted, "运行时仍是出声意图")
+        driver.calls = []
+
+        stage.notePlaybackFailed(false, on: stage.primary)
+        stage.notePlaying("alice", on: stage.primary)
+
+        XCTAssertEqual(driver.calls, ["category playback mix=false", "active true notify=false"], "按出声重新准备会话")
+        XCTAssertFalse(isMuted(stage), "恢复后焦点路有声")
+        XCTAssertEqual(stage.primary.state, .playing)
+        driver.calls = []
+        stage.notePlaying("alice", on: stage.primary)
+        XCTAssertTrue(driver.calls.isEmpty, "已恢复就不再重复准备：\(driver.calls)")
+    }
 }

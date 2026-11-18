@@ -393,6 +393,10 @@ final class StageModel: ObservableObject {
     func notePlaying(_ username: String?, on given: PlaybackLane? = nil) {
         let lane = given ?? primary
         lane.playback.setPlaying(username)
+        if let username, username == name(of: lane), lane.state == .failed {
+            // 超时或看门狗报失败后原播放项又自己播起来：失败时已静音并释放了会话，这里恢复。
+            laneRecovered(lane)
+        }
         guard username != lane.playingName else {
             // 仍是这一间在播：只补上「播放成功」该清的标记。重排停留会把收藏提示的等待任务取消再造一份。
             if let username, username == name(of: lane) {
