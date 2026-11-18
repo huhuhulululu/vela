@@ -43,6 +43,8 @@ final class StageModel: ObservableObject {
     @Published var favoriteSuggest: FavoriteSuggestPrompt?
     /// 老板键隐藏了窗口：此时无论窗口可见性怎么变，都不恢复播放。
     @Published private(set) var bossHidden = false
+    /// 播放闸门的已发布镜像：窗口可见、系统休眠等不是 @Published，视图要靠它在闸门变化时重新求值（只在值变化时写）。
+    @Published private(set) var playbackGateOpen = true
     @Published var curation = Curation()
     /// 收藏房间的在线状态缓存（3 分钟内的结果不重查）与最近一次取回的目录。
     @Published var favoriteStatus = FavoriteCache()
@@ -787,6 +789,7 @@ final class StageModel: ObservableObject {
 
     func applyPower(windowVisible: Bool? = nil) {
         if let windowVisible { pointVisible = windowVisible }
+        _ = AssignIf.changed(from: playbackGateOpen, to: playbackAllowed) { playbackGateOpen = $0 }
         for lane in lanes {
             let allowed = laneAllowed(lane)
             if lane.awayTimer.gateChanged(allowed: allowed) {
