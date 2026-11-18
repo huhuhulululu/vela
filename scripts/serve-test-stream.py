@@ -737,6 +737,13 @@ def _media_name(path):
     return parts[0], False
 
 
+class _LocalServer(__import__("http.server").server.ThreadingHTTPServer):
+    # 跳过 HTTPServer.server_bind 里对 127.0.0.1 的反向解析（getfqdn）：GitHub macOS 机器上它会卡数秒，端口文件写不出来。
+    def server_bind(self):
+        __import__("socketserver").TCPServer.server_bind(self)
+        self.server_name, self.server_port = "127.0.0.1", self.server_address[1]
+
+
 def build_server(opts, catalog):
     import http.server
     stream = Stream(opts.root)
@@ -752,7 +759,7 @@ def build_server(opts, catalog):
     gate = Gate()
     reqlog = RequestLog(opts.request_log)
     handler = make_handler(stream, opts, catalog, gate, reqlog)
-    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    server = _LocalServer(("127.0.0.1", 0), handler)
     server.daemon_threads = True
     return server
 
