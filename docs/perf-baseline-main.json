@@ -1,20 +1,41 @@
 {
-  "source": "origin/main 6ad572f, Release, perf-probe.sh 120s, play 两轮均值 + idle(lock) 一轮；idle 含 paused-release 之后的 LoadingLine 动画，不满足 idle 绝对阈值（已知问题）",
+  "source": "origin/main 6ad572f, Release, 经 ssh localhost 回环，perf-probe.sh 60 秒 x 5 轮，取中位数；idle 待 fix/idle-loading-line 合入后重测，下方 idle 为旧值（main 因 LoadingLine 空转不达标）",
   "play": {
-    "cpu_avg": 2.63,
-    "cpu_p95": 3.4,
-    "footprint_avg_mb": 38.55,
-    "rss_avg_mb": 117.5,
-    "wakeups_avg": 27.45,
-    "threads": 19.5,
-    "vtdecoder_cpu_avg": 1.81,
-    "runtime_issues": 0.0,
-    "startup_to_play_s": 1.45,
+    "cpu_avg": 2.42,
+    "cpu_p95": 2.9,
+    "vtdecoder_cpu_avg": 1.59,
+    "cpu_app": 0.81,
+    "footprint_avg_mb": 39.1,
+    "rss_avg_mb": 116.1,
+    "wakeups_avg": 2.2,
+    "threads": 19,
+    "runtime_issues": 0,
     "app_size_mb": 3.5,
-    "net_in_mb_per_min": 28.61,
-    "net_out_kb_per_min": 12.7,
-    "http_requests_per_min": 106.4,
-    "samples": 48,
+    "net_in_mb_per_min": 35.03,
+    "startup_runs": [
+      1.2,
+      4.51,
+      1.74,
+      1.19,
+      1.78
+    ],
+    "startup_median": 1.74,
+    "startup_to_play_s": 1.74,
+    "cpu_app_runs": [
+      0.65,
+      2.7,
+      0.81,
+      0.82,
+      0.73
+    ],
+    "wakeups_runs": [
+      18.8,
+      2.2,
+      0.0,
+      1.7,
+      24.0
+    ],
+    "samples": 60,
     "scenario": "play"
   },
   "idle": {

@@ -2,6 +2,8 @@
 
 ## 测量方法
 
+**实测一律经 `ssh localhost` 回环运行**：`ssh localhost "bash <仓库>/scripts/perf-probe.sh --duration 60"`。工具（如 Claude Code）里的 shell 被降优先级只跑能效核，CPU 与 wakeups 会失真（wakeups 可能读成 0）。脚本检测不到 `SSH_CONNECTION` 时在 stderr 打印醒目警告（不拒绝运行）。测量前确认没有 booted 模拟器、`perf-probe-ios.sh`、`xcodebuild` 与其他 Vela 进程。
+
 `scripts/perf-probe.sh [--duration 秒] [--app 路径] [--build]`。先 `defaults write` 打开年龄确认（`ageConfirmed`）并静音（`muted`），记下原状，结束后原样恢复；用 `open -g -j -n` 后台隐藏启动，不抢前台、不截屏、不发输入。启动前先开 `log stream --level info`（只看 Vela 进程），以 PlayerController 在 Release 下也会打的 `audio tracks=N enabled=1` 为「开始播放」标志计算启动耗时（`first-frame` 日志只在 DEBUG 构建里有，不可用）。稳态再等 5 秒后，每 5 秒采样：`ps` 取 RSS，`footprint <pid>` 取 Physical footprint，`top -l 2 -s 2` 取第二次采样的 %CPU、线程数，空闲唤醒（idle wakeups）用两次采样的累计值之差除以间隔。子进程归属判定：`launchctl procinfo` 需要 root，改用 libSystem 的 `responsibility_get_pid_responsible_for_pid`（python3 ctypes 调用），ppid 为 1 或本 App 的进程里 responsible pid 等于本 App 的才算子进程；其中 `VTDecoderXPCService`（硬解 XPC）单列为 `vtdecoder_cpu_avg`，不计入 `children_*`（那是 WebKit 等其他子进程）。统计 `Publishing changes from within view updates` 与日志行数。中继刷新只能数 `relay` 分类下的 `renew ok/failed`（URL 过期后的换票）；清单抓取本身只在慢或失败时才打日志，无法按次数统计，所以 `relay_refreshes_per_min` 目前恒为换票频率，不代表清单轮询频率。
 
 注意：`log stream` 本身会放大系统框架的日志量与少量 CPU；`app_log_lines` 含 CFNetwork、CoreMedia 等系统子系统的行，Vela 自己（`com.vela.stage`）的日志在 180 秒内只有个位数到几十行。
@@ -155,22 +157,27 @@
 
 ## G-mac 基线（main）
 
-构建：`origin/main`（6ad572f），Release，`scripts/perf-probe.sh --duration 120`，静音，后台隐藏运行；play 两轮取均值，idle（lock）一轮。测量前确认无 booted 模拟器与 `perf-probe-ios.sh` 进程。机器可读版本在 `docs/perf-baseline-main.json`，判定命令 `python3 -I scripts/perf_gate.py docs/perf-baseline-main.json <结果.json> [--scenario idle]`。
+构建：`origin/main`（6ad572f），Release，经 `ssh localhost` 回环运行 `scripts/perf-probe.sh --duration 60`，静音，play 共 5 轮，各指标取中位数（逐轮值记在 `docs/perf-baseline-main.json` 的 `*_runs`）。判定命令 `python3 -I scripts/perf_gate.py docs/perf-baseline-main.json <结果.json> [--scenario idle]`。
 
-| 场景 | cpu_avg | cpu_p95 | footprint | rss | wakeups/s | threads | vtdecoder cpu | 网络入 | runtime_issues | 起播 | app_size |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| play 第 1 轮 | 2.61% | 3.2% | 40.4 MB | 119.6 MB | 27.6 | 21 | 1.79% | 35.4 MB/min | 0 | 1.18 秒 | 3.5 MB |
-| play 第 2 轮 | 2.66% | 3.6% | 36.7 MB | 115.4 MB | 27.3 | 18 | 1.82% | 21.9 MB/min | 0 | 1.72 秒 | 3.5 MB |
-| play 均值（基线） | 2.63% | 3.4% | 38.55 MB | 117.5 MB | 27.45 | 19.5 | 1.81% | 28.6 MB/min | 0 | 1.45 秒 | 3.5 MB |
-| idle（lock，120 秒窗口） | 4.4% | 6.0% | 36.2 MB | 114.0 MB | 26.4 | 7 | 0.01% | 0 | 0 | 1.18 秒 | 3.5 MB |
+判定口径（2026-11-17 编排者裁决）：
+- CPU：`cpu_app = cpu_avg − vtdecoder_cpu_avg`，要求 `cpu_app ≤ 基线 cpu_app × 1.15 + 0.3` 个百分点；总 `cpu_avg` 只打印不判（各房间码率不同，硬解波动会淹没 App 自身变化）。结果缺 `vtdecoder_cpu_avg` 即不合格。
+- 起播：`startup_to_play_s > 0` 且 `≤ 基线中位数 + 1.0 秒`（方案 A；同一份代码单轮起播波动约 1.1 秒以上，单值 + 0.5 秒会误判）。基线缺 `startup_median` 时退回单值并打印警告。
+- 其余：footprint ≤ 基线 + 5 MB，wakeups ≤ 基线 × 1.2，app_size ≤ 基线 + 0.3 MB，`runtime_issues` = 0；play 场景 `cpu_avg > 0` 而 wakeups 恰为 0 判测量可疑。
 
-复核记录（同日，先前一版基线作废）：先前一次测得 play wakeups 0.0、idle cpu 3.61% / wakeups 6.0，play wakeups 0.0 属测量被干扰（另有模拟器实验在 boot 或采样，top 的 IDLEW 被冻结）。改动前后的 perf-probe.sh（`git diff` 只动了退出码与 runtime_issues 统计，未碰 top 与 idle 逻辑）在同一 Release 产物上、模拟器全部关闭的环境下对照 60 秒：
+| 轮次 | cpu_avg | vtdecoder | cpu_app | footprint | wakeups/s | 起播 | 网络入 |
+|---|---|---|---|---|---|---|---|
+| 1 | 2.42% | 1.77% | 0.65% | 35.5 MB | 18.8 | 1.20 秒 | 11.5 MB/min |
+| 2 | 4.29% | 1.59% | 2.70% | 40.7 MB | 2.2 | 4.51 秒 | 36.6 MB/min |
+| 3 | 2.03% | 1.22% | 0.81% | 40.4 MB | 0.0 | 1.74 秒 | 35.6 MB/min |
+| 4 | 1.80% | 0.98% | 0.82% | 39.1 MB | 1.7 | 1.19 秒 | 35.0 MB/min |
+| 5 | 2.56% | 1.83% | 0.73% | 36.9 MB | 24.0 | 1.78 秒 | 11.1 MB/min |
+| 中位数（基线） | 2.42% | 1.59% | 0.81% | 39.1 MB | 2.2 | 1.74 秒 | 35.0 MB/min |
 
-| 脚本 | play cpu / wakeups | idle cpu / wakeups |
-|---|---|---|
-| 改动前 | 2.93% / 28.8 | 3.67% / 19.9 |
-| 改动后 | 2.41% / 27.0 | 3.55% / 19.4 |
+`runtime_issues` 全部为 0，`app_size` 3.5 MB。
 
-两版一致，play 与既有实测（约 2.7%、约 30/s）吻合，脚本无问题。
+观察（需编排者决定，未改阈值）：
+- **wakeups 在 main 自身的 5 轮里就是 0.0 到 24.0 的双峰**，不是脚本或 shell 优先级问题：工具 shell 里的 3 轮也是 3.2、16.0、24.9。与码流（房间、网络段间隔，对应网络入 11 与 35 MB/min 两档）有关的可能性最大，但未做对照。用此基线中位数 2.2 判，main 自己的 5 轮就有 2 轮（18.8、24.0）因 wakeups 不合格；第 3 轮（0.0）会被「wakeups 为 0 可疑」拒掉。建议 wakeups 不做 play 硬门，只在同一房间、同一码流下对照，或改为只看 idle。
+- 第 2 轮 cpu_app 2.70%、起播 4.51 秒，疑似该轮遇到断流重连，单轮离群；中位数基线不受其影响，但同样说明 5 轮的单次判定会有误报。
+- idle：main 因 `LoadingLine` 在播放器释放（`paused-release`，约 31 秒）后空转（`repeatForever` 动画让 `NSHostingView` 每帧重排）不达标，热修分支 `fix/idle-loading-line`（PR #1）处理中；idle 绝对阈值不放宽，待合入后重测 idle 基线。`docs/perf-baseline-main.json` 的 idle 段是合入前的旧值，仅供留痕。
 
-idle 偏高是真实现象，不是测量问题：锁屏后前约 20 秒 idle 正常（cpu 0.0%、wakeups 0.5/s），日志出现 `paused-release after 31s`（播放器释放）后 cpu 升到 5% 以上、wakeups 约 30/s 并持续。`sample` 显示主线程 `NSHostingView.layout()` 每帧重排（SwiftUI 动画）。原因推断：释放后 `readyUsername` 清空，`RoomCanvas` 里 `active && !videoReady && playbackNote == nil && !manuallyPaused` 成立，显示 `LoadingLine`，其 `repeatForever` 动画一直在跑（`App/RoomCanvas.swift`，同属 r1 已知「repeatForever 让整个 NSHostingView 每帧 layout」类问题）。尚未修改应用代码确认，只是由日志时序、`sample` 栈与源码条件推出。
+复核记录：先前一版（play wakeups 0.0、idle 6.0/s）受并行模拟器实验干扰，已作废。改动前后的 `perf-probe.sh` 在同一产物、模拟器全部关闭下对照 60 秒，play 2.93%/28.8 对 2.41%/27.0，idle 3.67%/19.9 对 3.55%/19.4，两版一致，脚本无问题。idle 偏高的证据：锁屏后前约 20 秒正常（cpu 0.0%、wakeups 0.5/s），`paused-release` 之后 cpu 升到 5% 以上、wakeups 约 30/s，`sample` 显示主线程 `NSHostingView.layout()` 每帧重排。

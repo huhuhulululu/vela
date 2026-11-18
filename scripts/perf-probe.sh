@@ -2,6 +2,7 @@
 # Vela 本机性能探针：后台静音播放一段时间，周期采样 CPU / 内存 / 唤醒 / 子进程，输出一行 JSON。
 # 用法：scripts/perf-probe.sh [--duration 秒] [--app 路径] [--build] [--scenario play|idle] [--idle-method lock|hide]
 # 兼容 macOS 自带 bash 3.2。依赖：log、top、ps、footprint、nettop、python3（查 responsible pid、解析 nettop、投递通知）。
+# 须经 ssh localhost 运行（见 docs/PERF.md「测量方法」）；否则打印警告，结果不可信。
 # 退出码：起播超时、idle 跳过、采样期间进程退出、samples=0、指标缺失或 NaN 一律非 0（结果 JSON 仍会写出）。
 # idle 场景：先正常起播，再用 --idle-method 让 App 进入非播放态，等 10 秒后才开始采样。
 #   lock（默认）：投递分布式通知 com.apple.screenIsLocked，走 SystemActivity -> PlaybackPolicy.systemInactive，
@@ -39,6 +40,13 @@ case "$SCENARIO" in play|idle) ;; *) echo "--scenario 只能是 play 或 idle" >
 case "$IDLE_METHOD" in lock|hide) ;; *) echo "--idle-method 只能是 lock 或 hide" >&2; exit 2 ;; esac
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
+# 工具（如 Claude Code）里的 shell 被降优先级只跑能效核，wakeups 会读成 0、CPU 失真；实测一律经 ssh localhost 回环运行。
+if [ -z "${SSH_CONNECTION:-}" ]; then
+    echo "################################################################" >&2
+    echo "警告：未经 ssh 回环启动（无 SSH_CONNECTION）。工具 shell 里测出的 wakeups、CPU 不可信。" >&2
+    echo "      请改用：ssh localhost 'cd <仓库> && scripts/perf-probe.sh ...'" >&2
+    echo "################################################################" >&2
+fi
 if [ "$BUILD" = 1 ]; then
     echo "Release 构建到 /tmp/vela-perf-dd ..." >&2
     (cd "$ROOT" && xcodebuild -project Vela.xcodeproj -scheme Vela -configuration Release \

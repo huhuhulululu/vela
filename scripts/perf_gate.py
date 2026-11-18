@@ -5,14 +5,14 @@
   perf_gate.py <基线.json> <结果.json> [--scenario play|idle]
   perf_gate.py --validate <结果.json>        仅做结果完整性自检（perf-probe.sh 收尾时调用）
 
-基线文件可以是单场景的扁平对象，也可以是 {"play": {...}, "idle": {...}}。
+基线 play 段须有 cpu_app（= cpu_avg - vtdecoder_cpu_avg 的基线），可带 startup_runs（各轮起播）与 startup_median；基线文件可以是单场景的扁平对象，也可以是 {"play": {...}, "idle": {...}}。
 退出码：0 合格；1 不合格；2 用法或文件错误。缺字段、NaN、skipped、samples=0、起播 <= 0 一律不合格。
 """
 import json
 import math
 import sys
 
-PLAY_FIELDS = ["cpu_avg", "footprint_avg_mb", "wakeups_avg", "app_size_mb"]
+PLAY_FIELDS = ["cpu_avg", "vtdecoder_cpu_avg", "footprint_avg_mb", "wakeups_avg", "app_size_mb"]
 IDLE_FIELDS = ["cpu_avg", "wakeups_avg", "net_in_mb_per_min", "net_out_kb_per_min"]
 COMMON_FIELDS = ["runtime_issues", "samples", "startup_to_play_s"]
 
@@ -71,15 +71,26 @@ def gate(base, res, scenario):
         check("net_out_kb_per_min", None, res["net_out_kb_per_min"], "= 0", res["net_out_kb_per_min"] == 0)
         return rows
     limits = [
-        ("cpu_avg", lambda b: b * 1.15, "基线 x 1.15"),
         ("footprint_avg_mb", lambda b: b + 5, "基线 + 5 MB"),
         ("wakeups_avg", lambda b: b * 1.2, "基线 x 1.2"),
         ("app_size_mb", lambda b: b + 0.3, "基线 + 0.3 MB"),
-        ("startup_to_play_s", lambda b: b + 0.5, "基线 + 0.5 s"),
     ]
+    # CPU：2026-11-17 编排者裁决，扣除硬解（各房间码率不同，硬解波动会淹没 App 自身变化）：
+    # cpu_app = cpu_avg - vtdecoder_cpu_avg <= 基线 cpu_app x 1.15 + 0.3 个百分点；总 cpu_avg 只打印不判
+    cpu_app = res["cpu_avg"] - res["vtdecoder_cpu_avg"]
+    print("cpu_avg(仅打印) %.2f  vtdecoder_cpu_avg %.2f  cpu_app %.2f" % (res["cpu_avg"], res["vtdecoder_cpu_avg"], cpu_app))
+    check("cpu_app", base["cpu_app"], round(cpu_app, 2), "<= 基线 cpu_app x 1.15 + 0.3", cpu_app <= base["cpu_app"] * 1.15 + 0.3 + 1e-9)
     for k, f, desc in limits:
         b = base[k]
         check(k, b, res[k], "<= " + desc, res[k] <= f(b) + 1e-9)
+    # 起播：2026-11-17 编排者裁决采用方案 A，> 0 且 <= 基线中位数 + 1.0 s（单轮波动约 1.1 s，不用单值 + 0.5 s）
+    if num(base, "startup_median") is not None:
+        sb = base["startup_median"]
+    else:
+        sb = base["startup_to_play_s"]
+        print("警告: 基线缺 startup_median，退回单值 startup_to_play_s（单轮波动大，请补 startup_runs 与 startup_median）")
+    check("startup_to_play_s", sb, res["startup_to_play_s"], "> 0 且 <= 基线中位数 + 1.0 s",
+          0 < res["startup_to_play_s"] <= sb + 1.0 + 1e-9)
     return rows
 
 
@@ -121,8 +132,13 @@ def main(argv):
         if not isinstance(base, dict):
             bad.append("基线不是 JSON 对象")
         else:
-            for k in PLAY_FIELDS + ["startup_to_play_s"]:
+            for k in [x for x in PLAY_FIELDS if x not in ("cpu_avg", "vtdecoder_cpu_avg")] + ["cpu_app"]:
                 if num(base, k) is None:
+                    bad.append("基线缺失或非有限数值: %s" % k)
+            if num(base, "startup_median") is None and num(base, "startup_to_play_s") is None:
+                bad.append("基线缺失 startup_median 与 startup_to_play_s")
+            for k in ("startup_median",):
+                if k in base and num(base, k) is None:
                     bad.append("基线缺失或非有限数值: %s" % k)
     if bad:
         for m in bad:

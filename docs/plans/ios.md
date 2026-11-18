@@ -325,17 +325,17 @@ Bundle ID：
 
    | 指标 | 阈值 |
    |---|---|
-   | `cpu_avg` | ≤ 基线 × 1.15 |
+   | CPU | `cpu_app = cpu_avg − vtdecoder_cpu_avg ≤ 基线 cpu_app × 1.15 + 0.3` 个百分点；总 `cpu_avg` 只打印不判，缺 `vtdecoder_cpu_avg` 即不合格（2026-11-17 编排者裁决：各房间码率不同，硬解波动会误判退化） |
    | `footprint` | ≤ 基线 + 5 MB |
    | `wakeups` | ≤ 基线 × 1.2 |
    | `app_size` | ≤ 基线 + 0.3 MB |
-   | 起播时间 | 大于 0，且 ≤ 基线 + 0.5 s |
+   | 起播时间 | 大于 0，且 ≤ 基线中位数 + 1.0 s（2026-11-17 编排者裁决采用 A：同一份代码单轮起播波动约 1.1 s，基线取 5 轮中位数，见 `docs/PERF.md`） |
    | idle 场景 | `cpu ≤ 0.1%`，`wakeups ≤ 2/s`，网络为 0 |
    | `runtime_issues` | = 0 |
 
 3. 以下情况一律判为不合格，脚本必须非 0 退出：起播时间为 -1、结果带 `skipped`、`samples = 0`、任一指标缺失或为 NaN、测试期间进程退出。
 4. `runtime_issues` 除了现有那一种警告，还要统计 `AttributeGraph: cycle`、`Modifying state during view update`，以及 `com.vela.stage` 的 fault 级日志。
-5. 判定命令：`python3 -I scripts/perf_gate.py <基线> <结果>`。
+5. 判定命令：`python3 -I scripts/perf_gate.py <基线> <结果>`。实测一律经 `ssh localhost` 回环运行 `perf-probe.sh`（工具 shell 被降优先级，数字失真；脚本会警告）。
 
 ### G-ios：iOS 实跑门（在 m5p 跑，Perf 构建，静音，记录设备型号）
 
