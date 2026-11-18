@@ -21,7 +21,7 @@ struct VelaApp: App {
         MenuBarExtra(isInserted: $menuBar.isShown) {
             MenuBarFavorites(model: model)
         } label: {
-            Image(systemName: "sailboat")
+            Image("MenuBarIcon")
         }
         .menuBarExtraStyle(.window)
     }
