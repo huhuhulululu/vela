@@ -1,9 +1,31 @@
 import Foundation
 
-/// 一路的身份。macOS 只有主路；iOS 双窗再加副路。
-public enum LaneID: Equatable, Hashable, Sendable {
+/// 一路的身份。macOS 只有主路；iOS 竖屏再按路数加副路、第三路（最多 3 路）。
+/// 顺序固定为 primary → secondary → tertiary，替补、压紧与日志都按这个顺序。
+public enum LaneID: Equatable, Hashable, Sendable, CaseIterable {
     case primary
     case secondary
+    case tertiary
+
+    /// 路数上限。
+    public static let maxCount = 3
+
+    /// 按路数取前 N 路（夹紧到 1...3）。
+    public static func active(count: Int) -> [LaneID] {
+        Array(allCases.prefix(min(max(count, 1), maxCount)))
+    }
+
+    /// 生命周期、画中画、音频、结算用的另一套路身份（一一对应）。
+    public var role: PlaybackLaneRole {
+        switch self {
+        case .primary: return .primary
+        case .secondary: return .secondary
+        case .tertiary: return .tertiary
+        }
+    }
+
+    /// 日志标签（与 `PlaybackLaneRole.label` 相同）。
+    public var label: String { role.label }
 }
 
 /// 一路在可见列表里的位置，以及这路自己的移动方向。

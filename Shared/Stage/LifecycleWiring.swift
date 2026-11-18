@@ -1,18 +1,6 @@
 import Foundation
 import os
 
-/// Core 里有两个「路」枚举：`LaneID`（选房与点击目标，`LaneSelection`、`RoomTarget` 用）与
-/// `PlaybackLaneRole`（生命周期、画中画、音频转换、停留结算用）。两者一一对应，这里只做映射、不合并：
-/// 合并要同时改 Core 里多份已测试的合同，收益只是少一个 switch。
-extension LaneID {
-    var role: PlaybackLaneRole {
-        switch self {
-        case .primary: return .primary
-        case .secondary: return .secondary
-        }
-    }
-}
-
 /// 统一挂起的运行时状态，挂在 `StageModel.wiring` 上（扩展里不能有存储属性）。
 struct LifecycleWiring {
     /// 统一挂起代次（§3.1）。macOS 从不挂起，所有检查恒放行。
@@ -228,6 +216,6 @@ extension StageModel {
     }
 
     nonisolated static func label(_ role: PlaybackLaneRole) -> String {
-        role == .primary ? "primary" : "secondary"
+        role.label
     }
 }

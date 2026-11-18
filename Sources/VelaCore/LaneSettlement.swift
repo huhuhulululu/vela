@@ -1,9 +1,27 @@
 import Foundation
 
-/// 竖屏双窗的一路。单窗只用 `.primary`。
-public enum PlaybackLaneRole: Equatable, Sendable, Hashable {
+/// 竖屏多路的一路。单窗只用 `.primary`。与 `LaneID` 一一对应（`LaneID.role` / `PlaybackLaneRole.laneID`）。
+public enum PlaybackLaneRole: Equatable, Sendable, Hashable, CaseIterable {
     case primary
     case secondary
+    case tertiary
+
+    public var laneID: LaneID {
+        switch self {
+        case .primary: return .primary
+        case .secondary: return .secondary
+        case .tertiary: return .tertiary
+        }
+    }
+
+    /// 日志里的路标签。
+    public var label: String {
+        switch self {
+        case .primary: return "primary"
+        case .secondary: return "secondary"
+        case .tertiary: return "tertiary"
+        }
+    }
 }
 
 /// 一路停留的结算。学习用加权秒，每日命中率只用焦点秒，账本记加权秒。

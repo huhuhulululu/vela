@@ -84,7 +84,7 @@ final class PlaybackLane: ObservableObject {
 
     init(id: LaneID) {
         self.id = id
-        player.laneLabel = id == .primary ? "primary" : "secondary"
+        player.laneLabel = id.label
     }
 }
 

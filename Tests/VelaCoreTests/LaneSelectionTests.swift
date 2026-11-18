@@ -765,3 +765,228 @@ final class LaneRecentSkipTests: XCTestCase {
         XCTAssertTrue(active.contains("r\(RecentSkips.capacity + 4)"))
     }
 }
+
+/// 三路（ios-triple 计划 T-2、修订 v2 的 M4、M5）：任一时刻各路两两不同，替补按 P → S → T，
+/// 候选不够时焦点路优先保留，空格留给非焦点路。
+final class TripleLaneSelectionTests: XCTestCase {
+    private func snap(
+        _ rooms: [String], _ primary: String?, _ secondary: String?, _ tertiary: String?,
+        focus: LaneID = .primary, directions: (Int, Int, Int) = (1, 1, 1), recent: Set<String> = []
+    ) -> LaneSelection.Snapshot {
+        LaneSelection.Snapshot(
+            rooms: rooms,
+            primary: LaneCursor(username: primary, direction: directions.0),
+            secondary: LaneCursor(username: secondary, direction: directions.1),
+            tertiary: LaneCursor(username: tertiary, direction: directions.2),
+            focus: focus, recent: recent
+        )
+    }
+
+    private func run(
+        _ before: LaneSelection.Snapshot, after: [String]? = nil, proposed: String?, _ intent: LaneSelection.Intent
+    ) -> LaneSelection.Outcome {
+        LaneSelection.resolve(
+            before: before, afterRooms: after ?? before.rooms, proposedPrimary: proposed, intent: intent
+        )
+    }
+
+    private func names(_ out: LaneSelection.Outcome) -> [String?] {
+        [out.primary.username, out.secondary?.username, out.tertiary?.username]
+    }
+
+    private func assertDistinct(_ out: LaneSelection.Outcome, file: StaticString = #filePath, line: UInt = #line) {
+        let taken = names(out).compactMap { $0?.lowercased() }
+        XCTAssertEqual(Set(taken).count, taken.count, "三路房间重复 \(names(out))", file: file, line: line)
+    }
+
+    // MARK: 路身份
+
+    func testLaneIDsActiveCountAndRoleMapping() {
+        XCTAssertEqual(LaneID.allCases, [.primary, .secondary, .tertiary])
+        XCTAssertEqual(LaneID.active(count: 0), [.primary], "夹紧到至少 1 路")
+        XCTAssertEqual(LaneID.active(count: 2), [.primary, .secondary])
+        XCTAssertEqual(LaneID.active(count: 3), [.primary, .secondary, .tertiary])
+        XCTAssertEqual(LaneID.active(count: 9), [.primary, .secondary, .tertiary], "最多 3 路")
+        for id in LaneID.allCases { XCTAssertEqual(id.role.laneID, id) }
+        XCTAssertEqual(LaneID.tertiary.role, .tertiary)
+        XCTAssertEqual(PlaybackLaneRole.allCases.map(\.label), ["primary", "secondary", "tertiary"])
+        XCTAssertEqual(LaneID.tertiary.label, "tertiary")
+    }
+
+    // MARK: 屏蔽
+
+    func testBlockingPrimaryYieldsPastBothOtherLanes() {
+        let before = snap(["a", "b", "c", "d", "e"], "a", "b", "c")
+        let out = run(before, after: ["b", "c", "d", "e"], proposed: "b", .filter)
+        XCTAssertEqual(names(out), ["d", "b", "c"], "主路落到副路那间时沿自己的方向越过副路和第三路")
+        XCTAssertNil(out.reasons[.secondary])
+        XCTAssertNil(out.reasons[.tertiary], "未受影响的路不结算")
+        XCTAssertEqual(out.reasons[.primary], .filter)
+    }
+
+    func testBlockingSecondaryReplacementSkipsTertiaryRoom() {
+        let before = snap(["a", "b", "c", "d", "e"], "a", "b", "c")
+        let out = run(before, after: ["a", "c", "d", "e"], proposed: "a", .filter)
+        XCTAssertEqual(names(out), ["a", "d", "c"], "副路替补沿方向找，跳过第三路正在播的 c")
+        XCTAssertEqual(out.reasons[.secondary], .filter)
+        XCTAssertNil(out.reasons[.tertiary])
+    }
+
+    func testBlockingTertiaryFindsNextFreeRoomAlongItsDirection() {
+        let forward = run(snap(["a", "b", "c", "d", "e"], "a", "b", "c"), after: ["a", "b", "d", "e"], proposed: "a", .filter)
+        XCTAssertEqual(names(forward), ["a", "b", "d"])
+        let backward = run(
+            snap(["a", "b", "c", "d", "e"], "d", "e", "c", directions: (1, 1, -1)),
+            after: ["a", "b", "d", "e"], proposed: "d", .filter
+        )
+        XCTAssertEqual(names(backward), ["d", "e", "b"], "第三路向前方移动时先找前面")
+    }
+
+    // MARK: 取消收藏、列表只剩 1 到 3 个
+
+    func testUnfavoritingTwoLanesWithTwoRoomsLeftLeavesANonFocusLaneEmpty() {
+        let before = snap(["a", "b", "c", "d"], "a", "b", "c")
+        let out = run(before, after: ["a", "d"], proposed: "a", .filter)
+        XCTAssertEqual(names(out), ["a", "d", nil], "替补按 P → S → T：副路拿到 d，第三路没有可去处")
+        XCTAssertEqual(out.reasons[.tertiary], .empty)
+        assertDistinct(out)
+    }
+
+    func testFocusLaneKeepsARoomWhenCandidatesRunShort() {
+        let before = snap(["a", "b", "c", "d"], "a", "b", "c", focus: .tertiary)
+        let out = run(before, after: ["a", "d"], proposed: "a", .filter)
+        XCTAssertEqual(out.focus, .tertiary)
+        XCTAssertNotNil(out.tertiary?.username, "焦点路优先保留")
+        XCTAssertEqual(names(out).compactMap { $0 }.count, 2)
+        XCTAssertEqual(out.primary.username, "a")
+        XCTAssertNil(out.secondary?.username, "空格留给非焦点路")
+        assertDistinct(out)
+    }
+
+    func testOnlyOneRoomGoesToTheFocusLane() {
+        for focus in LaneID.allCases {
+            let out = run(snap(["a", "b", "c"], "a", "b", "c", focus: focus), after: ["b"], proposed: "b", .filter)
+            XCTAssertEqual(out.focus, focus)
+            for id in LaneID.allCases {
+                let name = id == .primary ? out.primary.username : id == .secondary ? out.secondary?.username : out.tertiary?.username
+                XCTAssertEqual(name, id == focus ? "b" : nil, "焦点 \(focus) 时 \(id)")
+            }
+        }
+    }
+
+    func testExactlyThreeRoomsStayDistinctAfterMerge() {
+        let before = snap(["a", "b", "c", "d"], "a", "b", "c")
+        let out = run(before, after: ["c", "a", "b"], proposed: "a", .merge)
+        XCTAssertEqual(names(out), ["a", "b", "c"], "合并、重排：房间还在就不动")
+        XCTAssertTrue(out.reasons.isEmpty)
+    }
+
+    func testMergeRefillsEmptyTertiaryWithoutDuplicating() {
+        let before = snap(["a", "b"], "a", "b", nil)
+        let out = run(before, after: ["a", "b", "c", "d"], proposed: "a", .merge)
+        XCTAssertEqual(names(out), ["a", "b", "c"])
+        XCTAssertEqual(out.reasons[.tertiary], .merge)
+    }
+
+    // MARK: 空列表与续页恢复
+
+    func testEmptyListClearsAllThreeAndBlankResumeRefillsInOrder() {
+        let cleared = run(snap(["a", "b", "c"], "a", "b", "c", focus: .secondary), after: [], proposed: nil, .filter)
+        XCTAssertEqual(names(cleared), [nil, nil, nil])
+        XCTAssertEqual(cleared.focus, .secondary)
+        let blank = snap([], nil, nil, nil, focus: .secondary)
+        let resumed = LaneSelection.resolveFeedChange(before: blank, afterRooms: ["a", "b", "c", "d"], proposedPrimary: "a", intent: .merge)
+        XCTAssertEqual(names(resumed), ["a", "b", "c"])
+        XCTAssertEqual(resumed.reasons[.tertiary], .resume)
+    }
+
+    // MARK: 搜索装入与退出、切来源
+
+    func testSearchInstallExitAndReloadChainLanesAfterPrimary() {
+        let install = run(snap(["a", "b", "c"], "b", "c", "a"), after: ["s1", "b", "s3", "s4"], proposed: "b", .searchInstall)
+        XCTAssertEqual(names(install), ["b", "s3", "s4"])
+        let exit = run(snap(["s1", "b", "s3", "s4"], "b", "s3", "s4"), after: ["a", "b", "c", "d"], proposed: "a", .searchExit)
+        XCTAssertEqual(names(exit), ["a", "b", "c"])
+        XCTAssertEqual(exit.reasons[.tertiary], .sourceChange)
+        let nearEnd = run(snap(["a", "b", "c"], "a", "b", "c"), proposed: "b", .reload)
+        XCTAssertEqual(names(nearEnd), ["b", "c", nil], "不绕回列表开头（与双窗一致）")
+    }
+
+    // MARK: reveal
+
+    func testRevealTargetOnAnotherLaneOnlySwitchesFocus() {
+        let before = snap(["a", "b", "c", "d"], "a", "b", "c", recent: ["c"])
+        let onTertiary = run(before, proposed: "c", .reveal("c"))
+        XCTAssertEqual(onTertiary.focus, .tertiary)
+        XCTAssertEqual(names(onTertiary), ["a", "b", "c"])
+        XCTAssertTrue(onTertiary.reasons.isEmpty, "只切焦点，各路都不结算")
+        let fromTertiary = run(snap(["a", "b", "c", "d"], "a", "b", "c", focus: .tertiary), proposed: "b", .reveal("b"))
+        XCTAssertEqual(fromTertiary.focus, .secondary)
+        XCTAssertEqual(names(fromTertiary), ["a", "b", "c"])
+    }
+
+    func testRevealNewTargetGoesToPrimaryAndKeepsOthersDistinct() {
+        let before = snap(["a", "b", "c", "d"], "a", "b", "c", focus: .tertiary, recent: ["d"])
+        let out = run(before, proposed: "d", .reveal("d"))
+        XCTAssertEqual(out.focus, .primary)
+        XCTAssertEqual(names(out), ["d", "b", "c"], "reveal 直达不受最近划走约束")
+    }
+
+    // MARK: 划动与最近划走
+
+    func testMoveNeverLandsOnEitherOtherLane() {
+        let before = snap(["a", "b", "c", "d", "e"], "a", "b", "c")
+        XCTAssertEqual(names(run(before, proposed: nil, .move(.secondary, 1))), ["a", "d", "c"])
+        XCTAssertEqual(names(run(before, proposed: nil, .move(.primary, 1))), ["d", "b", "c"])
+        let stuck = run(before, proposed: nil, .move(.tertiary, -1))
+        XCTAssertEqual(names(stuck), ["a", "b", "c"], "前面两间都被占：原地不动")
+        XCTAssertTrue(stuck.reasons.isEmpty)
+    }
+
+    func testRecentSkipsAreSharedByAllThreeLanes() {
+        let before = snap(["a", "b", "c", "d", "e", "f", "g"], "a", "c", "e", recent: ["b", "d"])
+        let out = run(before, proposed: nil, .move(.primary, 1))
+        XCTAssertEqual(out.primary.username, "f", "b、d 最近划走，c、e 被另两路占着")
+        let relaxed = run(snap(["a", "b", "c", "d"], "a", "b", "c", recent: ["d"]), proposed: nil, .move(.primary, 1))
+        XCTAssertEqual(relaxed.primary.username, "d", "无处落脚时先放宽最近划走")
+        assertDistinct(relaxed)
+    }
+
+    // MARK: 开路补位
+
+    func testFillPlacesNewLanesAfterTheirPredecessorAndRespectsRecent() {
+        let two = LaneSelection.Snapshot(
+            rooms: ["a", "b", "c", "d", "e"], primary: LaneCursor(username: "a"),
+            secondary: LaneCursor(username: "b"), tertiary: LaneCursor(), focus: .secondary
+        )
+        let out = run(two, proposed: "a", .fill)
+        XCTAssertEqual(names(out), ["a", "b", "c"])
+        XCTAssertEqual(out.focus, .secondary, "补位不动焦点")
+        XCTAssertNil(out.reasons[.primary])
+        XCTAssertNil(out.reasons[.secondary])
+        var recent = two
+        recent.recent = ["c"]
+        XCTAssertEqual(run(recent, proposed: "a", .fill).tertiary?.username, "d", "自动补位避开最近划走")
+        let single = LaneSelection.Snapshot(
+            rooms: ["a", "b", "c"], primary: LaneCursor(username: "c"),
+            secondary: LaneCursor(), tertiary: LaneCursor(), focus: .primary
+        )
+        let atEnd = run(single, proposed: "c", .fill)
+        XCTAssertEqual(atEnd.primary.username, "c")
+        XCTAssertNotNil(atEnd.secondary?.username, "主路在最后一间时补位往前找")
+        XCTAssertNotNil(atEnd.tertiary?.username)
+        assertDistinct(atEnd)
+    }
+
+    /// 确定性：同样输入两次结果相同，且两路时与旧双窗规则一致（第三路为 nil 不影响）。
+    func testTwoLaneSnapshotWithoutTertiaryKeepsDualBehavior() {
+        let dual = LaneSelection.Snapshot(
+            rooms: ["a", "b", "c"], primary: LaneCursor(username: "a"), secondary: LaneCursor(username: "b"), focus: .primary
+        )
+        let out = run(dual, after: ["b", "c"], proposed: "b", .filter)
+        XCTAssertEqual(out.primary.username, "c")
+        XCTAssertEqual(out.secondary?.username, "b")
+        XCTAssertNil(out.tertiary)
+        XCTAssertEqual(run(dual, after: ["b", "c"], proposed: "b", .filter), out)
+    }
+}
