@@ -46,6 +46,10 @@ def validate(res, scenario):
     for k in COMMON_FIELDS + (IDLE_FIELDS if scenario == "idle" else PLAY_FIELDS):
         if num(res, k) is None:
             bad.append("指标缺失或非有限数值: %s" % k)
+    # 播放中必有周期唤醒；cpu 大于 0 而 wakeups 恰为 0，多半是 top 的 IDLEW 采样被干扰而冻结，视为测量可疑
+    if (scenario == "play" and num(res, "cpu_avg") and num(res, "wakeups_avg") is not None
+            and res["cpu_avg"] > 0 and res["wakeups_avg"] == 0):
+        bad.append("play 场景 cpu_avg > 0 但 wakeups_avg = 0，测量可疑（IDLEW 可能被冻结或有其他进程干扰），请在安静环境重测")
     if num(res, "samples") is not None and res["samples"] <= 0:
         bad.append("samples = %s" % res["samples"])
     if num(res, "startup_to_play_s") is not None and res["startup_to_play_s"] <= 0:

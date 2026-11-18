@@ -48,6 +48,7 @@ mut() { # 名称 python 表达式（修改 d）
     gate "$T/base.json" "$T/m.json"; check "$1 判不合格" "$([ $? -eq 1 ] && echo 1 || echo 0)"
 }
 mut "samples=0" 'd["samples"]=0'
+mut "play 有 cpu 但 wakeups=0（测量可疑）" 'd["wakeups_avg"]=0'
 mut "startup=-1" 'd["startup_to_play_s"]=-1'
 mut "带 skipped" 'd["skipped"]="x"'
 mut "缺 cpu_avg" 'del d["cpu_avg"]'

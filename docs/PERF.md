@@ -155,17 +155,22 @@
 
 ## G-mac 基线（main）
 
-构建：`origin/main`（6ad572f），Release，修好后的 `scripts/perf-probe.sh --duration 120`，静音，后台隐藏运行；play 两轮取均值，idle（lock）一轮。机器可读版本在 `docs/perf-baseline-main.json`，判定命令 `python3 -I scripts/perf_gate.py docs/perf-baseline-main.json <结果.json> [--scenario idle]`。
+构建：`origin/main`（6ad572f），Release，`scripts/perf-probe.sh --duration 120`，静音，后台隐藏运行；play 两轮取均值，idle（lock）一轮。测量前确认无 booted 模拟器与 `perf-probe-ios.sh` 进程。机器可读版本在 `docs/perf-baseline-main.json`，判定命令 `python3 -I scripts/perf_gate.py docs/perf-baseline-main.json <结果.json> [--scenario idle]`。
 
 | 场景 | cpu_avg | cpu_p95 | footprint | rss | wakeups/s | threads | vtdecoder cpu | 网络入 | runtime_issues | 起播 | app_size |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| play 第 1 轮 | 1.64% | 2.00% | 38.9 MB | 90.8 MB | 0.0 | 21 | 0.84% | 35.9 MB/min | 0 | 2.25 秒 | 3.5 MB |
-| play 第 2 轮 | 1.48% | 1.80% | 36.8 MB | 110.3 MB | 0.0 | 19 | 0.85% | 21.7 MB/min | 0 | 1.15 秒 | 3.5 MB |
-| play 均值（基线） | 1.56% | 1.90% | 37.85 MB | 100.6 MB | 0.0 | 20 | 0.84% | 28.8 MB/min | 0 | 1.70 秒 | 3.5 MB |
-| idle（lock） | 3.61% | 5.30% | 34.2 MB | 98.6 MB | 6.0 | 7 | 0 | 0 | 0 | 1.14 秒 | 3.5 MB |
+| play 第 1 轮 | 2.61% | 3.2% | 40.4 MB | 119.6 MB | 27.6 | 21 | 1.79% | 35.4 MB/min | 0 | 1.18 秒 | 3.5 MB |
+| play 第 2 轮 | 2.66% | 3.6% | 36.7 MB | 115.4 MB | 27.3 | 18 | 1.82% | 21.9 MB/min | 0 | 1.72 秒 | 3.5 MB |
+| play 均值（基线） | 2.63% | 3.4% | 38.55 MB | 117.5 MB | 27.45 | 19.5 | 1.81% | 28.6 MB/min | 0 | 1.45 秒 | 3.5 MB |
+| idle（lock，120 秒窗口） | 4.4% | 6.0% | 36.2 MB | 114.0 MB | 26.4 | 7 | 0.01% | 0 | 0 | 1.18 秒 | 3.5 MB |
 
-观察，供后续阈值使用：
-- main 的 idle 本身不满足 G-mac 的绝对阈值（cpu 3.61% > 0.1%，wakeups 6.0 > 2/s），网络为 0 达标。红点动画与指针轮询的修复（r1 重绘）不在 main 上，idle 门要等含该修复的分支才可能过。
-- play 的 wakeups 基线为 0.0，按「基线 x 1.2」阈值为 0，任何非零结果都会不合格；`top` 的 idlew 增量在稳态播放下读到 0，是否可信待复核，必要时改阈值口径。
-- 起播时间两轮相差 1.1 秒（2.25 与 1.15），对应阈值「基线 + 0.5 秒」的波动偏紧，同一份 main 的单轮就可能不过。
-- 网络入量随所播房间码流变化（两轮 21.7 与 35.9 MB/min），不入门。
+复核记录（同日，先前一版基线作废）：先前一次测得 play wakeups 0.0、idle cpu 3.61% / wakeups 6.0，play wakeups 0.0 属测量被干扰（另有模拟器实验在 boot 或采样，top 的 IDLEW 被冻结）。改动前后的 perf-probe.sh（`git diff` 只动了退出码与 runtime_issues 统计，未碰 top 与 idle 逻辑）在同一 Release 产物上、模拟器全部关闭的环境下对照 60 秒：
+
+| 脚本 | play cpu / wakeups | idle cpu / wakeups |
+|---|---|---|
+| 改动前 | 2.93% / 28.8 | 3.67% / 19.9 |
+| 改动后 | 2.41% / 27.0 | 3.55% / 19.4 |
+
+两版一致，play 与既有实测（约 2.7%、约 30/s）吻合，脚本无问题。
+
+idle 偏高是真实现象，不是测量问题：锁屏后前约 20 秒 idle 正常（cpu 0.0%、wakeups 0.5/s），日志出现 `paused-release after 31s`（播放器释放）后 cpu 升到 5% 以上、wakeups 约 30/s 并持续。`sample` 显示主线程 `NSHostingView.layout()` 每帧重排（SwiftUI 动画）。原因推断：释放后 `readyUsername` 清空，`RoomCanvas` 里 `active && !videoReady && playbackNote == nil && !manuallyPaused` 成立，显示 `LoadingLine`，其 `repeatForever` 动画一直在跑（`App/RoomCanvas.swift`，同属 r1 已知「repeatForever 让整个 NSHostingView 每帧 layout」类问题）。尚未修改应用代码确认，只是由日志时序、`sample` 栈与源码条件推出。
