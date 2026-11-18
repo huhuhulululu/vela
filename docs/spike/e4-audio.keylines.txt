@@ -1,0 +1,29 @@
+18:32:20.528 [audio] audio step setCategory playback+mixWithOthers
+18:32:20.534 [audio] audio step setActive(true) mixed
+18:32:20.534 [audio] audio muted category=AVAudioSessionCategoryPlayback mode=AVAudioSessionModeMoviePlayback mixWithOthers=true active=true otherPlaying=false
+18:32:20.610 [pip] pip supported=false slot=1
+18:32:20.614 [pip] pip supported=false slot=0
+18:32:20.784 [spike] scenePhase active
+18:32:21.290 [relay] relay sources=1
+18:32:21.293 [lane] lane-start slot=1 cap=max bw=7128000 res=1920x1080
+18:32:21.311 [relay] relay sources=2
+18:32:21.312 [lane] lane-start slot=0 cap=max bw=5128000 res=1920x1080
+18:32:21.594 [lane] first-frame lane=ROOM slot=1 ms=608
+18:32:21.594 [display] display-check lane=ROOM gravity=AVLayerVideoGravityResizeAspect presentation=1920x1080 bounds=402x328 videoRect=402x226 uncropped=true
+18:32:21.692 [display] display-check lane=ROOM gravity=AVLayerVideoGravityResizeAspect presentation=1920x1080 bounds=402x328 videoRect=402x226 uncropped=true
+18:32:21.692 [lane] first-frame lane=ROOM slot=0 ms=706
+18:32:35.845 [spike] audio-seq step=unmute
+18:32:35.851 [lane] lane-mute slot=2 muted=true
+18:32:35.851 [audio] audio step setCategory playback (no mix)
+18:32:35.851 [audio] audio step setActive(true)
+18:32:35.851 [audio] audio unmuted category=AVAudioSessionCategoryPlayback mode=AVAudioSessionModeMoviePlayback mixWithOthers=false active=true otherPlaying=false
+18:32:35.852 [lane] lane-mute slot=0 muted=false
+18:32:44.033 [spike] audio-seq step=switch-focus
+18:32:44.033 [lane] lane-mute slot=0 muted=true
+18:32:44.034 [lane] lane-mute slot=1 muted=false
+18:32:52.038 [spike] audio-seq step=mute
+18:32:52.038 [lane] lane-mute slot=1 muted=true
+18:32:52.039 [audio] audio step setCategory playback+mixWithOthers
+18:32:52.039 [audio] audio step setActive(false, notifyOthersOnDeactivation)
+18:32:52.039 [audio] audio step setActive(true) mixed
+18:32:52.039 [audio] audio muted category=AVAudioSessionCategoryPlayback mode=AVAudioSessionModeMoviePlayback mixWithOthers=true active=true otherPlaying=false

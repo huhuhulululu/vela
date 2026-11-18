@@ -1,0 +1,23 @@
+18:49:41.533 [audio] audio step setCategory playback+mixWithOthers
+18:49:41.547 [audio] audio step setActive(true) mixed
+18:49:41.547 [audio] audio muted category=AVAudioSessionCategoryPlayback mode=AVAudioSessionModeMoviePlayback mixWithOthers=true active=true otherPlaying=false
+18:49:41.629 [pip] pip supported=true slot=0
+18:49:41.859 [pip] pip possible=false slot=0
+18:49:42.020 [spike] scenePhase active
+18:49:42.837 [relay] relay sources=1
+18:49:42.843 [lane] lane-start slot=0 cap=max bw=5128000 res=1920x1080
+18:49:43.433 [display] display-check lane=ROOM gravity=AVLayerVideoGravityResizeAspect presentation=1920x1080 bounds=375x502 videoRect=375x211 uncropped=true
+18:49:43.433 [lane] first-frame lane=ROOM slot=0 ms=1032
+18:49:43.472 [pip] pip possible=true slot=0
+18:49:44.956 [relay] replay-old audio age=2.0s
+18:50:20.182 [spike] scenePhase inactive
+18:50:20.404 [pip] pip will-start slot=0
+18:50:21.399 [pip] pip started slot=0
+18:50:22.024 [spike] scenePhase background
+18:50:22.024 [spike] suspend pip-keep slot=0 pipState=active
+18:51:06.609 [spike] scenePhase inactive
+18:51:07.224 [spike] scenePhase active
+18:51:07.225 [spike] resume after=45s pipState=active
+18:51:07.225 [spike] pip exit-on-foreground
+18:51:07.225 [pip] pip will-stop slot=0
+18:51:07.768 [pip] pip stopped slot=0

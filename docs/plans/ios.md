@@ -743,3 +743,14 @@ Ready for execution
 - **S15**：画中画期间只有一路在解码和联网；无画中画时进后台 5 秒内网络与 CPU 归零（原 S7 后台项不变）；画中画时 iOS 静音不打断他人音乐（日志核对会话类别与选项）。
 
 **A2 接线要求（T6b 验收后追加，T13 / T15b 必须落实）**：`LifecycleEpoch` 目前是全局挂起，无法「只放行画中画那一路」。实现 `allowLaneRequests` 时须二选一：给 `LifecycleEpoch` 加按路放行（`Token` 带路标识，`allows` 对 `beforeRequest`、`beforeRelayRegister`、`beforeRelayStart` 仅放行指定路），或共享任务与画中画路各用独立 epoch。验收加测试：画中画期间共享任务（目录、搜索、收藏查询、侧车、缩略图）的 token 被拒，画中画路的 token 通过。
+
+---
+
+## 修订 A3（2026-11-17，PR0 模拟器实验结论落地）
+
+实验数据见 `docs/PERF.md`「iOS Spike（模拟器）」与 `docs/spike/`；Spike 原型代码保留在已归档的旧私有仓 `spike/ios` 分支，不迁入本仓。
+
+- **G-sim 阈值**：采用 PERF.md 中的草案（按所选档位带宽归一比较；wakeups 在模拟器进程上读数不稳，只作参考不作门）。
+- **画中画验收改口径**：iPhone 模拟器不支持画中画（`isPictureInPictureSupported()` 为 false），iOS 画中画验收改在 **iPad 模拟器**上做（单窗回桌面自动进入、后台只一路联网、切回退出），iPhone 上只验「不支持时不崩、回桌面照旧全停」。
+- **双窗画中画（T18b）**：模拟器上双窗回桌面 4 次未能自动进入，手动启动报 `AVKitErrorDomain -1001`。T18b 必须实现失败回退：自动进入在 3 秒内未成功则按无画中画处理（全停释放），不得留下后台播放或黑小窗；另行排查根因（重复视图/控制器、进入前先收起为单窗再进入），排查结论写进 ADR。
+- **续期**：Spike 的最简续期在换票失败后不恢复（E2 首轮作废），正式实现沿用 macOS 中继的续期与 `RenewalCoordinator`，T7 的受控 403 测试覆盖。

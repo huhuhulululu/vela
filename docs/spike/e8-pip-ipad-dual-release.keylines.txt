@@ -1,0 +1,39 @@
+18:53:38.313 [audio] audio step setCategory playback+mixWithOthers
+18:53:38.318 [audio] audio step setActive(true) mixed
+18:53:38.318 [audio] audio muted category=AVAudioSessionCategoryPlayback mode=AVAudioSessionModeMoviePlayback mixWithOthers=true active=true otherPlaying=false
+18:53:38.354 [pip] pip supported=true slot=1
+18:53:38.366 [pip] pip possible=false slot=1
+18:53:38.367 [pip] pip supported=true slot=0
+18:53:38.368 [pip] pip possible=false slot=0
+18:53:38.858 [spike] scenePhase active
+18:53:38.955 [relay] relay sources=1
+18:53:38.959 [lane] lane-start slot=0 cap=max bw=5128000 res=1920x1080
+18:53:38.967 [relay] relay sources=2
+18:53:38.969 [lane] lane-start slot=1 cap=max bw=5128000 res=1920x1080
+18:53:39.304 [display] display-check lane=ROOM gravity=AVLayerVideoGravityResizeAspect presentation=1920x1080 bounds=375x250 videoRect=375x211 uncropped=true
+18:53:39.304 [lane] first-frame lane=ROOM slot=1 ms=617
+18:53:39.376 [display] display-check lane=ROOM gravity=AVLayerVideoGravityResizeAspect presentation=1920x1080 bounds=375x250 videoRect=375x211 uncropped=true
+18:53:39.376 [lane] first-frame lane=ROOM slot=0 ms=689
+18:53:39.399 [pip] pip possible=true slot=1
+18:53:39.410 [pip] pip possible=true slot=0
+18:54:15.658 [spike] scenePhase inactive
+18:54:15.696 [pip] pip possible=false slot=1
+18:54:15.700 [relay] relay sources=1 (deactivate)
+18:54:16.595 [spike] scenePhase background
+18:54:16.595 [spike] suspend pip-keep slot=0 pipState=none
+18:54:19.780 [spike] suspend pip-not-started fallback release-lanes
+18:54:19.783 [pip] pip possible=false slot=0
+18:54:19.787 [relay] relay sources=0 (deactivate)
+18:54:19.788 [relay] relay listener stopped
+18:54:19.788 [audio] audio deactivated category=AVAudioSessionCategoryPlayback mode=AVAudioSessionModeMoviePlayback mixWithOthers=true active=false otherPlaying=false
+18:55:01.760 [spike] scenePhase inactive
+18:55:02.364 [spike] scenePhase active
+18:55:02.364 [spike] resume after=45s pipState=none
+18:55:02.653 [relay] relay sources=1
+18:55:02.658 [lane] lane-start slot=1 cap=max bw=5128000 res=1920x1080
+18:55:02.675 [relay] relay sources=2
+18:55:02.679 [lane] lane-start slot=0 cap=max bw=5128000 res=1920x1080
+18:55:02.950 [lane] first-frame lane=ROOM slot=1 ms=583
+18:55:03.004 [lane] first-frame lane=ROOM slot=0 ms=639
+18:55:03.022 [pip] pip possible=true slot=1
+18:55:03.074 [pip] pip possible=true slot=0
