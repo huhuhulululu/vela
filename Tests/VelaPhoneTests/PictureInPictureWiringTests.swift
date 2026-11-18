@@ -221,6 +221,21 @@ final class PictureInPictureWiringTests: XCTestCase {
         assertStoppedAll(stage)
     }
 
+    /// 全停之后迟到的 willStart：不得重新激活音频会话（激活了就再没人释放，他人音乐恢复不了）。
+    func testLateWillStartAfterStopAllDoesNotReactivateSession() async {
+        let pip = FakePiP()
+        let (stage, driver) = makeStage(pip: pip)
+        _ = background(stage)
+        await wait()
+        assertStoppedAll(stage)
+        driver.calls = []
+        event(.willStart, stage)
+        XCTAssertFalse(driver.calls.contains { $0.hasPrefix("active true") }, "迟到的 willStart 不激活会话：\(driver.calls)")
+        event(.didStart, stage)
+        XCTAssertFalse(driver.calls.contains { $0.hasPrefix("active true") }, "\(driver.calls)")
+        XCTAssertEqual(pip.stopCalls, 1)
+    }
+
     // MARK: 画中画结束
 
     func testUserClosingPictureInPictureInBackgroundStopsAll() {

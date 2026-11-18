@@ -238,7 +238,14 @@ final class PlatformHooks {
     }
 
     /// 静音时画中画也要播放类别：保持 `.playback + .mixWithOthers` 会话激活（7b），不打断他人音乐。
+    /// 只在画中画真会继续播时做：前台（按钮或回桌面自动进入的那一刻，场景还是 active / inactive），
+    /// 或后台里本次按画中画分支放行了焦点路。已经全停之后迟到的 willStart 不碰会话（全停时已停用），
+    /// 否则会话被重新激活后再没人释放；随后的 didStart 会把这个小窗关掉。
     private func keepMutedSessionForPictureInPicture(stage: StageModel) {
+        guard pipContinuing || scenePhase != .background else {
+            Self.pipLog.notice("pip late-start session untouched")
+            return
+        }
         guard stage.muted, let audioFocus = stage.audioFocus else { return }
         stage.applyAudioOutcome(audioFocus.perform(.prepare(muted: true)))
     }
