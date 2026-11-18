@@ -1,0 +1,3 @@
+Unicode 13.0.0 UCD excerpts (UnicodeData, SpecialCasing, DerivedAge, PropList, DerivedNormalizationProps).
+Source: https://www.unicode.org/Public/13.0.0/ucd/
+Used for NFC, full lowercase without context, and Age.
