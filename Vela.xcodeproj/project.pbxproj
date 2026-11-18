@@ -143,6 +143,8 @@
 		FBA7475CB0EAD2FA6559C3B4 /* PulseDot+Phone.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PulseDot+Phone.swift"; sourceTree = "<group>"; };
 		5706678F94874A09042F3437 /* SiteWebView+Phone.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SiteWebView+Phone.swift"; sourceTree = "<group>"; };
 		BD9C5ECA71F7AC479FB56CF1 /* SidecarHost+Phone.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SidecarHost+Phone.swift"; sourceTree = "<group>"; };
+		D16A00000000000000000020 /* PictureInPicture+Phone.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PictureInPicture+Phone.swift"; sourceTree = "<group>"; };
+		D16A00000000000000000010 /* PictureInPictureWiringTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PictureInPictureWiringTests.swift; sourceTree = "<group>"; };
 		BFAB95F3C05BDC2A011A19A4 /* PlayerLayerView+Phone.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PlayerLayerView+Phone.swift"; sourceTree = "<group>"; };
 		C12A00000000000000000100 /* RelayMultiSourceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayMultiSourceTests.swift; sourceTree = "<group>"; };
 		C12A00000000000000000101 /* LifecycleEpochTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LifecycleEpochTests.swift; sourceTree = "<group>"; };
@@ -315,6 +317,7 @@
 				9DD79AE99C1892CA7E465166 /* PhoneChrome.swift */,
 				B8CFEDF13824218E95117C34 /* PhoneRoomPage.swift */,
 				CE7DF2DC53C455092DD8CEAA /* LanePager.swift */,
+				D16A00000000000000000020 /* PictureInPicture+Phone.swift */,
 				BFAB95F3C05BDC2A011A19A4 /* PlayerLayerView+Phone.swift */,
 				BD9C5ECA71F7AC479FB56CF1 /* SidecarHost+Phone.swift */,
 				5706678F94874A09042F3437 /* SiteWebView+Phone.swift */,
@@ -415,6 +418,7 @@
 				0638102034C5E7A666AF3C0A /* PhoneViewLogicTests.swift */,
 				C13A00000000000000000011 /* LifecycleWiringTests.swift */,
 				D15A00000000000000000010 /* AudioFocusControllerTests.swift */,
+				D16A00000000000000000010 /* PictureInPictureWiringTests.swift */,
 				D15A00000000000000000012 /* PhoneHousekeepingTests.swift */,
 				D15A000000000000000000A0 /* SharedCopyLayoutTests.swift */,
 			);
@@ -676,6 +680,7 @@
 				881E9C45A5E4AC2024C7FD21 /* SiteSidecar.swift in Sources (VelaPhone) */,
 				869EE1A206D21CE9F9048054 /* PlayerController.swift in Sources (VelaPhone) */,
 				011B3C99EF9A74E56D8FEA2D /* PlayerLayerView+Phone.swift in Sources (VelaPhone) */,
+				D16A00000000000000000021 /* PictureInPicture+Phone.swift in Sources (VelaPhone) */,
 				CBBE54074865E41039D840C5 /* SidecarHost+Phone.swift in Sources (VelaPhone) */,
 				FF217E47A7E0309E4B80308B /* SiteWebView+Phone.swift in Sources (VelaPhone) */,
 				F2DC055FFFFD209CD1EC56A3 /* PulseDot+Phone.swift in Sources (VelaPhone) */,
@@ -758,6 +763,7 @@
 				036C0C7D6C970966BE45B68E /* PhoneViewLogicTests.swift in Sources (VelaPhoneTests) */,
 				C13A00000000000000000012 /* LifecycleWiringTests.swift in Sources (VelaPhoneTests) */,
 				D15A00000000000000000011 /* AudioFocusControllerTests.swift in Sources (VelaPhoneTests) */,
+				D16A00000000000000000011 /* PictureInPictureWiringTests.swift in Sources (VelaPhoneTests) */,
 				D15A00000000000000000013 /* PhoneHousekeepingTests.swift in Sources (VelaPhoneTests) */,
 				D15A000000000000000000A1 /* SharedCopyLayoutTests.swift in Sources (VelaPhoneTests) */,
 				C12A00000000000000000200 /* RelayMultiSourceTests.swift in Sources (VelaPhoneTests) */,
@@ -964,6 +970,8 @@
 		0FE1A2291B975A8E1863BD34 /* PlatformHooks+Phone.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 8FBC1ABAEFD8187434B9DBF0 /* PlatformHooks+Phone.swift */; };
 		D15A000000000000000000A1 /* SharedCopyLayoutTests.swift in Sources (VelaPhoneTests) */ = {isa = PBXBuildFile; fileRef = D15A000000000000000000A0 /* SharedCopyLayoutTests.swift */; };
 		D15A00000000000000000013 /* PhoneHousekeepingTests.swift in Sources (VelaPhoneTests) */ = {isa = PBXBuildFile; fileRef = D15A00000000000000000012 /* PhoneHousekeepingTests.swift */; };
+		D16A00000000000000000011 /* PictureInPictureWiringTests.swift in Sources (VelaPhoneTests) */ = {isa = PBXBuildFile; fileRef = D16A00000000000000000010 /* PictureInPictureWiringTests.swift */; };
+		D16A00000000000000000021 /* PictureInPicture+Phone.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = D16A00000000000000000020 /* PictureInPicture+Phone.swift */; };
 		D15A00000000000000000011 /* AudioFocusControllerTests.swift in Sources (VelaPhoneTests) */ = {isa = PBXBuildFile; fileRef = D15A00000000000000000010 /* AudioFocusControllerTests.swift */; };
 		D15A00000000000000000009 /* PerfEntry.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = D15A00000000000000000008 /* PerfEntry.swift */; };
 		D15A00000000000000000007 /* PhoneHousekeeping.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = D15A00000000000000000006 /* PhoneHousekeeping.swift */; };
