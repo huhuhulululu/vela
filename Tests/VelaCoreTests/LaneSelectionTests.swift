@@ -1,5 +1,9 @@
 import XCTest
+#if SWIFT_PACKAGE
 @testable import VelaCore
+#else
+@testable import VelaPhone
+#endif
 
 /// 联合选房：单窗必须与 FeedStore 自己的选择一致；双窗按 §4.1 调整副路并避免两路同房。
 final class LaneSelectionTests: XCTestCase {

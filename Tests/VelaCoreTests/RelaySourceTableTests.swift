@@ -1,5 +1,9 @@
 import XCTest
+#if SWIFT_PACKAGE
 @testable import VelaCore
+#else
+@testable import VelaPhone
+#endif
 
 /// 中继多源表。标志按源 id 分开；超过 `maxSources` 淘汰最先注册的；清空后查询一律为假。
 final class RelaySourceTableTests: XCTestCase {

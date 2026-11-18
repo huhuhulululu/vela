@@ -1,5 +1,9 @@
 import XCTest
+#if SWIFT_PACKAGE
 @testable import VelaCore
+#else
+@testable import VelaPhone
+#endif
 
 /// 修订 A2：画中画策略、静音会话和进后台分支。
 final class PiPPolicyTests: XCTestCase {
