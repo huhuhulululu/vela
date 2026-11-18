@@ -223,6 +223,9 @@ extension StageModel {
     /// 否则解析主列表再选档。缓存里的地址若 403 / 失败，由播放器的一次重试走 `refreshCurrent` 清缓存重新解析。
     /// 解析后不可播放时已处理（停播、提示、安排跳过），返回 nil。
     private func playTarget(for username: String, cap: Double, token: Int, lane: PlaybackLane) async throws -> PlayTarget? {
+        #if os(macOS) && (DEBUG || PERF_PROBE)
+        if let fixed = perfStreamTarget(for: username) { return fixed }
+        #endif
         if let cached = prepared.fresh(username, cap: cap, now: Date()) {
             return PlayTarget(master: nil, playable: cached)
         }
