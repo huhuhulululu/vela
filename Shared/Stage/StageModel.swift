@@ -194,12 +194,12 @@ final class StageModel: ObservableObject {
     private func loadSettings() {
         ageConfirmed = settings.ageConfirmed
         pinned = settings.pinned
-        presence = Presence(
+        presence = platform.adjustedPresence(Presence(
             conditionalOpacity: settings.conditionalOpacity,
             clickThrough: settings.clickThrough,
             restingOpacity: settings.restingOpacity,
             engagedOpacity: settings.engagedOpacity
-        )
+        ))
         restSavesPower = settings.restSavesPower
         publicOnly = settings.publicOnly
         fitFill = settings.fitFill
@@ -783,6 +783,7 @@ final class StageModel: ObservableObject {
     func updatePresence(_ body: (inout Presence) -> Void) {
         var copy = presence
         body(&copy)
+        copy = platform.adjustedPresence(copy)
         // 整份写回时内容没变也会发 objectWillChange。滑块停在原值、指针状态没变都不该把整棵树标脏。
         AssignIf.changed(from: presence, to: copy) { presence = $0 }
     }

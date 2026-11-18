@@ -59,6 +59,15 @@ final class PlatformHooks {
 
     var appHidden: Bool { false }
 
+    /// iOS 没有指针悬停与点击穿透（§2）：固定 `conditionalOpacity = false`、`clickThrough = false`，
+    /// 因此 `engaged` 恒为真（控制栏 2.4 秒后收起、播放时阻止自动锁屏）。只改内存里的值，不写设置。
+    func adjustedPresence(_ presence: Presence) -> Presence {
+        var fixed = presence
+        fixed.conditionalOpacity = false
+        fixed.clickThrough = false
+        return fixed
+    }
+
     func observeApp(
         unhidden: @escaping @MainActor () -> Void,
         hidden: @escaping @MainActor () -> Void,

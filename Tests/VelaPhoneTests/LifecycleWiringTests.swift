@@ -443,4 +443,32 @@ final class LifecycleWiringTests: XCTestCase {
         XCTAssertFalse(stage.primary.player.refreshPending, "不经播放器的 lastPlay 重新解析")
         XCTAssertNotNil(stage.primary.playTask, "由 Stage 层重新起播")
     }
+
+    // MARK: iOS 的 Presence（§2）
+
+    /// iOS 上 Presence 固定为 engaged：不按指针淡出、不点击穿透；不写进设置。
+    func testPhonePresenceIsAlwaysEngagedAndNotPersisted() {
+        let name = "vela-phone-presence-\(UUID().uuidString)"
+        suites.append(name)
+        let defaults = UserDefaults(suiteName: name)!
+        let stage = StageModel(settings: SettingsStore(defaults: defaults))
+        XCTAssertFalse(stage.presence.conditionalOpacity)
+        XCTAssertFalse(stage.presence.clickThrough)
+        XCTAssertTrue(stage.presence.engaged)
+        stage.ageConfirmed = true
+        XCTAssertTrue(stage.resolvedPresence().engaged, "年龄确认之后仍恒为 engaged")
+        XCTAssertFalse(stage.resolvedPresence().ignoresMouseEvents)
+        XCTAssertNil(defaults.object(forKey: "conditionalOpacity"), "不落盘")
+        XCTAssertNil(defaults.object(forKey: "clickThrough"), "不落盘")
+    }
+
+    /// 单击控制栏后 2.4 秒自动收起（engaged 恒真，计时才会生效）。
+    func testChromeHidesAfterActivityTimeout() async {
+        let stage = makeStage()
+        stage.ageConfirmed = true
+        stage.noteActivity()
+        XCTAssertTrue(stage.chromeVisible)
+        try? await Task.sleep(nanoseconds: 2_700_000_000)
+        XCTAssertFalse(stage.chromeVisible, "2.4 秒后收起")
+    }
 }

@@ -16,6 +16,9 @@ final class PlatformHooks {
 
     nonisolated init() {}
 
+    /// macOS 按设置：离开后淡出与点击穿透都可开。
+    func adjustedPresence(_ presence: Presence) -> Presence { presence }
+
     /// 没有音频转换执行者：macOS 的音量与静音由 `StageModel` 直接设给播放器。
     func attachAudio(to stage: StageModel) {}
 
