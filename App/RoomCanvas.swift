@@ -117,7 +117,7 @@ struct RoomCanvas: View {
                 noteMark(note)
             }
             // 只在允许播放时显示：锁屏、老板键、窗口不可见时播放项已释放，加载线的无限动画只会空转耗电。
-            if active && !videoReady && model.playbackNote == nil && !model.manuallyPaused && model.playbackAllowed {
+            if active && !videoReady && model.playbackNote == nil && !model.manuallyPaused && model.playbackGateOpen {
                 LoadingLine()
                     .frame(maxHeight: .infinity, alignment: .top)
                     .padding(.top, 8)
