@@ -655,6 +655,15 @@ final class StageModel: ObservableObject {
         }
         lane.manuallyPaused.toggle()
         applyPower()
+        resumeReleasedLaneIfNeeded(lane)
+    }
+
+    /// 取消暂停时播放项已被释放、播放器也没有自己的恢复可做（iOS 回前台时已清掉，§3.2）：由 Stage 层重新起播。
+    /// 播放器还记着恢复（macOS 暂停满 30 秒释放后）时它会自己重新解析，这里不重复。
+    private func resumeReleasedLaneIfNeeded(_ lane: PlaybackLane) {
+        guard laneAllowed(lane), !lane.player.hasItem, !lane.player.refreshPending,
+              lane.playTask == nil, name(of: lane) != nil, laneToken(lane) != nil else { return }
+        requestPlay(on: lane)
     }
 
 

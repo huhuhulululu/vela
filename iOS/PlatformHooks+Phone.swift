@@ -154,9 +154,10 @@ final class PlatformHooks {
             stage.redo(intent)
         case .requestPlay(let role, let activity):
             if let lane = stage.lane(for: role) { stage.resumePlay(lane, activity: activity) }
-        case .keepFailure, .stayPaused, .stayReleased:
-            // 失败提示、手动暂停与隐藏路都保持原样，不自动重播。
-            break
+        case .keepFailure(let role), .stayPaused(let role), .stayReleased(let role):
+            // 失败提示、手动暂停与隐藏路都保持原样，不自动重播。播放器自己记下的恢复（`suspendNow` 补写的
+            // 暂停起点 + `lastPlay`）一并清掉：否则闸门重开时它会自己重新解析起播。恢复只由 Stage 层决定（§3.2）。
+            stage.lane(for: role)?.player.forgetSuspendedResume()
         }
     }
 

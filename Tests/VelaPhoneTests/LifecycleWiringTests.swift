@@ -408,4 +408,39 @@ final class LifecycleWiringTests: XCTestCase {
         }
         sidecar.suspendAll()
     }
+
+    /// 失败态回前台：保留失败，播放器也不能按自己记下的 `lastPlay` 重新解析起播（§3.2 只由 Stage 层决定）。
+    func testFailedLaneWithRealLastPlayIsNotRestartedByPlayerOnReturn() async throws {
+        let stage = makeStage()
+        defer { stage.primary.player.stop() }
+        guard try await startRealPlayback(stage) else { return }
+        stage.primary.playTask = nil
+        stage.primary.state = .failed
+
+        _ = background(stage)
+        let actions = foreground(stage)
+
+        XCTAssertTrue(actions.contains(.keepFailure(.primary)), "\(actions)")
+        XCTAssertFalse(stage.primary.player.refreshPending, "播放器没有自己请求重新解析")
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertNil(stage.primary.playTask, "失败态不自动重播")
+        XCTAssertEqual(stage.primary.state, .failed)
+    }
+
+    /// 手动暂停回前台保持暂停；之后取消暂停由 Stage 层重新起播，不走播放器的旧恢复入口。
+    func testManuallyPausedLaneResumesThroughStageAfterReturn() async throws {
+        let stage = makeStage()
+        defer { stage.primary.player.stop() }
+        guard try await startRealPlayback(stage) else { return }
+        stage.primary.playTask = nil
+        stage.primary.manuallyPaused = true
+
+        _ = background(stage)
+        _ = foreground(stage)
+        XCTAssertNil(stage.primary.playTask)
+
+        stage.togglePause(nil)
+        XCTAssertFalse(stage.primary.player.refreshPending, "不经播放器的 lastPlay 重新解析")
+        XCTAssertNotNil(stage.primary.playTask, "由 Stage 层重新起播")
+    }
 }
