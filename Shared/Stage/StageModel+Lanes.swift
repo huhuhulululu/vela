@@ -52,7 +52,7 @@ extension StageModel {
     /// 选择路数并记住（`remember` 为 false 时是临时调整，不覆盖用户选择）。同值不动；画中画开着（或在启动）时不改：
     /// 小窗里放的就是焦点路，改路数会拆掉它或让新的一路在画中画期间起播。
     func setLaneCount(_ requested: Int, remember: Bool = true) {
-        guard platform.supportsDual, !platform.focusLocked else { return }
+        guard platform.supportsDual, !platform.focusLocked, !laneCountLocked else { return }
         let next = min(max(requested, 1), maxLaneCount)
         guard next != laneCount else {
             // 逻辑路数不变（例如屏幕变矮临时降到 2 路后用户明确选 2 路），用户选择仍要记住；同值不写。
@@ -90,7 +90,7 @@ extension StageModel {
 
     /// 按舞台能放几格调整逻辑路数：放不下就临时降，放得下按用户选择恢复。画中画期间改不了，结束时再补一次。
     private func applyStageFit() {
-        guard !platform.focusLocked else { return }
+        guard !platform.focusLocked, !laneCountLocked else { return }
         if threeLanesFit {
             restoreLanesIfRemembered()
         } else if laneCount > maxLaneCount {
@@ -98,10 +98,10 @@ extension StageModel {
         }
     }
 
-    /// 画中画启动、进入、结束、失败时由平台钩子调用：同步路数锁（只在变化时写，界面据此禁用路数菜单），
+    /// 画中画状态变化时由平台钩子调用：同步路数锁（启动中、进行中、停止中都锁；只在变化时写，界面据此禁用路数菜单），
     /// 解锁时补一次舞台尺寸判定（画中画期间舞台变矮不会降路）。
-    func syncLaneCountLock() {
-        let locked = platform.focusLocked
+    /// `locked` 为真表示画中画还没回到空闲（启动中、进行中、停止中）：小窗还在时不改路数，回到空闲才解锁补判。
+    func syncLaneCountLock(_ locked: Bool) {
         guard locked != laneCountLocked else { return }
         laneCountLocked = locked
         if !locked { applyStageFit() }
@@ -112,7 +112,7 @@ extension StageModel {
     func restoreLanesIfRemembered() {
         let ceiling = portraitStageSize == .zero ? min(maxLaneCount, 2) : maxLaneCount
         let remembered = min(settings.laneCount, ceiling)
-        guard platform.supportsDual, !platform.focusLocked, remembered > laneCount else { return }
+        guard platform.supportsDual, !platform.focusLocked, !laneCountLocked, remembered > laneCount else { return }
         openLanes(upTo: remembered)
     }
 

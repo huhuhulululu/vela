@@ -35,7 +35,7 @@ extension StageModel {
     /// 重试目标那一路。点下去之后那一路换了房间或换了一次播放就放弃。
     func retryPlayback(_ target: RoomTarget?) {
         guard let lane = matchedLane(target) else { return }
-        lane.degradedHold.release(.retry)
+        releaseDegradedHold(lane, .retry)
         lane.skips.reset()
         if let username = name(of: lane) {
             prepared.remove(username)

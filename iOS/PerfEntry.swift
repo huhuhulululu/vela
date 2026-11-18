@@ -16,6 +16,8 @@ enum PerfEntry {
     /// `--perf-no-pip-solo` 进入画中画时不先释放另一路；`--perf-pip-all-lanes` 让每一路的播放层都挂画中画控制器。
     static let noPipSolo = CommandLine.arguments.contains("--perf-no-pip-solo")
     static let pipOnAllLanes = CommandLine.arguments.contains("--perf-pip-all-lanes")
+    /// `--perf-open-diagnostics`：启动 3 秒后打开口味面板并展开「诊断」（模拟器上验空态不崩）。
+    static let openDiagnostics = CommandLine.arguments.contains("--perf-open-diagnostics")
     /// `--perf-pip-start <秒>`：启动后这么多秒在前台手动调一次画中画（等于点了控制栏的画中画按钮），日志里看 `pip started` 或失败码。
     static let pipStartArgument = "--perf-pip-start"
     /// `--perf-empty-primary <秒>`：启动后这么多秒把焦点交给第三路并屏蔽主路的房间（三个测试房间时主路合法地变空），
@@ -42,6 +44,12 @@ enum PerfEntry {
         injectThermal(into: stage, arguments: arguments)
         startPictureInPictureLater(stage: stage, arguments: arguments)
         emptyPrimaryLater(stage: stage, arguments: arguments)
+        if openDiagnostics {
+            Task { @MainActor [weak stage] in
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                stage?.showTaste = true
+            }
+        }
         AudioFocusController.log.info("\(marker, privacy: .public)")
         return true
     }
@@ -89,6 +97,7 @@ enum PerfEntry {
 enum PerfEntry {
     static let noPipSolo = false
     static let pipOnAllLanes = false
+    static let openDiagnostics = false
     /// Release 与 Debug：没有入口，恒为假。
     @MainActor @discardableResult
     static func applyLaunchArguments(to stage: StageModel, arguments: [String] = []) -> Bool { false }

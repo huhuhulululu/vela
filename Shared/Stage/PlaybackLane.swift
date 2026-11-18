@@ -81,6 +81,8 @@ final class PlaybackLane: ObservableObject {
     var degradedRetryTask: Task<Void, Never>?
     /// 本次资源不足已自动重试了几次；播起来后清零。
     var degradedRetries = 0
+    /// 降级代次：每次降级加一。退避任务醒来时核对，别的入口已放开或又降级过就作废。
+    var degradedEpoch = 0
 
     // 尺寸
     var paneSize: CGSize = .zero
@@ -162,6 +164,8 @@ extension StageModel {
         lane.playbackNote = "资源不足"
         lane.degradedRetryTask?.cancel()
         lane.degradedRetryTask = nil
+        lane.degradedEpoch += 1
+        let epoch = lane.degradedEpoch
         let attempt = lane.degradedRetries
         guard degradedRetryDelays.indices.contains(attempt) else { return }
         let delay = degradedRetryDelays[attempt]
@@ -169,9 +173,19 @@ extension StageModel {
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             guard !Task.isCancelled, let self, let lane else { return }
             lane.degradedRetryTask = nil
+            // 只在仍是这一次降级、门还扣着、这一路此刻可见时才消耗一次重试：已恢复的不改写计数；
+            // 横屏或画中画临时释放的路不空耗，回到可见时由恢复流程重试。
+            guard lane.degradedEpoch == epoch, lane.degradedHold.held, lane.visible else { return }
             lane.degradedRetries = attempt + 1
             self.retryDegraded(lane, reason: .retry)
         }
+    }
+
+    /// 别的入口（用户重试、回前台、切房）放开降级门：同时取消在途的退避任务。
+    func releaseDegradedHold(_ lane: PlaybackLane, _ reason: DegradedHold.Release) {
+        lane.degradedRetryTask?.cancel()
+        lane.degradedRetryTask = nil
+        lane.degradedHold.release(reason)
     }
 
     /// 被资源降级扣住的一路重试一次：放开扣住、清掉占位、重新起播。没被扣住什么都不做。
@@ -346,7 +360,7 @@ extension StageModel {
             currentRoomChanged(on: lane, reason: reason)
             return
         }
-        lane.degradedHold.release(.roomSwitch)
+        releaseDegradedHold(lane, .roomSwitch)
         currentRoomChanged(on: lane, reason: reason)
         if lane.username == nil { lane.state = .empty }
         requestPlay(on: lane)

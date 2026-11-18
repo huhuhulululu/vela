@@ -56,6 +56,11 @@ struct PhoneChrome: View {
                     .sheet(isPresented: $model.showTaste, onDismiss: { model.noteActivity() }) {
                         TasteView(model: model, width: nil)
                             .frame(maxWidth: .infinity)
+                            // 面板底部的「诊断」入口，默认收起（展开才读本机文件）。
+                            .safeAreaInset(edge: .bottom, spacing: 0) {
+                                PhoneDiagnosticsSection(expanded: PerfEntry.openDiagnostics)
+                                    .background(Theme.ink)
+                            }
                             .phoneSheet()
                     }
                 if let pip = model.platform.pipCoordinator {

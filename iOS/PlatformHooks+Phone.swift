@@ -46,6 +46,8 @@ final class PlatformHooks {
     /// 模型初始化时调用：启动杂务（备份排除）、装上音频控制器与内存警告订阅。
     func attachAudio(to stage: StageModel) {
         PhoneHousekeeping.ensureBackupExclusion()
+        // 真机诊断：订阅 MetricKit 每日投递（系统回调，不新增定时器），只存本机最近 7 天。
+        DiagnosticsCollector.shared.start()
         memoryWarning = PhoneHousekeeping.observeMemoryWarnings(stage: stage)
         let controller = AudioFocusController(stage: stage)
         controller.start()
@@ -210,12 +212,12 @@ final class PlatformHooks {
         switch event {
         case .willStart:
             pictureInPictureState = .starting
-            stage.syncLaneCountLock()
+            stage.syncLaneCountLock(pictureInPictureState != .none)
             if !PerfEntry.noPipSolo { stage.setPipSolo(true) }
             keepMutedSessionForPictureInPicture(stage: stage)
         case .didStart:
             pictureInPictureState = .active
-            stage.syncLaneCountLock()
+            stage.syncLaneCountLock(pictureInPictureState != .none)
             Self.pipLog.notice("pip started")
             if pipContinuing {
                 pipFallbackTask?.cancel()
@@ -227,8 +229,9 @@ final class PlatformHooks {
             }
         case .failed(let error):
             pictureInPictureState = .none
+            // 先按舞台尺寸改路数，再结束只留焦点路：要被拆掉的路不先恢复起播（复审 medium）。
+            stage.syncLaneCountLock(pictureInPictureState != .none)
             stage.setPipSolo(false)
-            stage.syncLaneCountLock()
             Self.pipLog.notice("pip failed error=\(error, privacy: .public)")
             if pipContinuing, scenePhase == .background {
                 fallbackStop(stage: stage, reason: "failed")
@@ -237,11 +240,12 @@ final class PlatformHooks {
             }
         case .willStop:
             pictureInPictureState = .stopping
-            stage.syncLaneCountLock()
+            stage.syncLaneCountLock(pictureInPictureState != .none)
         case .didStop:
             pictureInPictureState = .none
+            // 先按舞台尺寸改路数，再结束只留焦点路：要被拆掉的路不先恢复起播（复审 medium）。
+            stage.syncLaneCountLock(pictureInPictureState != .none)
             stage.setPipSolo(false)
-            stage.syncLaneCountLock()
             Self.pipLog.notice("pip stopped restore=\(self.pipRestoreRequested)")
             guard pipContinuing, scenePhase == .background else {
                 finishLatePictureInPicture(stage: stage)
@@ -312,8 +316,8 @@ final class PlatformHooks {
         if pictureInPictureState != .none { pip?.abort() }
         // 还没真正进入时 stop() 是空操作，不会有委托回调：不等它，立刻放开焦点锁与另一路的扣留。
         pictureInPictureState = .none
+        stage.syncLaneCountLock(pictureInPictureState != .none)
         stage.setPipSolo(false)
-        stage.syncLaneCountLock()
         stopAllAfterPictureInPicture(stage: stage)
     }
 
