@@ -36,6 +36,11 @@ final class RoomThumbnailCache {
         return await beginFetch(url: url)?.value
     }
 
+    /// 内存警告：丢掉已缓存的图。在途下载不动，完成后照常入缓存。
+    func removeAll() {
+        cache.removeAllObjects()
+    }
+
     /// 挂起：取消全部在途下载，之后的预取与取图直到 `resumeAll()` 都不发请求。已缓存的图照常可用。
     func suspendAll() {
         lifecycle.suspend()

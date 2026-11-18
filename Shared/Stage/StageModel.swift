@@ -3,6 +3,17 @@ import Combine
 import Foundation
 import os
 
+/// 音频转换的唯一执行者（iOS：`AudioFocusController`）。装上之后，播放器的音量与静音只经它设置；macOS 不装，走原有路径。
+@MainActor
+protocol AudioFocusing: AnyObject {
+    /// 本次转换的焦点路。
+    var focusRole: PlaybackLaneRole { get }
+    /// 按意图排步骤并有序执行；调用方再用 `StageModel.applyAudioOutcome` 落实运行时状态、设置与提示。
+    func perform(_ intent: AudioIntent) -> AudioOutcome
+    /// 不动会话，只把模型当前的音量与静音同步给一路（新路接入、起播、拖音量条）。
+    func syncVolume(to lane: PlaybackLane)
+}
+
 @MainActor
 final class StageModel: ObservableObject {
     typealias Source = FeedSource
@@ -115,6 +126,7 @@ final class StageModel: ObservableObject {
     @Published var watchLedger = WatchLedger()
     /// 平台钩子：老板键、系统活跃度、应用通知与隐藏 / 终止。macOS 与 iOS 各有一份同名实现。
     let platform = PlatformHooks()
+    var audioFocus: AudioFocusing?
     /// 播放闸门或 App 隐藏变化后，让窗口桥接重判指针轮询。`BridgeView` 挂上时登记。
     var refreshPointerPolling: (() -> Void)?
     /// 口味画像：停留结算、收藏、面板操作都更新它；只存本机。
@@ -171,6 +183,7 @@ final class StageModel: ObservableObject {
         startupNotices = notices
         for text in notices { log.error("preference file unreadable: \(text, privacy: .public)") }
         loadSettings()
+        platform.attachAudio(to: self)
         for lane in lanes { attach(lane) }
         installObservers()
         kickoffCatalogIfConfirmed()
@@ -559,6 +572,15 @@ final class StageModel: ObservableObject {
     }
 
     func toggleMute() {
+        if let audioFocus {
+            let unmuting = muted
+            if unmuting, volume <= 0 {
+                volume = AudioPolicy.volumeOnUnmute(current: volume)
+                settings.volume = volume
+            }
+            applyAudioOutcome(audioFocus.perform(unmuting ? .unmute(audioFocus.focusRole) : .deactivate(.mute)))
+            return
+        }
         muted.toggle()
         // 音量被拉到 0 之后取消静音：回到一个较小的非零值，否则喇叭变了声音还是没有。
         if !muted, volume <= 0 {
@@ -572,10 +594,39 @@ final class StageModel: ObservableObject {
 
     func setVolume(_ value: Double) {
         volume = min(max(value, 0), 1)
+        if let audioFocus {
+            settings.volume = volume
+            let wantsMuted = volume == 0
+            if wantsMuted != muted {
+                applyAudioOutcome(audioFocus.perform(wantsMuted ? .deactivate(.mute) : .unmute(audioFocus.focusRole)))
+            } else {
+                for lane in lanes { audioFocus.syncVolume(to: lane) }
+            }
+            return
+        }
         if volume == 0 { muted = true } else { muted = false }
         settings.volume = volume
         settings.muted = muted
         for lane in lanes { lane.player.setVolume(volume, muted: muted) }
+    }
+
+    /// 落实一次音频转换的结果：运行时静音状态、是否写进设置、失败提示。
+    func applyAudioOutcome(_ outcome: AudioOutcome) {
+        if let after = outcome.mutedAfter {
+            muted = after
+            if outcome.writesSettings { settings.muted = after }
+        }
+        if let notice = outcome.notice { showToast(notice) }
+        applyPower()
+    }
+
+    /// 把当前音量与静音交给一路：装了音频控制器就经它，否则直接设给播放器。
+    func pushVolume(to lane: PlaybackLane) {
+        if let audioFocus {
+            audioFocus.syncVolume(to: lane)
+        } else {
+            lane.player.setVolume(volume, muted: muted)
+        }
     }
 
     func shiftVolume(_ delta: Double) {

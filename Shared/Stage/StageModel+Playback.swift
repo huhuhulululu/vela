@@ -300,7 +300,7 @@ extension StageModel {
             rendition: target.playable, username: room.username, peakBitrate: cap,
             allowed: laneAllowed(lane), isRetry: isRetry
         )
-        lane.player.setVolume(volume, muted: muted)
+        pushVolume(to: lane)
         lane.quality.reset(tier: cap.isFinite ? .low : .full, now: Date())
         lane.qualitySignature = ""
         applyPower()

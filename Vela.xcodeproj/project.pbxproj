@@ -65,6 +65,7 @@
 		E105A9BBD540FBADA3E55DE6 /* LaneSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneSelection.swift; sourceTree = "<group>"; };
 		8015B67F2FEA4F082C6E96B0 /* RoomTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomTarget.swift; sourceTree = "<group>"; };
 		AAF0875BDC7DECDE9CB2FD72 /* AudioTransition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioTransition.swift; sourceTree = "<group>"; };
+		D15A00000000000000000001 /* AudioTransitionRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioTransitionRunner.swift; sourceTree = "<group>"; };
 		77CC74339DCDCD80A583929F /* PiPPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PiPPolicy.swift; sourceTree = "<group>"; };
 		02272C5A60C4F4A5D576924F /* LaneQuality.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneQuality.swift; sourceTree = "<group>"; };
 		855F7F46F047F54717D13227 /* LaneSettlement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneSettlement.swift; sourceTree = "<group>"; };
@@ -128,6 +129,11 @@
 		1A486697B1A22114A9A60C90 /* PlatformHooks+Mac.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PlatformHooks+Mac.swift"; sourceTree = "<group>"; };
 		D096B2FF63E8DAD1F896F278 /* StageModel+Mac.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "StageModel+Mac.swift"; sourceTree = "<group>"; };
 		8FBC1ABAEFD8187434B9DBF0 /* PlatformHooks+Phone.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PlatformHooks+Phone.swift"; sourceTree = "<group>"; };
+		D15A00000000000000000012 /* PhoneHousekeepingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneHousekeepingTests.swift; sourceTree = "<group>"; };
+		D15A00000000000000000010 /* AudioFocusControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioFocusControllerTests.swift; sourceTree = "<group>"; };
+		D15A00000000000000000008 /* PerfEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerfEntry.swift; sourceTree = "<group>"; };
+		D15A00000000000000000006 /* PhoneHousekeeping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneHousekeeping.swift; sourceTree = "<group>"; };
+		D15A00000000000000000004 /* AudioFocusController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioFocusController.swift; sourceTree = "<group>"; };
 		9AC06141FBC0557C71D42E18 /* PulseDot+Mac.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PulseDot+Mac.swift"; sourceTree = "<group>"; };
 		EDDF236238A89A159826934E /* SiteWebView+Mac.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SiteWebView+Mac.swift"; sourceTree = "<group>"; };
 		EAC96C9A604DC39521611610 /* ChallengeSheet+Mac.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChallengeSheet+Mac.swift"; sourceTree = "<group>"; };
@@ -207,6 +213,7 @@
 				E105A9BBD540FBADA3E55DE6 /* LaneSelection.swift */,
 				8015B67F2FEA4F082C6E96B0 /* RoomTarget.swift */,
 				AAF0875BDC7DECDE9CB2FD72 /* AudioTransition.swift */,
+				D15A00000000000000000001 /* AudioTransitionRunner.swift */,
 				77CC74339DCDCD80A583929F /* PiPPolicy.swift */,
 				02272C5A60C4F4A5D576924F /* LaneQuality.swift */,
 				855F7F46F047F54717D13227 /* LaneSettlement.swift */,
@@ -310,6 +317,9 @@
 				5706678F94874A09042F3437 /* SiteWebView+Phone.swift */,
 				FBA7475CB0EAD2FA6559C3B4 /* PulseDot+Phone.swift */,
 				8FBC1ABAEFD8187434B9DBF0 /* PlatformHooks+Phone.swift */,
+				D15A00000000000000000004 /* AudioFocusController.swift */,
+				D15A00000000000000000006 /* PhoneHousekeeping.swift */,
+				D15A00000000000000000008 /* PerfEntry.swift */,
 				530F0A44EED4FAE366351B2E /* ClickRegion+Phone.swift */,
 				B7A0C0DE0000000000000001 /* VelaPhoneApp.swift */,
 				C12A00000000000000000001 /* Info.plist */,
@@ -401,6 +411,8 @@
 			children = (
 				0638102034C5E7A666AF3C0A /* PhoneViewLogicTests.swift */,
 				C13A00000000000000000011 /* LifecycleWiringTests.swift */,
+				D15A00000000000000000010 /* AudioFocusControllerTests.swift */,
+				D15A00000000000000000012 /* PhoneHousekeepingTests.swift */,
 			);
 			path = VelaPhoneTests;
 			sourceTree = "<group>";
@@ -543,6 +555,7 @@
 				8B8CBB25A5AC23CC2CB1C0A2 /* LaneSelection.swift in Sources */,
 				A3D4C5EBB898E9F4791F286D /* RoomTarget.swift in Sources */,
 				98BB3F8D58DA72871B3878CF /* AudioTransition.swift in Sources */,
+				D15A00000000000000000002 /* AudioTransitionRunner.swift in Sources */,
 				D21A7DF0782599207F089E4D /* PiPPolicy.swift in Sources */,
 				7A8BAE74CA4FFB7936A1DED5 /* LaneQuality.swift in Sources */,
 				83F890E370544E916D4851D6 /* LaneSettlement.swift in Sources */,
@@ -662,6 +675,9 @@
 				FF217E47A7E0309E4B80308B /* SiteWebView+Phone.swift in Sources (VelaPhone) */,
 				F2DC055FFFFD209CD1EC56A3 /* PulseDot+Phone.swift in Sources (VelaPhone) */,
 				0FE1A2291B975A8E1863BD34 /* PlatformHooks+Phone.swift in Sources (VelaPhone) */,
+				D15A00000000000000000005 /* AudioFocusController.swift in Sources (VelaPhone) */,
+				D15A00000000000000000007 /* PhoneHousekeeping.swift in Sources (VelaPhone) */,
+				D15A00000000000000000009 /* PerfEntry.swift in Sources (VelaPhone) */,
 				EC1323DECFCC9557631A3CCC /* ClickRegion+Phone.swift in Sources (VelaPhone) */,
 				B7A0C0DE0000000000000064 /* CatalogAPI.swift in Sources (VelaPhone) */,
 				B7A0C0DE0000000000000065 /* DisplayFit.swift in Sources (VelaPhone) */,
@@ -669,6 +685,7 @@
 				B7A0C0DE0000000000000067 /* LaneSelection.swift in Sources (VelaPhone) */,
 				B7A0C0DE0000000000000068 /* RoomTarget.swift in Sources (VelaPhone) */,
 				B7A0C0DE0000000000000069 /* AudioTransition.swift in Sources (VelaPhone) */,
+				D15A00000000000000000003 /* AudioTransitionRunner.swift in Sources (VelaPhone) */,
 				B7A0C0DE000000000000006A /* LaneQuality.swift in Sources (VelaPhone) */,
 				B7A0C0DE000000000000006B /* LaneSettlement.swift in Sources (VelaPhone) */,
 				B7A0C0DE000000000000006C /* LifecycleEpoch.swift in Sources (VelaPhone) */,
@@ -735,6 +752,8 @@
 			files = (
 				036C0C7D6C970966BE45B68E /* PhoneViewLogicTests.swift in Sources (VelaPhoneTests) */,
 				C13A00000000000000000012 /* LifecycleWiringTests.swift in Sources (VelaPhoneTests) */,
+				D15A00000000000000000011 /* AudioFocusControllerTests.swift in Sources (VelaPhoneTests) */,
+				D15A00000000000000000013 /* PhoneHousekeepingTests.swift in Sources (VelaPhoneTests) */,
 				C12A00000000000000000200 /* RelayMultiSourceTests.swift in Sources (VelaPhoneTests) */,
 				C12A00000000000000000201 /* LifecycleEpochTests.swift in Sources (VelaPhoneTests) */,
 				C12A00000000000000000202 /* PiPPolicyTests.swift in Sources (VelaPhoneTests) */,
@@ -767,6 +786,7 @@
 		B7A0C0DE0000000000000067 /* LaneSelection.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = E105A9BBD540FBADA3E55DE6 /* LaneSelection.swift */; };
 		B7A0C0DE0000000000000068 /* RoomTarget.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 8015B67F2FEA4F082C6E96B0 /* RoomTarget.swift */; };
 		B7A0C0DE0000000000000069 /* AudioTransition.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = AAF0875BDC7DECDE9CB2FD72 /* AudioTransition.swift */; };
+		D15A00000000000000000003 /* AudioTransitionRunner.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = D15A00000000000000000001 /* AudioTransitionRunner.swift */; };
 		B7A0C0DE000000000000006A /* LaneQuality.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 02272C5A60C4F4A5D576924F /* LaneQuality.swift */; };
 		B7A0C0DE000000000000006B /* LaneSettlement.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 855F7F46F047F54717D13227 /* LaneSettlement.swift */; };
 		B7A0C0DE000000000000006C /* LifecycleEpoch.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = C541058AFE0AC80AD146EDBA /* LifecycleEpoch.swift */; };
@@ -871,6 +891,7 @@
 		8B8CBB25A5AC23CC2CB1C0A2 /* LaneSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = E105A9BBD540FBADA3E55DE6 /* LaneSelection.swift */; };
 		A3D4C5EBB898E9F4791F286D /* RoomTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8015B67F2FEA4F082C6E96B0 /* RoomTarget.swift */; };
 		98BB3F8D58DA72871B3878CF /* AudioTransition.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAF0875BDC7DECDE9CB2FD72 /* AudioTransition.swift */; };
+		D15A00000000000000000002 /* AudioTransitionRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = D15A00000000000000000001 /* AudioTransitionRunner.swift */; };
 		D21A7DF0782599207F089E4D /* PiPPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77CC74339DCDCD80A583929F /* PiPPolicy.swift */; };
 		7A8BAE74CA4FFB7936A1DED5 /* LaneQuality.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02272C5A60C4F4A5D576924F /* LaneQuality.swift */; };
 		83F890E370544E916D4851D6 /* LaneSettlement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 855F7F46F047F54717D13227 /* LaneSettlement.swift */; };
@@ -934,6 +955,11 @@
 		233B2E30587FB5106D33024C /* PlatformHooks+Mac.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A486697B1A22114A9A60C90 /* PlatformHooks+Mac.swift */; };
 		A3512B34C2A1F3200213B590 /* StageModel+Mac.swift in Sources */ = {isa = PBXBuildFile; fileRef = D096B2FF63E8DAD1F896F278 /* StageModel+Mac.swift */; };
 		0FE1A2291B975A8E1863BD34 /* PlatformHooks+Phone.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 8FBC1ABAEFD8187434B9DBF0 /* PlatformHooks+Phone.swift */; };
+		D15A00000000000000000013 /* PhoneHousekeepingTests.swift in Sources (VelaPhoneTests) */ = {isa = PBXBuildFile; fileRef = D15A00000000000000000012 /* PhoneHousekeepingTests.swift */; };
+		D15A00000000000000000011 /* AudioFocusControllerTests.swift in Sources (VelaPhoneTests) */ = {isa = PBXBuildFile; fileRef = D15A00000000000000000010 /* AudioFocusControllerTests.swift */; };
+		D15A00000000000000000009 /* PerfEntry.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = D15A00000000000000000008 /* PerfEntry.swift */; };
+		D15A00000000000000000007 /* PhoneHousekeeping.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = D15A00000000000000000006 /* PhoneHousekeeping.swift */; };
+		D15A00000000000000000005 /* AudioFocusController.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = D15A00000000000000000004 /* AudioFocusController.swift */; };
 		36604C4F6520484E99DBF568 /* PulseDot+Mac.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AC06141FBC0557C71D42E18 /* PulseDot+Mac.swift */; };
 		753F3B6D7E0EA0E27B032D13 /* SiteWebView+Mac.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDDF236238A89A159826934E /* SiteWebView+Mac.swift */; };
 		BC1E02DA8E9D42EAA2E9F3A2 /* ChallengeSheet+Mac.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAC96C9A604DC39521611610 /* ChallengeSheet+Mac.swift */; };
