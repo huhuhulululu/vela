@@ -21,6 +21,8 @@ jobs:
         run: |
           if [ -x scripts/test-perf-gate.sh ]; then bash scripts/test-perf-gate.sh; else echo "skip: no perf gate yet"; fi
 
+      - name: serve-test-stream 单元测试
+        run: python3 -I scripts/test_serve_test_stream.py
       - name: selftest 清理回归测试
         run: bash scripts/test-selftest-cleanup.sh
 

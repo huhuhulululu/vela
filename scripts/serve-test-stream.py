@@ -47,8 +47,11 @@ class Stream:
         seg_dur = segs[0][0]
         head = int((time.time() - self.t0) / seg_dur) + WINDOW  # 当前最新分片的绝对序号 + 1
         first = head - WINDOW
+        # 只累计已移出窗口的 discontinuity 标签：标签位于序号为 n 的整数倍（k>0）的分片之前，
+        # 窗口首片自带的标签仍在列表里，不能再计一次
+        disc_seq = max(0, (first - 1) // n)
         lines = ["#EXTM3U", "#EXT-X-VERSION:6", "#EXT-X-TARGETDURATION:%d" % target,
-                 "#EXT-X-MEDIA-SEQUENCE:%d" % first, "#EXT-X-DISCONTINUITY-SEQUENCE:%d" % (first // n),
+                 "#EXT-X-MEDIA-SEQUENCE:%d" % first, "#EXT-X-DISCONTINUITY-SEQUENCE:%d" % disc_seq,
                  "#EXT-X-INDEPENDENT-SEGMENTS"]
         for k in range(first, head):
             if k > 0 and k % n == 0:
