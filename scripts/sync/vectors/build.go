@@ -2,14 +2,18 @@ package main
 
 import (
 	"bytes"
+	"crypto/elliptic"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"math/big"
 	"math/rand"
 	"strings"
 )
 
 func buildVectors() []byte {
+	resetSignEntropy()
 	v := map[string]any{
 		"kdf":              buildKDF(),
 		"base64url":        buildB64(),
@@ -24,8 +28,10 @@ func buildVectors() []byte {
 		"payloadInvalid":   buildPayloadInvalid(),
 		"envelope":         buildEnvelope(),
 		"envelopeInvalid":  buildEnvelopeInvalid(),
+		"pubkey":           buildPubkey(),
 		"sign":             buildSign(),
 		"signInvalid":      buildSignInvalid(),
+		"pubcheck":         buildPubcheck(),
 		"hlc":              buildHLC(),
 		"merge":            buildMerge(),
 		"size":             buildSize(),
@@ -80,7 +86,8 @@ func buildKDF() []any {
 			"info":                 []string{"vela-sync/v2/id", "vela-sync/v2/enc", "vela-sync/v2/sign"},
 			"blobID":               d.BlobID,
 			"encKey_hex":           hex.EncodeToString(d.EncKey),
-			"signSeed_hex":         hex.EncodeToString(d.SignSeed),
+			"signCounter":          d.SignCounter,
+			"d_hex":                hex.EncodeToString(d.D),
 			"pub_b64url":           d.PubB64,
 			"fingerprint":          d.Fingerprint,
 			"pubcheck_message_hex": hex.EncodeToString(pubcheckMessage(d.BlobID)),
@@ -484,68 +491,181 @@ func buildEnvelopeInvalid() []any {
 
 func fixedEpoch() string { return "0123456789abcdeffedcba9876543210" }
 
+func signFields(valid bool, reason, pub, op, blobID, epoch, line6 string, base, next uint64, msg, sig []byte) map[string]any {
+	m := map[string]any{
+		"pub_b64url":          pub,
+		"op":                  op,
+		"blobID":              blobID,
+		"epoch":               epoch,
+		"base":                base,
+		"next":                next,
+		"envelope_sha256_hex": line6,
+		"message_hex":         hex.EncodeToString(msg),
+		"sig_b64url":          b64Encode(sig),
+		"valid":               valid,
+	}
+	if reason != "" {
+		m["reason"] = reason
+	}
+	return m
+}
+
+func buildPubkey() []any {
+	nm1, _ := hex.DecodeString("ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632550")
+	one := make([]byte, 32)
+	one[31] = 1
+	two := make([]byte, 32)
+	two[31] = 2
+	scalars := [][]byte{one, nm1, two, derive(rampK()).D, derive(fixedK(0x11)).D}
+	var out []any
+	for _, d32 := range scalars {
+		pub := pubFromScalar(d32)
+		must(len(pub) == 65 && pub[0] == 0x04, "pubkey")
+		out = append(out, map[string]any{
+			"d_hex":      hex.EncodeToString(d32),
+			"pub_b64url": b64Encode(pub),
+		})
+	}
+	return out
+}
+
 func buildSign() []any {
 	d := derive(rampK())
 	_, _, _, env, _ := sampleSeal()
 	sum := sha256Hex([]byte(env))
 	msg := signMessage("put", d.BlobID, fixedEpoch(), 0, 1, sum)
-	sig := signWith(d.SignSeed, msg)
+	sig := signWith(d.D, msg)
 	must(verifySig(d.Pub, msg, sig), "sign put")
 	msg2 := signMessage("delete", d.BlobID, fixedEpoch(), 4, 5, "-")
-	sig2 := signWith(d.SignSeed, msg2)
+	sig2 := signWith(d.D, msg2)
 	must(verifySig(d.Pub, msg2, sig2), "sign del")
-	one := func(op string, base, next uint64, line6 string, msg, sig []byte) map[string]any {
-		return map[string]any{
-			"signSeed_hex":        hex.EncodeToString(d.SignSeed),
-			"pub_b64url":          d.PubB64,
-			"op":                  op,
-			"blobID":              d.BlobID,
-			"epoch":               fixedEpoch(),
-			"base":                base,
-			"next":                next,
-			"envelope_sha256_hex": line6,
-			"message_hex":         hex.EncodeToString(msg),
-			"sig_b64url":          b64Encode(sig),
-		}
+	return []any{
+		signFields(true, "", d.PubB64, "put", d.BlobID, fixedEpoch(), sum, 0, 1, msg, sig),
+		signFields(true, "", d.PubB64, "delete", d.BlobID, fixedEpoch(), "-", 4, 5, msg2, sig2),
 	}
-	return []any{one("put", 0, 1, sum, msg, sig), one("delete", 4, 5, "-", msg2, sig2)}
 }
 
 func buildSignInvalid() []any {
 	d := derive(rampK())
 	other := derive(fixedK(0x11))
-	msg := signMessage("put", d.BlobID, fixedEpoch(), 0, 1, strings.Repeat("ab", 32))
-	sig := signWith(d.SignSeed, msg)
+	line6 := strings.Repeat("ab", 32)
+	msg := signMessage("put", d.BlobID, fixedEpoch(), 0, 1, line6)
+	sig := signWith(d.D, msg)
 	must(verifySig(d.Pub, msg, sig), "base sig")
-	sge := append([]byte(nil), sig...)
-	copy(sge[32:], addLE32(sig[32:], ed25519L()))
-	must(!verifySig(d.Pub, msg, sge), "s>=L")
-	nonc := append([]byte(nil), sig...)
-	rb, _ := hex.DecodeString("edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f")
-	copy(nonc[:32], rb)
-	must(!verifySig(d.Pub, msg, nonc), "noncanon R")
-	badMsg := append([]byte(nil), msg...)
-	badMsg[len(badMsg)-1] ^= 0x01
-	must(!verifySig(d.Pub, badMsg, sig), "msg")
-	must(!verifySig(other.Pub, msg, sig), "pub")
-	msgEpoch := signMessage("put", d.BlobID, strings.Repeat("00", 16), 0, 1, strings.Repeat("ab", 32))
-	must(!verifySig(d.Pub, msgEpoch, sig), "epoch")
-	put := func(reason string, pub string, message, sg []byte, epoch string) map[string]any {
-		return map[string]any{
-			"reason":      reason,
-			"pub_b64url":  pub,
-			"epoch":       epoch,
-			"message_hex": hex.EncodeToString(message),
-			"sig_b64url":  b64Encode(sg),
+	n := make([]byte, 32)
+	p256Order().FillBytes(n)
+	one := make([]byte, 32)
+	one[31] = 1
+	zero := make([]byte, 32)
+	put := func(reason, pub, epoch, line string, message, sg []byte) map[string]any {
+		must(!verifySig(mustB64(pub), message, sg), reason)
+		return signFields(false, reason, pub, "put", d.BlobID, epoch, line, 0, 1, message, sg)
+	}
+	len63 := sig[:63]
+	len65 := append(append([]byte(nil), sig...), 0x00)
+	rZero := append(append([]byte(nil), zero...), one...)
+	sZero := append(append([]byte(nil), one...), zero...)
+	rN := append(append([]byte(nil), n...), one...)
+	sN := append(append([]byte(nil), one...), n...)
+	flipped := append([]byte(nil), sig...)
+	flippedOK := false
+	for i := 0; i < len(flipped); i++ {
+		flipped[i] ^= 0x01
+		r := new(big.Int).SetBytes(flipped[:32])
+		s := new(big.Int).SetBytes(flipped[32:])
+		nOrd := p256Order()
+		if r.Sign() > 0 && s.Sign() > 0 && r.Cmp(nOrd) < 0 && s.Cmp(nOrd) < 0 && !verifySig(d.Pub, msg, flipped) {
+			flippedOK = true
+			break
 		}
+		flipped[i] ^= 0x01
 	}
+	must(flippedOK, "sig bitflip")
+	badLine := line6[:len(line6)-1] + string(line6[len(line6)-1]^0x01)
+	badMsg := signMessage("put", d.BlobID, fixedEpoch(), 0, 1, badLine)
+	must(!verifySig(d.Pub, badMsg, sig), "message")
+	wrongEpoch := strings.Repeat("00", 16)
+	msgEpoch := signMessage("put", d.BlobID, wrongEpoch, 0, 1, line6)
+	must(!verifySig(d.Pub, msgEpoch, sig), "epoch")
+	comp := append([]byte{0x02}, d.Pub[1:33]...)
+	must(len(comp) == 33 && comp[0] == 0x02, "compressed")
+	off := append([]byte(nil), d.Pub...)
+	offCurve := false
+	for i := 64; i >= 33; i-- {
+		off[i] ^= 0x01
+		if _, err := ecdsaParsePub(off); err != nil {
+			offCurve = true
+			break
+		}
+		off[i] ^= 0x01
+	}
+	must(offCurve, "not on curve")
 	return []any{
-		put("s_ge_l", d.PubB64, msg, sge, fixedEpoch()),
-		put("noncanonical_r", d.PubB64, msg, nonc, fixedEpoch()),
-		put("message", d.PubB64, badMsg, sig, fixedEpoch()),
-		put("pubkey", other.PubB64, msg, sig, fixedEpoch()),
-		put("epoch", d.PubB64, msgEpoch, sig, strings.Repeat("00", 16)),
+		put("sig_len_63", d.PubB64, fixedEpoch(), line6, msg, len63),
+		put("sig_len_65", d.PubB64, fixedEpoch(), line6, msg, len65),
+		put("r_zero", d.PubB64, fixedEpoch(), line6, msg, rZero),
+		put("s_zero", d.PubB64, fixedEpoch(), line6, msg, sZero),
+		put("r_eq_n", d.PubB64, fixedEpoch(), line6, msg, rN),
+		put("s_eq_n", d.PubB64, fixedEpoch(), line6, msg, sN),
+		put("sig_bitflip", d.PubB64, fixedEpoch(), line6, msg, flipped),
+		put("message_bitflip", d.PubB64, fixedEpoch(), badLine, badMsg, sig),
+		put("epoch", d.PubB64, wrongEpoch, line6, msgEpoch, sig),
+		put("pubkey", other.PubB64, fixedEpoch(), line6, msg, sig),
+		put("pub_compressed", b64Encode(comp), fixedEpoch(), line6, msg, sig),
+		put("pub_not_on_curve", b64Encode(off), fixedEpoch(), line6, msg, sig),
 	}
+}
+
+func mustB64(s string) []byte {
+	b, err := b64Decode(s)
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func ecdsaParsePub(pub []byte) (bool, error) {
+	if len(pub) != 65 || pub[0] != 0x04 {
+		return false, errors.New("form")
+	}
+	x := new(big.Int).SetBytes(pub[1:33])
+	y := new(big.Int).SetBytes(pub[33:])
+	if !elliptic.P256().IsOnCurve(x, y) {
+		return false, errors.New("curve")
+	}
+	return true, nil
+}
+
+func buildPubcheck() []any {
+	var out []any
+	for _, k := range [][]byte{rampK(), fixedK(0x11)} {
+		d := derive(k)
+		msg := pubcheckMessage(d.BlobID)
+		sig := signWith(d.D, msg)
+		must(bytes.Equal(msg, []byte("vela-sync/v2/pubcheck\n"+d.BlobID)), "pubcheck text")
+		must(verifySig(d.Pub, msg, sig), "pubcheck")
+		out = append(out, map[string]any{
+			"blobID":      d.BlobID,
+			"message_hex": hex.EncodeToString(msg),
+			"pub_b64url":  d.PubB64,
+			"sig_b64url":  b64Encode(sig),
+			"valid":       true,
+		})
+	}
+	bad := out[0].(map[string]any)
+	sig, _ := b64Decode(bad["sig_b64url"].(string))
+	sig = append([]byte(nil), sig...)
+	sig[63] ^= 0x01
+	msg, _ := hex.DecodeString(bad["message_hex"].(string))
+	must(!verifySig(mustB64(bad["pub_b64url"].(string)), msg, sig), "pubcheck bad")
+	out = append(out, map[string]any{
+		"blobID":      bad["blobID"],
+		"message_hex": bad["message_hex"],
+		"pub_b64url":  bad["pub_b64url"],
+		"sig_b64url":  b64Encode(sig),
+		"valid":       false,
+	})
+	return out
 }
 
 func hlcObj(h HLC) map[string]any {
@@ -1142,22 +1262,22 @@ func doMerge(docs []*Doc, hs []HLC, sent []uint64, now uint64, i, j int, write s
 }
 
 func probeVectors() []byte {
+	resetSignEntropy()
 	k := fixedK(0x42)
 	d := derive(k)
 	msg1 := []byte("vela-sync-probe/v1")
-	sig1 := signWith(d.SignSeed, msg1)
-	msg2 := pubcheckMessage(d.BlobID)
-	sig2 := signWith(d.SignSeed, msg2)
-	must(verifySig(d.Pub, msg1, sig1) && verifySig(d.Pub, msg2, sig2), "probe sig")
+	// 探针自己签的两条消息不进金样本；金样本的 sign/pubcheck 由下面的构建函数按同一条熵流重放。
 	obj := map[string]any{
-		"seed_hex":     hex.EncodeToString(k),
-		"pkcs8_hex":    hex.EncodeToString(pkcs8(d.SignSeed)),
-		"pub_raw_hex":  hex.EncodeToString(d.Pub),
-		"pub_x509_hex": hex.EncodeToString(x509Pub(d.Pub)),
-		"cases": []any{
-			map[string]any{"name": "sign", "msg_hex": hex.EncodeToString(msg1), "sig_b64": b64Encode(sig1)},
-			map[string]any{"name": "pubcheck", "msg_hex": hex.EncodeToString(msg2), "sig_b64": b64Encode(sig2)},
-		},
+		"k_hex":            hex.EncodeToString(k),
+		"d_hex":            hex.EncodeToString(d.D),
+		"pub_hex":          hex.EncodeToString(d.Pub),
+		"blobID":           d.BlobID,
+		"sign_msg_hex":     hex.EncodeToString(msg1),
+		"pubcheck_msg_hex": hex.EncodeToString(pubcheckMessage(d.BlobID)),
+		"pubkey":           buildPubkey(),
+		"sign":             buildSign(),
+		"signInvalid":      buildSignInvalid(),
+		"pubcheck":         buildPubcheck(),
 	}
 	return marshal(obj)
 }

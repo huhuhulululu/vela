@@ -2,8 +2,11 @@ package main
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"math/big"
 	"strings"
 	"testing"
 )
@@ -21,15 +24,34 @@ func TestKDFKnownAnswer(t *testing.T) {
 	if hex.EncodeToString(got.EncKey) != "54b3bf14c4489b29f6fc6adee04111bdc735b4132cde80b13d34dc36d9b9272c" {
 		t.Fatalf("enc %x", got.EncKey)
 	}
-	if hex.EncodeToString(got.SignSeed) != "49cd811e23eaaf4fc775a17d7a0e92ca907f8a798eb11d4e4d4cba0e15e22b91" {
-		t.Fatalf("sign %x", got.SignSeed)
+	// 第 4.1 节：info = "vela-sync/v2/sign" ∥ c，此 K 的 c=0 已落在 [1, n)。期望值用独立 HMAC 算，不走 derive。
+	wantD := hkdf32(k, bytes.Repeat([]byte{0}, 32), append([]byte("vela-sync/v2/sign"), 0))
+	if got.SignCounter != 0 || !bytes.Equal(got.D, wantD) {
+		t.Fatalf("d counter=%d %x want %x", got.SignCounter, got.D, wantD)
+	}
+	if hex.EncodeToString(got.D) != "5f29b5ea117fdc29a695237548e0b52627c01e5cb220c0afe6ce7ec41bd7281f" {
+		t.Fatalf("d known %x", got.D)
 	}
 	if got.Fingerprint != "E89F-AB07" {
 		t.Fatalf("fp %s", got.Fingerprint)
 	}
-	if len(got.Pub) != 32 || len(got.PubB64) != 43 {
+	if len(got.Pub) != 65 || got.Pub[0] != 0x04 || len(got.PubB64) != 87 {
 		t.Fatalf("pub len %d %d", len(got.Pub), len(got.PubB64))
 	}
+	if !verifySig(got.Pub, pubcheckMessage(got.BlobID), signWith(got.D, pubcheckMessage(got.BlobID))) {
+		t.Fatal("pubcheck")
+	}
+}
+
+// hkdf32 是 RFC 5869 的一块形（与第 4.1 节安卓手写公式相同），用来对照生成器。
+func hkdf32(ikm, salt, info []byte) []byte {
+	mac := hmac.New(sha256.New, salt)
+	mac.Write(ikm)
+	prk := mac.Sum(nil)
+	mac = hmac.New(sha256.New, prk)
+	mac.Write(info)
+	mac.Write([]byte{0x01})
+	return mac.Sum(nil)
 }
 
 func TestBase64URLCanonical(t *testing.T) {
@@ -309,7 +331,7 @@ func TestVectorsShapeAndStable(t *testing.T) {
 	need := []string{
 		"kdf", "base64url", "base64urlInvalid", "decimal", "decimalInvalid",
 		"code", "codeInvalid", "json", "tagKey", "payload", "payloadInvalid",
-		"envelope", "envelopeInvalid", "sign", "signInvalid", "hlc", "merge",
+		"envelope", "envelopeInvalid", "pubkey", "sign", "signInvalid", "pubcheck", "hlc", "merge",
 		"size", "projection", "ops", "migration", "simulation",
 	}
 	for _, k := range need {
@@ -346,7 +368,7 @@ func TestVectorsShapeAndStable(t *testing.T) {
 		"decimalInvalid":   {"leading_zero", "plus_sign", "minus_sign", "fraction", "exponent", "out_of_range"},
 		"payloadInvalid":   {"over_p", "truncated", "trailing", "bad_flag"},
 		"envelopeInvalid":  {"tag", "aad_ver", "truncated", "prefix", "padding", "nonce_len"},
-		"signInvalid":      {"s_ge_l", "noncanonical_r", "message", "pubkey", "epoch"},
+		"signInvalid":      {"sig_len_63", "sig_len_65", "r_zero", "s_zero", "r_eq_n", "s_eq_n", "sig_bitflip", "message_bitflip", "epoch", "pubkey", "pub_compressed", "pub_not_on_curve"},
 		"json":             {"duplicate_key", "bom", "u_escape", "utf8", "unknown_key", "missing_key", "number_not_schema", "schema_lt", "schema_gt", "nesting", "over_p"},
 	}
 	for key, rs := range want {
@@ -432,3 +454,130 @@ func TestSimulationExercisesRestamp(t *testing.T) {
 		t.Fatal("no restamp exercised")
 	}
 }
+
+// 第 4.1 节：d 为 0 或不小于 n 时计数器加一。自然样本几乎碰不到，注入 HKDF 输出覆盖重试与耗尽。
+func TestSignCounterRetry(t *testing.T) {
+	n := p256Order()
+	n32 := make([]byte, 32)
+	n.FillBytes(n32)
+	one := make([]byte, 32)
+	one[31] = 1
+	zero := make([]byte, 32)
+	ff := bytes.Repeat([]byte{0xff}, 32)
+	var seq []int
+	got, err := deriveWith(rampK(), func(c int) []byte {
+		seq = append(seq, c)
+		switch c {
+		case 0:
+			return append([]byte(nil), zero...)
+		case 1:
+			return append([]byte(nil), n32...)
+		case 2:
+			return append([]byte(nil), ff...)
+		default:
+			return append([]byte(nil), one...)
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SignCounter != 3 || !bytes.Equal(got.D, one) {
+		t.Fatalf("counter %d d %x seq %v", got.SignCounter, got.D, seq)
+	}
+	wantG := "046b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c2964fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5"
+	if hex.EncodeToString(got.Pub) != wantG {
+		t.Fatalf("d=1 pub %x", got.Pub)
+	}
+
+	nm1 := new(big.Int).Sub(n, big.NewInt(1))
+	nm1b := make([]byte, 32)
+	nm1.FillBytes(nm1b)
+	got, err = deriveWith(rampK(), func(int) []byte { return append([]byte(nil), nm1b...) })
+	if err != nil || got.SignCounter != 0 || !bytes.Equal(got.D, nm1b) {
+		t.Fatalf("n-1 %+v %v", got.SignCounter, err)
+	}
+	if !bytes.Equal(got.Pub[1:33], mustDecodeHex(wantG)[1:33]) {
+		t.Fatal("n-1 should negate G, X differs")
+	}
+
+	_, err = deriveWith(rampK(), func(int) []byte { return append([]byte(nil), zero...) })
+	if err == nil {
+		t.Fatal("256 次失败应中止")
+	}
+}
+
+func TestPubkeyEdges(t *testing.T) {
+	seen := map[string]string{}
+	for _, v := range buildPubkey() {
+		m := v.(map[string]any)
+		dHex := m["d_hex"].(string)
+		pub, err := b64Decode(m["pub_b64url"].(string))
+		if err != nil || len(pub) != 65 || pub[0] != 0x04 {
+			t.Fatalf("%s pub", dHex)
+		}
+		d32, err := hex.DecodeString(dHex)
+		if err != nil || len(d32) != 32 {
+			t.Fatalf("d %s", dHex)
+		}
+		if !bytes.Equal(pub, pubFromScalar(d32)) {
+			t.Fatalf("recompute %s", dHex)
+		}
+		seen[dHex] = hex.EncodeToString(pub)
+	}
+	one := strings.Repeat("00", 31) + "01"
+	nm1 := "ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632550"
+	if seen[one] != "046b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c2964fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5" {
+		t.Fatalf("G %s", seen[one])
+	}
+	if _, ok := seen[nm1]; !ok {
+		t.Fatal("missing d=n-1")
+	}
+}
+
+func TestSignSamplesVerify(t *testing.T) {
+	resetSignEntropy()
+	a := buildSign()
+	resetSignEntropy()
+	b := buildSign()
+	if len(a) < 1 || !bytes.Equal(mustMarshal(a), mustMarshal(b)) {
+		t.Fatal("sign not deterministic")
+	}
+	for _, v := range a {
+		m := v.(map[string]any)
+		if m["valid"] != true {
+			t.Fatal("valid")
+		}
+		pub, _ := b64Decode(m["pub_b64url"].(string))
+		msg, _ := hex.DecodeString(m["message_hex"].(string))
+		sig, _ := b64Decode(m["sig_b64url"].(string))
+		if len(sig) != 64 || !verifySig(pub, msg, sig) {
+			t.Fatal("expected verify")
+		}
+	}
+	resetSignEntropy()
+	for _, v := range buildSignInvalid() {
+		m := v.(map[string]any)
+		if m["valid"] != false {
+			t.Fatal("valid flag")
+		}
+		pub, err := b64Decode(m["pub_b64url"].(string))
+		msg, _ := hex.DecodeString(m["message_hex"].(string))
+		sig, sigErr := b64Decode(m["sig_b64url"].(string))
+		if err != nil || sigErr != nil {
+			t.Fatal(err, sigErr)
+		}
+		if verifySig(pub, msg, sig) {
+			t.Fatalf("should fail %s", m["reason"])
+		}
+	}
+}
+
+func mustDecodeHex(s string) []byte {
+	b, err := hex.DecodeString(s)
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func mustMarshal(v any) []byte { return marshal(v) }

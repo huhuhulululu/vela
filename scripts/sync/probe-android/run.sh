@@ -1,6 +1,6 @@
 #!/bin/bash
-# 在已连接的 Android 设备上跑 Ed25519 探针，并让 Go 验安卓签名。
-# 兼容 bash 3.2。设备未出现时，若设置了 ADB_CONNECT（例如 127.0.0.1:5555）会先 connect。
+# 在已连接的 Android 设备上跑 P-256 探针（minSdk 26 口径），并让 Go 验安卓签名。
+# 兼容 bash 3.2。设备未出现时，若设置了 ADB_CONNECT 会先 connect。
 set -eu
 
 here=$(CDPATH= cd "$(dirname "$0")" && pwd)
@@ -16,8 +16,11 @@ if [ ! -f "$work/probe-vectors.json" ] || [ "${PROBE_REGEN:-0}" = "1" ]; then
   (cd "$vec" && go run . -probe "$work/probe-vectors.json" >/dev/null)
 fi
 
-javac --release 17 -classpath "$platform" -d "$work/classes" "$here/Probe.java"
-"$d8" --min-api 33 --lib "$platform" --output "$work" "$work/classes/Probe.class"
+javac --release 17 -d "$work/host" "$here/P256.java"
+java -cp "$work/host" P256
+
+javac --release 17 -classpath "$platform" -d "$work/classes" "$here/P256.java" "$here/Probe.java"
+"$d8" --min-api 26 --lib "$platform" --output "$work" "$work/classes"/P256.class "$work/classes"/P256\$Jac.class "$work/classes"/Probe.class
 
 if [ -n "${ADB_CONNECT:-}" ]; then
   adb connect "$ADB_CONNECT" >/dev/null 2>&1 || true
@@ -76,4 +79,3 @@ echo "ITEM mutual $mutual"
 echo "ITEM pubcheck $pubcheck"
 echo "LEVEL $level"
 echo "SDK_LINE $(awk '$1=="SDK"{print $2; exit}' "$log")"
-echo "PUBKEY_HOW $(awk '$1=="PUBKEY"{for (i=3;i<=NF;i++) printf "%s ", $i; exit}' "$log")"

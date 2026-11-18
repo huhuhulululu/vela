@@ -1,7 +1,6 @@
 package main
 
 import (
-	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
@@ -55,13 +54,13 @@ func verifyAndroid(path string) int {
 	}
 	okAll := true
 	check := func(name, msg string, sigB64 string) {
-		sig, err := b64Decode(sigB64)
-		if err != nil {
+		sig, err := b64Decode(strings.Fields(sigB64)[0])
+		if err != nil || len(sig) != 64 {
 			fmt.Printf("VERIFY_ANDROID_ON_GO %s FAIL decode\n", name)
 			okAll = false
 			return
 		}
-		if ed25519.Verify(d.Pub, []byte(msg), sig) {
+		if verifySig(d.Pub, []byte(msg), sig) {
 			fmt.Printf("VERIFY_ANDROID_ON_GO %s PASS\n", name)
 		} else {
 			fmt.Printf("VERIFY_ANDROID_ON_GO %s FAIL\n", name)

@@ -136,29 +136,3 @@ func presend(st HLC, doc *Doc, N, maxSentL uint64) (HLC, *Doc, bool) {
 	}
 	return st, out, fixed > 0
 }
-
-// 供测试与向量使用的曲线阶 L（小端），S >= L 必须拒收。
-func ed25519L() []byte {
-	// L = 2^252 + 27742317777372353535851937790883648493
-	b := []byte{236, 211, 245, 92, 26, 99, 18, 88, 214, 156, 247, 162, 222, 249, 222, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 16}
-	// 上面是 L-1，加 1 得到 L。
-	out := append([]byte(nil), b...)
-	var c uint16 = 1
-	for i := 0; i < 32; i++ {
-		c += uint16(out[i])
-		out[i] = byte(c)
-		c >>= 8
-	}
-	return out
-}
-
-func addLE32(a, b []byte) []byte {
-	out := make([]byte, 32)
-	var c uint16
-	for i := 0; i < 32; i++ {
-		c += uint16(a[i]) + uint16(b[i])
-		out[i] = byte(c)
-		c >>= 8
-	}
-	return out
-}
