@@ -1,0 +1,83 @@
+{
+  "total_count": 6,
+  "rooms": [
+    {
+      "username": "synth_nova",
+      "gender": "f",
+      "location": "Other",
+      "current_show": "public",
+      "room_subject": "synthetic color bars",
+      "tags": ["synth", "bars"],
+      "num_users": 120,
+      "num_followers": 7,
+      "has_password": false,
+      "display_age": 23,
+      "start_timestamp": 1700000000
+    },
+    {
+      "username": "synth_kai",
+      "gender": "m",
+      "location": "Other",
+      "current_show": "public",
+      "room_subject": "synthetic desk",
+      "tags": ["synth"],
+      "num_users": 80,
+      "num_followers": 4,
+      "has_password": false,
+      "display_age": 27,
+      "start_timestamp": 1700000500
+    },
+    {
+      "username": "synth_rio",
+      "gender": "t",
+      "location": "Other",
+      "current_show": "public",
+      "room_subject": "synthetic south",
+      "tags": ["synth", "south"],
+      "num_users": 40,
+      "num_followers": 1,
+      "has_password": false,
+      "display_age": 30,
+      "start_timestamp": 1700001000
+    },
+    {
+      "username": "synth_lux",
+      "gender": "c",
+      "location": "Other",
+      "current_show": "public",
+      "room_subject": "synthetic pair",
+      "tags": ["synth"],
+      "num_users": 15,
+      "num_followers": 2,
+      "has_password": false,
+      "display_age": 25,
+      "start_timestamp": 1700001500
+    },
+    {
+      "username": "synth_locked",
+      "gender": "f",
+      "location": "Other",
+      "current_show": "public",
+      "room_subject": "synthetic lock",
+      "tags": ["synth"],
+      "num_users": 3,
+      "num_followers": 0,
+      "has_password": true,
+      "display_age": 28,
+      "start_timestamp": 1700002000
+    },
+    {
+      "username": "synth_away",
+      "gender": "f",
+      "location": "Other",
+      "current_show": "away",
+      "room_subject": "synthetic away",
+      "tags": ["synth"],
+      "num_users": 0,
+      "num_followers": 9,
+      "has_password": false,
+      "display_age": 22,
+      "start_timestamp": 1700002500
+    }
+  ]
+}
