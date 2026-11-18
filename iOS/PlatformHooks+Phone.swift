@@ -46,6 +46,8 @@ final class PlatformHooks {
     /// 模型初始化时调用：启动杂务（备份排除）、装上音频控制器与内存警告订阅。
     func attachAudio(to stage: StageModel) {
         PhoneHousekeeping.ensureBackupExclusion()
+        // 真机诊断：订阅 MetricKit 每日投递（系统回调，不新增定时器），只存本机最近 7 天。
+        DiagnosticsCollector.shared.start()
         memoryWarning = PhoneHousekeeping.observeMemoryWarnings(stage: stage)
         let controller = AudioFocusController(stage: stage)
         controller.start()
