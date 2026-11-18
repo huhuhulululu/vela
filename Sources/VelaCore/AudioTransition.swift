@@ -71,7 +71,7 @@ public enum AudioSessionPolicy {
     }
 
     /// 再静音、进后台、最后一路停播都要 `setActive(false, .notifyOthersOnDeactivation)`。
-    /// 画中画仍在播时的再静音不走这里，见 `keepsSessionActiveWhenMuting`。
+    /// 画中画仍在播时的再静音与拔耳机转静音不走这里，见 `keepsSessionActiveWhenMuting`。
     public static func deactivatesNotifyingOthers(on reason: DeactivationReason) -> Bool {
         switch reason {
         case .mute, .background, .lastLaneStopped:
@@ -222,11 +222,15 @@ public enum AudioTransition {
         case .route(let reason):
             let decision = AudioSessionPolicy.routeDecision(reason)
             guard decision.mutes else { return hold(detach: detach, ignored: false, pausesPlayback: decision.pauses) }
+            // 拔耳机转静音与再静音同一规则：画中画仍在播时保持会话激活，只切混音选项。
             return silence(
                 detach: detach,
                 notifyOthers: true,
                 writesSettings: true,
-                pausesPlayback: decision.pauses
+                pausesPlayback: decision.pauses,
+                keepSessionActive: AudioSessionPolicy.keepsSessionActiveWhenMuting(
+                    pictureInPicturePlaying: pictureInPictureActive
+                )
             )
         }
     }

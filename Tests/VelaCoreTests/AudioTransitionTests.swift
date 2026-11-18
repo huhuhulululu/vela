@@ -115,6 +115,28 @@ final class AudioTransitionTests: XCTestCase {
         XCTAssertFalse(other.pausesPlayback)
     }
 
+    /// 画中画活跃时拔耳机：同样静音所有路、切混音配置，但保持会话激活（不 setActive(false)）。
+    func testHeadphoneUnplugKeepsSessionActiveDuringPictureInPicture() {
+        let unplug = AudioTransition.plan(
+            intent: .route(.oldDeviceUnavailable), focus: .primary, currentlyAudible: .primary,
+            lanes: [.primary, .secondary], pictureInPictureActive: true
+        )
+        XCTAssertEqual(unplug.steps, [
+            .muteAllLanes,
+            .setCategory(.playback, mode: .moviePlayback),
+            .setSessionOptions(.mixWithOthers)
+        ])
+        XCTAssertTrue(unplug.keepsSessionActive)
+        XCTAssertNil(unplug.audibleLane)
+        XCTAssertFalse(unplug.pausesPlayback)
+        XCTAssertTrue(unplug.writesSettings)
+        XCTAssertEqual(unplug.detachAudio, [.secondary])
+
+        let withoutPiP = plan(.route(.oldDeviceUnavailable), audible: .primary)
+        XCTAssertFalse(withoutPiP.keepsSessionActive)
+        XCTAssertEqual(withoutPiP.steps.last, .setActive(false, notifyOthersOnDeactivation: true))
+    }
+
     /// 再静音、进后台、最后一路停播都通知其他 App 恢复。非焦点路拿掉音轨。
     func testDeactivationNotifiesOthersAndNonFocusStaysDetached() {
         for reason in [AudioSessionPolicy.DeactivationReason.mute, .background, .lastLaneStopped] {
