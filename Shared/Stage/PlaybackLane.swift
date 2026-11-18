@@ -77,8 +77,10 @@ final class PlaybackLane: ObservableObject {
     var state: LaneState = .idle
     /// 资源降级的独立门控：`laneAllowed` 读它，普通 `applyPower` 不清除（§4.4）。
     var degradedHold = DegradedHold()
-    /// 资源降级后的一次性重试检查（60 秒，§H3）；恢复或释放时取消。
+    /// 资源降级后的自动重试（有限次退避，§H3）；恢复或释放时取消。
     var degradedRetryTask: Task<Void, Never>?
+    /// 本次资源不足已自动重试了几次；播起来后清零。
+    var degradedRetries = 0
 
     // 尺寸
     var paneSize: CGSize = .zero
@@ -149,7 +151,8 @@ extension StageModel {
 
     /// 资源降级（§4.4，修订 v2 H3）：释放这一路的播放项和中继源，显示「资源不足」占位。
     /// 不记停留失败、不消耗重试预算、不自动跳过；本路闸门由 `degradedHold` 扣住。
-    /// 恢复入口：用户点重试、切房、回前台、焦点切到这一路、减少路数，或 60 秒后的一次性检查（各重试一次）。
+    /// 恢复入口：用户点重试、切房、回前台、焦点切到这一路、减少路数（各重试一次），以及有限次退避的自动重试
+    /// （60、120、240 秒，用完不再排；资源持续不足时不会无限「降级 → 重试」）。播起来后退避计数清零。
     func degrade(_ lane: PlaybackLane) {
         lane.playTask?.cancel()
         lane.skipTask?.cancel()
@@ -158,10 +161,15 @@ extension StageModel {
         lane.state = .degraded
         lane.playbackNote = "资源不足"
         lane.degradedRetryTask?.cancel()
+        lane.degradedRetryTask = nil
+        let attempt = lane.degradedRetries
+        guard degradedRetryDelays.indices.contains(attempt) else { return }
+        let delay = degradedRetryDelays[attempt]
         lane.degradedRetryTask = Task { [weak self, weak lane] in
-            try? await Task.sleep(nanoseconds: UInt64(PlaybackFailureClassifier.degradedRetryDelay * 1_000_000_000))
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             guard !Task.isCancelled, let self, let lane else { return }
             lane.degradedRetryTask = nil
+            lane.degradedRetries = attempt + 1
             self.retryDegraded(lane, reason: .retry)
         }
     }

@@ -324,4 +324,40 @@ final class TripleLaneMediaTests: XCTestCase {
             XCTAssertEqual(stage.retargetCap(for: lane), expected[3], "\(lanes) 路回升到尺寸上限")
         }
     }
+    // MARK: 审计 medium：资源持续不足时不无限「降级 → 重试」
+
+    private func waitUntil(_ timeout: TimeInterval = 3, _ condition: () -> Bool) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition() {
+            if Date() > deadline { return false }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        return true
+    }
+
+    /// 每次自动重试后资源仍不足（又降级）：按退避排 3 次后不再排；之后焦点切到该路仍重试一次；成功出画面后清零。
+    func testPersistentShortageStopsAutomaticRetriesAfterBackoff() async {
+        let stage = makeStage()
+        stage.degradedRetryDelays = [0.02, 0.04, 0.08]
+        let lane = stage.tertiary!
+        var retries = 0
+        lane.player.resourceDegraded?(info("carol"))
+        while lane.degradedRetryTask != nil {
+            let fired = await waitUntil { !lane.degradedHold.held }
+            XCTAssertTrue(fired, "退避到点重试")
+            retries += 1
+            XCTAssertNotNil(lane.playTask, "第 \(retries) 次自动重试起播")
+            lane.player.resourceDegraded?(info("carol"))
+            XCTAssertLessThanOrEqual(retries, 3, "不得无限循环")
+            if retries > 3 { break }
+        }
+        XCTAssertEqual(retries, 3, "60、120、240 三次后停止")
+        XCTAssertEqual(lane.degradedRetries, 3)
+        XCTAssertTrue(lane.degradedHold.held, "停在降级，等用户操作")
+        XCTAssertNil(lane.degradedRetryTask, "不再排自动重试")
+        stage.setFocus(.tertiary)
+        XCTAssertFalse(lane.degradedHold.held, "焦点切到该路仍重试一次")
+        stage.notePlaying("carol", on: lane)
+        XCTAssertEqual(lane.degradedRetries, 0, "播起来后清零")
+    }
 }

@@ -40,8 +40,14 @@ public enum PlaybackFailureClassifier {
         var protected: Bool { isFocus ?? !isSecondary }
     }
 
-    /// 资源降级后的一次性重试检查等待（修订 v2 H3）。
-    public static let degradedRetryDelay: TimeInterval = 60
+    /// 资源降级后的自动重试是有限次指数退避（修订 v2 H3，PR #8 审计）：60、120、240 秒后各一次，之后不再自动重试，
+    /// 只在焦点切到该路、减少路数、回前台或用户点重试时再试。
+    public static let degradedRetryDelays: [TimeInterval] = [60, 120, 240]
+
+    /// 已自动重试 `attempts` 次之后下一次的等待；用完返回 nil。
+    public static func degradedRetryDelay(after attempts: Int) -> TimeInterval? {
+        degradedRetryDelays.indices.contains(attempts) ? degradedRetryDelays[attempts] : nil
+    }
 
     /// `AVError.h` 里 `NS_ERROR_ENUM(AVFoundationErrorDomain, AVError)` 的 domain 字符串。
     public static let avFoundationErrorDomain = "AVFoundationErrorDomain"

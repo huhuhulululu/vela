@@ -99,6 +99,8 @@ final class StageModel: ObservableObject {
     @Published var threeLanesFit = true
     /// 舞台尺寸按竖屏方向（宽取短边、高取长边），格子还没布局时据此估算选档（不发布）。
     var portraitStageSize: CGSize = .zero
+    /// 资源不足自动重试的退避（测试缩短）。
+    var degradedRetryDelays = PlaybackFailureClassifier.degradedRetryDelays
     /// 手机横屏：双窗只显示焦点路，非焦点路释放（§4.2）。
     @Published var landscape = false
     /// 画中画正在显示（或启动）：双窗只留焦点路，另一路释放，退出后恢复（修订 A2 的 T18b）。
@@ -450,6 +452,7 @@ final class StageModel: ObservableObject {
             lane.skips.reset()
             lane.dwell.clearFailure()
             lane.state = .playing
+            lane.degradedRetries = 0
         }
         updateDwellActive(on: lane)
         refreshQuality(on: lane)
