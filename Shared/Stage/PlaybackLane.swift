@@ -214,7 +214,9 @@ extension StageModel {
 
     /// 这一路此刻的房间。主路就是列表的当前房间；副路按用户名在可见列表里找。
     func room(of lane: PlaybackLane) -> Room? {
-        if lane.id == .primary { return feed.current }
+        // 单窗主路就是列表当前房间；双窗里主路可能被置空（另一路占着唯一的房间），
+        // 此时 `feed.current` 会回落到首间，必须看这一路自己的游标。
+        if lane.id == .primary, secondary == nil { return feed.current }
         guard let name = lane.username?.lowercased() else { return nil }
         return feed.rooms.first { $0.username.lowercased() == name }
     }
