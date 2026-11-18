@@ -272,4 +272,38 @@ final class TriplePictureInPictureTests: XCTestCase {
         stage.setLaneCount(2)
         XCTAssertEqual(stage.laneCount, 2)
     }
+    // MARK: 复审 medium：路数锁保持到画中画真正结束
+
+    /// willStop（stopping）时小窗还在：路数仍锁着，舞台变矮也不降、菜单仍禁用；didStop 后才解锁并补判。
+    func testLaneCountStaysLockedWhileStoppingAndIsReappliedAfterDidStop() {
+        let (stage, _) = makeStage(focus: .secondary)
+        stage.notePortraitStageSize(CGSize(width: 402, height: 874))
+        event(.willStart, stage)
+        event(.didStart, stage)
+        event(.willStop, stage)
+        XCTAssertTrue(stage.laneCountLocked, "停止中小窗还在，仍锁")
+        stage.notePortraitStageSize(CGSize(width: 300, height: 400))
+        stage.setLaneCount(1)
+        XCTAssertEqual(stage.laneCount, 3, "停止中不改路数")
+        event(.didStop, stage)
+        XCTAssertFalse(stage.laneCountLocked)
+        XCTAssertEqual(stage.laneCount, 2, "结束后按舞台尺寸补判")
+    }
+
+    /// 启动失败：先按舞台尺寸改路数，再结束只留焦点路；要被拆掉的第三路不能先起播再拆。
+    func testFailedStartAppliesStageFitBeforeRestoringHiddenLanes() {
+        let (stage, _) = makeStage(focus: .primary)
+        stage.notePortraitStageSize(CGSize(width: 402, height: 874))
+        event(.willStart, stage)
+        let doomed = stage.tertiary!
+        XCTAssertFalse(doomed.visible)
+        stage.notePortraitStageSize(CGSize(width: 300, height: 400))
+        event(.failed("AVKitErrorDomain -1001"), stage)
+        XCTAssertFalse(stage.laneCountLocked)
+        XCTAssertEqual(stage.laneCount, 2)
+        XCTAssertNil(stage.tertiary)
+        XCTAssertFalse(doomed.visible, "被拆掉的第三路没有先恢复显示与起播")
+        XCTAssertTrue(stage.secondary!.visible)
+        XCTAssertNotNil(stage.secondary!.playTask, "留下的路正常恢复")
+    }
 }
