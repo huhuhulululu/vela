@@ -58,8 +58,15 @@ public struct SyncCode: Equatable, Sendable {
             guard (1...63).contains(label.count), label.first != UInt8(ascii: "-"), label.last != UInt8(ascii: "-") else { return false }
             guard label.allSatisfy({ ($0 >= 97 && $0 <= 122) || ($0 >= 48 && $0 <= 57) || $0 == UInt8(ascii: "-") }) else { return false }
         }
-        // 拒绝 IP 字面量：顶级标签全是数字的不是 DNS 名（覆盖点分 IPv4；IPv6 已因字符集被拒）。
-        return !labels.last!.allSatisfy { $0 >= 48 && $0 <= 57 }
+        // 拒绝能被解析成 IP 的写法（第 4.3 节、第 23 节第 10 条）：任何标签不得全为数字，也不得是 0x 加十六进制
+        // （0x7f.0x1、0177.0.0.0x1）；顶级标签首字符必须是字母（punycode 的 xn-- 满足）。IPv6 已因字符集被拒。
+        for label in labels {
+            if label.allSatisfy({ $0 >= 48 && $0 <= 57 }) { return false }
+            if label.count >= 2, label.first == UInt8(ascii: "0"), label.dropFirst().first == UInt8(ascii: "x"),
+               label.dropFirst(2).allSatisfy({ ($0 >= 48 && $0 <= 57) || ($0 >= 97 && $0 <= 102) }) { return false }
+        }
+        guard let first = labels.last!.first, first >= 97, first <= 122 else { return false }
+        return true
     }
 
     /// 主机名（不含端口），用于确认页。

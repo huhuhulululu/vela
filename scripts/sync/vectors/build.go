@@ -250,6 +250,10 @@ func buildCodeInvalid() []any {
 		{with("https://" + longHost), "host_length"},
 		{with("https://sy_nc.example"), "host_char"},
 		{"vela2:" + k43 + ".000000@https://同步.example", "non_ascii"},
+		{with("https://0x7f.0x1"), "numeric_label"},
+		{with("https://0177.0.0.0x1"), "numeric_label"},
+		{with("https://10.example"), "numeric_label"},
+		{with("https://a.1b"), "tld_start"},
 	}
 	var out []any
 	for _, c := range cases {

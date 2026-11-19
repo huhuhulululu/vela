@@ -197,5 +197,36 @@ func validateHost(host string) error {
 			}
 		}
 	}
+	// 能被解析成 IP 的写法：全数字标签、0x 加十六进制标签；顶级标签首字符必须是字母（第 4.3 节、第 23 节第 10 条）。
+	for _, lab := range labels {
+		if isNumericLabel(lab) {
+			return cerr("numeric_label")
+		}
+	}
+	if tld := labels[len(labels)-1]; tld[0] < 'a' || tld[0] > 'z' {
+		return cerr("tld_start")
+	}
 	return nil
+}
+
+func isNumericLabel(lab string) bool {
+	digits := true
+	for i := 0; i < len(lab); i++ {
+		if lab[i] < '0' || lab[i] > '9' {
+			digits = false
+		}
+	}
+	if digits {
+		return true
+	}
+	if len(lab) >= 2 && lab[0] == '0' && lab[1] == 'x' {
+		for i := 2; i < len(lab); i++ {
+			c := lab[i]
+			if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+				return false
+			}
+		}
+		return true
+	}
+	return false
 }

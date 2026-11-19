@@ -172,6 +172,22 @@
     {
       "code": "vela2:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8.000000@https://同步.example",
       "reason": "non_ascii"
+    },
+    {
+      "code": "vela2:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8.000000@https://0x7f.0x1",
+      "reason": "numeric_label"
+    },
+    {
+      "code": "vela2:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8.000000@https://0177.0.0.0x1",
+      "reason": "numeric_label"
+    },
+    {
+      "code": "vela2:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8.000000@https://10.example",
+      "reason": "numeric_label"
+    },
+    {
+      "code": "vela2:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8.000000@https://a.1b",
+      "reason": "tld_start"
     }
   ],
   "decimal": [
@@ -240,9 +256,9 @@
       "aad_hex": "76656c612d73796e632f65317c653839666162303737326234646430626563633631393863613430343635346332653863316336663763393637336666653039313163306565323933343631637c37",
       "blobID": "e89fab0772b4dd0becc6198ca404654c2e8c1c6f7c9673ffe0911c0ee293461c",
       "encKey_hex": "54b3bf14c4489b29f6fc6adee04111bdc735b4132cde80b13d34dc36d9b9272c",
-      "envelope": "e1.IiIiIiIiIiIiIiIi.9CGeDTwXv5z7q7e1FUgxG_MCriPxivH9iKot5qyl6n0kHZFs1zQw6gZ_--3tEwubtkFjhlJR8g3QOX0g4-nT_ZQzxgjqEP5jLA",
+      "envelope": "e1.IiIiIiIiIiIiIiIi.9CGeDTwXv5z7q7e1FUgxG_MCriPxivH9iKot5qyl6n0kHZFs1zQw6gZ_--3tEwubtkFjhlJR8g_Qhdo8Yosyo_TsJUuoWRQxrMsnBQ",
       "nonce_hex": "222222222222222222222222",
-      "payload_hex": "01aa562acacfcf2d56b2aaaed5512a4ece48cd4d54b232d2512a4e2d29c9cc4b874a94a596e48358b5a3ca47958f2a1f553eaa9c6aca010300",
+      "payload_hex": "01aa562acacfcf2d56b2aaaed5512a4ece48cd4d54b232d2512a4e2d29c9cc4b874a94a596e48358b5a3ca47958f2a1f553eaa9c6aca01010000ffff",
       "ver": 7
     }
   ],
@@ -14168,29 +14184,29 @@
   ],
   "payload": [
     {
-      "body_b64url": "eyJyb29tcyI6e30sInNjaGVtYSI6Miwic2V0dGluZ3MiOnt9LCJ2ZXRvIjp7fX0",
-      "flag": 0,
+      "body_b64url": "qlYqys_PLVayqq7VUSpOzkjNTVSyMtJRKk4tKcnMS4dKlKWW5INYtYAAAAD__w",
+      "flag": 1,
       "json_utf8": "{\"rooms\":{},\"schema\":2,\"settings\":{},\"veto\":{}}"
     },
     {
-      "body_b64url": "qlYqys_PLVayqq7VUSpOzkjNTVSyMtJRKk4tKcnMS4dKlKWW5INYtaPKR5WPKh9VPqp8VPmocjzKAQMA",
+      "body_b64url": "qlYqys_PLVayqq7VUSpOzkjNTVSyMtJRKk4tKcnMS4dKlKWW5INYtaPKR5WPKh9VPqp8VPmocjzKAQEAAP__",
       "flag": 1,
       "json_utf8": "{\"rooms\":{},\"schema\":2,\"settings\":{},\"veto\":{}}{\"rooms\":{},\"schema\":2,\"settings\":{},\"veto\":{}}{\"rooms\":{},\"schema\":2,\"settings\":{},\"veto\":{}}{\"rooms\":{},\"schema\":2,\"settings\":{},\"veto\":{}}{\"rooms\":{},\"schema\":2,\"settings\":{},\"veto\":{}}{\"rooms\":{},\"schema\":2,\"settings\":{},\"veto\":{}}{\"rooms\":{},\"schema\":2,\"settings\":{},\"veto\":{}}{\"rooms\":{},\"schema\":2,\"settings\":{},\"veto\":{}}{\"rooms\":{},\"schema\":2,\"settings\":{},\"veto\":{}}{\"rooms\":{},\"schema\":2,\"settings\":{},\"veto\":{}}{\"rooms\":{},\"schema\":2,\"settings\":{},\"veto\":{}}{\"rooms\":{},\"schema\":2,\"settings\":{},\"veto\":{}}{\"rooms\":{},\"schema\":2,\"settings\":{},\"veto\":{}}{\"rooms\":{},\"schema\":2,\"settings\":{},\"veto\":{}}{\"rooms\":{},\"schema\":2,\"settings\":{},\"veto\":{}}{\"rooms\":{},\"schema\":2,\"settings\":{},\"veto\":{}}{\"rooms\":{},\"schema\":2,\"settings\":{},\"veto\":{}}{\"rooms\":{},\"schema\":2,\"settings\":{},\"veto\":{}}{\"rooms\":{},\"schema\":2,\"settings\":{},\"veto\":{}}{\"rooms\":{},\"schema\":2,\"settings\":{},\"veto\":{}}{\"rooms\":{},\"schema\":2,\"settings\":{},\"veto\":{}}{\"rooms\":{},\"schema\":2,\"settings\":{},\"veto\":{}}{\"rooms\":{},\"schema\":2,\"settings\":{},\"veto\":{}}{\"rooms\":{},\"schema\":2,\"settings\":{},\"veto\":{}}{\"rooms\":{},\"schema\":2,\"settings\":{},\"veto\":{}}{\"rooms\":{},\"schema\":2,\"settings\":{},\"veto\":{}}{\"rooms\":{},\"schema\":2,\"settings\":{},\"veto\":{}}{\"rooms\":{},\"schema\":2,\"settings\":{},\"veto\":{}}{\"rooms\":{},\"schema\":2,\"settings\":{},\"veto\":{}}{\"rooms\":{},\"schema\":2,\"settings\":{},\"veto\":{}}{\"rooms\":{},\"schema\":2,\"settings\":{},\"veto\":{}}{\"rooms\":{},\"schema\":2,\"settings\":{},\"veto\":{}}{\"rooms\":{},\"schema\":2,\"settings\":{},\"veto\":{}}{\"rooms\":{},\"schema\":2,\"settings\":{},\"veto\":{}}{\"rooms\":{},\"schema\":2,\"settings\":{},\"veto\":{}}{\"rooms\":{},\"schema\":2,\"settings\":{},\"veto\":{}}{\"rooms\":{},\"schema\":2,\"settings\":{},\"veto\":{}}{\"rooms\":{},\"schema\":2,\"settings\":{},\"veto\":{}}{\"rooms\":{},\"schema\":2,\"settings\":{},\"veto\":{}}{\"rooms\":{},\"schema\":2,\"settings\":{},\"veto\":{}}"
     }
   ],
   "payloadInvalid": [
     {
-      "body_b64url": "7MABDQAAAAEw_VPb1PAHAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAc1N245AAAAAAYVj_1ghifG5EREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREREQU1wUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABxHAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABDHAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHEcAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEMcBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAcRwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQxwEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABxHGM3DgkAAAAABP1_7QwLDQAAAAAAAAAAAAAAAAAAAAAAAAA40QA",
+      "body_b64url": "7MAxAQAAAMIg-6e2xg4YAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABNDwAA__8",
       "flag": 1,
       "reason": "over_p"
     },
     {
-      "body_b64url": "SkxKHg",
+      "body_b64url": "SkxKHkVE",
       "flag": 1,
       "reason": "truncated"
     },
     {
-      "body_b64url": "SkxKHkVEIsAA_w",
+      "body_b64url": "SkxKHkVEIkAAAAD___8",
       "flag": 1,
       "reason": "trailing"
     },
@@ -129176,7 +129192,7 @@
       "name": "实测",
       "p": 600000,
       "typical": 4542,
-      "typical_deflate": 659,
+      "typical_deflate": 690,
       "with_tombstones": 413878
     }
   ],

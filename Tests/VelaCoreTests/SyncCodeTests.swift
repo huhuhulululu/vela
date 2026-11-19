@@ -54,6 +54,16 @@ final class SyncCodeTests: XCTestCase {
         }
     }
 
+    /// 安全审查 L1：数字或 0x 十六进制标签可被解析成 IP（0x7f.0x1、0177.0.0.0x1），顶级标签首字符必须是字母。
+    func testOriginRejectsNumericLookingLabels() {
+        for bad in ["https://0x7f.0x1", "https://0177.0.0.0x1", "https://sync.0x1", "https://10.example", "https://a.1b", "https://sync.123"] {
+            XCTAssertFalse(SyncCode.isCanonicalOrigin(bad), bad)
+        }
+        for ok in ["https://sync.example", "https://a1.b2c", "https://sync.xn--fiqs8s", "https://0xbox.example", "https://s3.example"] {
+            XCTAssertTrue(SyncCode.isCanonicalOrigin(ok), ok)
+        }
+    }
+
     func testFingerprint() {
         XCTAssertEqual(SyncCode.fingerprint(blobID: "3f9a0c21" + String(repeating: "0", count: 56)), "3F9A-0C21")
     }
