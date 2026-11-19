@@ -127,14 +127,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (savedInstanceState?.getBoolean(EXPORT_PENDING) == true) {
-            pendingExport = savedInstanceState.getByteArray(EXPORT_BYTES)
-                ?: AtomicFile.read(exportSnapshot(), limit = Prefs.maxFileBytes)
-            pendingExportUri = savedInstanceState.getString(EXPORT_URI)
-                ?: AtomicFile.read(exportUriFile(), limit = 4_096)?.toString(Charsets.UTF_8)
-            restoreExportIds()
-        } else if (savedInstanceState == null) {
+        if (savedInstanceState == null) {
             deleteExportFiles()
+        } else {
+            // 完成时磁盘待办已删。旧 Bundle 里的字节和地址不能把这次导出再做一遍。
+            restorePendingExportFromDisk()
         }
         installDebugHooks(applicationContext)
         if (!debugAllowsStageBoot()) return
@@ -323,21 +320,17 @@ class MainActivity : ComponentActivity() {
         deleteExportFiles()
     }
 
-    private fun restoreExportIds() {
-        val bytesId = readExportId(exportIdFile())
-        val uriId = readExportId(exportUriIdFile())
-        if (bytesId != null) {
-            pendingExportId = bytesId
-            if (nextExportId <= bytesId) nextExportId = bytesId + 1
-        }
-        if (uriId != null) pendingUriId = uriId
-        if (pendingExportUri != null && pendingUriId != 0L && pendingExportId != 0L && pendingUriId != pendingExportId) {
-            pendingExportUri = null
-        }
-        if (pendingExport != null && pendingExportUri != null && (pendingExportId == 0L || pendingUriId == 0L)) {
-            if (pendingExportId == 0L) pendingExportId = nextExportId++
-            pendingUriId = pendingExportId
-        }
+    private fun restorePendingExportFromDisk() {
+        val bytes = AtomicFile.read(exportSnapshot(), limit = Prefs.maxFileBytes) ?: return
+        val id = readExportId(exportIdFile()) ?: return
+        pendingExport = bytes
+        pendingExportId = id
+        if (nextExportId <= id) nextExportId = id + 1
+        val uriId = readExportId(exportUriIdFile()) ?: return
+        val uri = AtomicFile.read(exportUriFile(), limit = 4_096)?.toString(Charsets.UTF_8) ?: return
+        if (uri.isBlank() || uriId != id) return
+        pendingExportUri = uri
+        pendingUriId = uriId
     }
 
     private fun readExportId(file: File): Long? {

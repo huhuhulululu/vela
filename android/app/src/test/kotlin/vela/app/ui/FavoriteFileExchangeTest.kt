@@ -3,6 +3,7 @@ package vela.app.ui
 import android.app.Activity
 import android.content.Intent
 import android.net.Uri
+import android.os.Bundle
 import androidx.test.core.app.ActivityScenario
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -14,6 +15,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asExecutor
+import org.robolectric.Robolectric
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -227,6 +229,65 @@ class FavoriteFileExchangeTest {
     }
 
     @Test
+    fun testClearedDiskExportIsNotReplayedFromAStaleBundle() {
+        val uri = Uri.parse("content://vela.test/stale-export.json")
+        val gate = HoldingStream()
+        val replay = ByteArrayOutputStream()
+        val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
+        val activity = controller.get()
+        activity.stage.ageConfirmed = true
+        activity.stage.curation = Curation(favorites = listOf("alice"))
+        activity.stage.dispatch(StageIntent.ExportFavorites)
+        ShadowLooper.idleMainLooper()
+        val request = shadowOf(activity).nextStartedActivityForResult.intent
+        shadowOf(activity.contentResolver).registerOutputStream(uri, gate)
+        shadowOf(activity).receiveResult(
+            request,
+            Activity.RESULT_OK,
+            Intent().setData(uri),
+        )
+        assertTrue("导出没有开始写", gate.started.await(5, TimeUnit.SECONDS))
+        controller.pause().stop()
+        val bundle = Bundle()
+        controller.saveInstanceState(bundle)
+        assertTrue("保存状态里没有未完成的导出", bundle.getBoolean("vela.pendingExport"))
+        gate.release.countDown()
+        assertTrue("导出没有写完", gate.finished.await(5, TimeUnit.SECONDS))
+        assertTrue(diskCleared(activity))
+        controller.destroy()
+
+        val release = CountDownLatch(1)
+        val running = CountDownLatch(64)
+        val executor = Dispatchers.IO.asExecutor()
+        repeat(96) {
+            executor.execute {
+                running.countDown()
+                release.await()
+            }
+        }
+        try {
+            assertTrue("IO 没有饱和", running.await(5, TimeUnit.SECONDS))
+            val next = Robolectric.buildActivity(MainActivity::class.java)
+            next.create(bundle)
+            val again = next.get()
+            shadowOf(again.contentResolver).registerOutputStream(uri, replay)
+            next.start().resume()
+            release.countDown()
+            val deadline = System.currentTimeMillis() + 1_000
+            while (System.currentTimeMillis() < deadline) {
+                ShadowLooper.idleMainLooper()
+                if (replay.size() > 0) break
+                Thread.sleep(20)
+            }
+            assertEquals(0, replay.size())
+            assertFalse(again.stage.state.value.toast == again.getString(R.string.ui_export_failed))
+            next.destroy()
+        } finally {
+            release.countDown()
+        }
+    }
+
+    @Test
     fun testDocumentIoFailuresDoNotCrash() {
         val missing = Uri.parse("content://vela.test/missing.json")
         val full = Uri.parse("content://vela.test/full.json")
@@ -271,6 +332,19 @@ class FavoriteFileExchangeTest {
                 },
             )
         }
+    }
+
+    private fun diskCleared(activity: MainActivity): Boolean {
+        val deadline = System.currentTimeMillis() + 4_000
+        val snapshot = File(activity.filesDir, "Vela/pending-favorite-export")
+        val uri = File(activity.filesDir, "Vela/pending-favorite-export-uri")
+        while (System.currentTimeMillis() < deadline) {
+            ShadowLooper.idleMainLooper()
+            if (!snapshot.exists() && !uri.exists()) return true
+            Thread.sleep(20)
+        }
+        ShadowLooper.idleMainLooper()
+        return !snapshot.exists() && !uri.exists()
     }
 
     private class HoldingStream : OutputStream() {
