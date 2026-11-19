@@ -177,7 +177,8 @@ extension StageModel {
         let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard Room.isValidUsername(name) else { return "用户名只含字母、数字、下划线，2 到 30 位" }
         if curation.isFavorite(name) { return "已经在收藏里了" }
-        commit(curation.favoriting(name), nil)
+        guard let next = syncedCuration(.favorite(name), local: curation.favoriting(name)) else { return SyncHub.fullMessage }
+        commit(next, nil)
         if source != .favorites { Task { await checkFavorites() } }
         return nil
     }
@@ -195,7 +196,10 @@ extension StageModel {
             let imported = try FavoriteExchange.decode(Data(contentsOf: url))
             let merged = curation.importing(imported.names)
             let skipped = imported.rejected > 0 ? "，忽略 \(imported.rejected) 条格式不对的" : ""
-            commit(merged.curation, "已导入 \(merged.added) 个收藏\(skipped)")
+            // 同步开启时按第 6.4 节的固定窗口导入（导入排在最前）；关闭时语义不变。
+            guard let next = syncedCuration(.importing(imported.names), local: merged.curation) else { return }
+            let added = sync.isOn ? Set(next.favorites.map(Curation.key)).subtracting(curation.favorites.map(Curation.key)).count : merged.added
+            commit(next, "已导入 \(added) 个收藏\(skipped)")
             if source != .favorites { Task { await checkFavorites() } }
         } catch FavoriteExchange.Failure.tooLarge {
             showToast("文件太大，不是收藏夹导出文件")

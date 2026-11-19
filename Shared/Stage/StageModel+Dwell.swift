@@ -89,11 +89,15 @@ extension StageModel {
         // 焦点路上还没出画面就被划走（0 秒）仍是每日命中率里的一次落空：与单窗原来的口径一致。
         var daily: TimeInterval? = result.countsDaily ? result.dailySeconds : nil
         if daily == nil, lane.id == focusLane, settled.dwell <= 0, !result.resumesAsNewDwell { daily = 0 }
-        taste = taste.recording(
-            room: settled.room, learnSeconds: result.learnsTaste ? result.learnSeconds : nil, daily: daily,
-            source: result.source, now: now, rarity: tagRarity
-        )
-        tasteSaver.schedule(taste)
+        // 加入提交中或待修复（docs/plans/sync.md 第 12.4 节、第 23 节第 14 条）：口味文件在快照里，换回会覆盖它，
+        // 所以这次停留不改口味、不排保存（观看账本不在快照里，照常记）。
+        if sync.service.localWriteAllowed {
+            taste = taste.recording(
+                room: settled.room, learnSeconds: result.learnsTaste ? result.learnSeconds : nil, daily: daily,
+                source: result.source, now: now, rarity: tagRarity
+            )
+            tasteSaver.schedule(taste)
+        }
         // 账本只记真实开始时刻起、且去掉暂停学习时段的秒数；与实时提示判定同一口径。非焦点时间折半。
         guard settled.ledgerSeconds > 0, let start = settled.start else { return }
         let ratio = settled.dwell > 0 ? result.weightedSeconds / settled.dwell : 1
@@ -209,9 +213,10 @@ extension StageModel {
               WatchLedger.key(room.username) == prompt.username else { return }
         endFavoriteSuggest(.accepted)
         guard !curation.isFavorite(room.username) else { return }
+        guard let next = syncedCuration(.favorite(room.username), local: curation.favoriting(room.username)) else { return }
         taste = taste.following(room: room, now: Date(), rarity: tagRarity)
         tasteSaver.schedule(taste)
-        commit(curation.favoriting(room.username), nil)
+        commit(next, nil)
     }
 
     /// 点了提示上的关闭：明确的「不用」，记为问过。
