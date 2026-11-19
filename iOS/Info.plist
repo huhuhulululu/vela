@@ -4,11 +4,15 @@
 <dict>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>NSFaceIDUsageDescription</key>
+	<string>查看同步码前需要验证是你本人。</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>VelaSyncBase</key>
+	<string>$(VELA_SYNC_BASE)</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

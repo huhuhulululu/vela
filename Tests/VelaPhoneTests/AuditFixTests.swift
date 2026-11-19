@@ -350,6 +350,340 @@ final class AuditFixTests: XCTestCase {
     }
 }
 
+// MARK: - 加入同步又一轮修复（PR #11，H1、H5、M7）
+
+/// 同步界面层的事务缺陷回归：真的 `StageModel` 与真实 `DeferredSaver`、偏好文件；同步服务换成本机替身（不联网、不碰钥匙串）。
+/// 模型自己的同步入口保持实验开关关闭（默认值），用例里另造一个 `SyncHub` 接在模型上。
+@MainActor
+final class SyncJoinWiringTests: XCTestCase {
+    private var suites: [String] = []
+    private var hubs: [SyncHub] = []
+    private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
+    private static let key = [UInt8](repeating: 5, count: 32)
+    private static let origin = "https://sync.example"
+
+    override func setUp() {
+        super.setUp()
+        TestPrefs.reset()
+    }
+
+    override func tearDown() {
+        for hub in hubs {
+            hub.disable()
+            hub.setExperiment(false)
+        }
+        hubs = []
+        RoomInfoPrefs.shared.onUserToggle = nil
+        RoomInfoPrefs.shared.allowsToggle = nil
+        TestPrefs.reset()
+        for name in suites { UserDefaults().removePersistentDomain(forName: name) }
+        suites = []
+        super.tearDown()
+    }
+
+    final class StateStore: SyncStateStore {
+        var stored: SyncState?
+        func load() -> SyncStateRead { stored.map { .present($0) } ?? .none }
+        func save(_ state: SyncState) -> Bool { stored = state; return true }
+        func delete() -> Bool { stored = nil; return true }
+    }
+
+    final class KeyStore: SyncKeyStore {
+        var entry: SyncKeychainEntry?
+        /// 钥匙串暂时不可用（首次解锁前）。
+        var unavailable = false
+        private(set) var reads = 0
+        func readEntry() -> SyncKeychainLookup {
+            reads += 1
+            if unavailable { return .unavailable }
+            return entry.map { .present($0) } ?? .none
+        }
+        func write(_ entry: SyncKeychainEntry) -> SyncKeychainWrite { self.entry = entry; return .ok }
+        func read() -> SyncKeychainRead {
+            reads += 1
+            if unavailable { return .unavailable }
+            return entry.map { .present(blobID: $0.blobID) } ?? .none
+        }
+        func delete() -> Bool { entry = nil; return true }
+    }
+
+    /// 慢网络：每个请求等 `delay` 纳秒后返回脚本里的响应（没有脚本就是暂时失败）。
+    final class SlowTransport: SyncTransport, @unchecked Sendable {
+        private let lock = NSLock()
+        private var gets: [SyncServerResponse] = []
+        private var puts: [SyncServerResponse] = []
+        var delay: UInt64 = 300_000_000
+        func script(gets: [SyncServerResponse], puts: [SyncServerResponse] = []) {
+            lock.withLock {
+                self.gets = gets
+                self.puts = puts
+            }
+        }
+        func get() async -> SyncServerResponse {
+            let r = lock.withLock { gets.isEmpty ? SyncServerResponse.transient : gets.removeFirst() }
+            try? await Task.sleep(nanoseconds: delay)
+            return r
+        }
+        func put(_ request: SyncPutRequest) async -> SyncServerResponse {
+            let r = lock.withLock { puts.isEmpty ? SyncServerResponse.transient : puts.removeFirst() }
+            try? await Task.sleep(nanoseconds: delay)
+            return r
+        }
+        func delete(base: UInt64, epoch: String?) async -> SyncServerResponse { .transient }
+    }
+
+    private func makeStage() -> StageModel {
+        let name = "vela-phone-sync-\(UUID().uuidString)"
+        suites.append(name)
+        let stage = TestPrefs.stage(settings: SettingsStore(defaults: UserDefaults(suiteName: name)!))
+        XCTAssertFalse(stage.sync.experimentEnabled, "实验开关默认关闭")
+        return stage
+    }
+
+    private func hub(_ stage: StageModel, store: StateStore, keys: KeyStore, transport: SlowTransport) -> (SyncHub, SyncService) {
+        let service = SyncService(env: SyncService.Environment(stateStore: store, keyStore: keys, makeTransport: { _, _ in transport }))
+        let hub = SyncHub(service: service)
+        hubs.append(hub)
+        stage.settings.experimentSync = true
+        hub.attach(stage)
+        return (hub, service)
+    }
+
+    private func waitUntil(_ seconds: Double = 3, _ condition: () -> Bool) async {
+        let deadline = Date().addingTimeInterval(seconds)
+        while !condition(), Date() < deadline { try? await Task.sleep(nanoseconds: 20_000_000) }
+    }
+
+    private func settled(_ name: String, seconds: TimeInterval) -> DwellTracker.Settled {
+        var tracker = DwellTracker()
+        _ = tracker.switchTo(Room.direct(username: name), now: t0)
+        tracker.setActive(true, now: t0)
+        return tracker.finish(now: t0.addingTimeInterval(seconds))!
+    }
+
+    // MARK: H5 实验开关关闭后不得留下活动同步
+
+    /// 启动恢复还在跑时关闭实验开关：要么拒绝关闭，要么之后绝不激活。
+    func testH5_turningExperimentOffWhileStartingNeverLeavesActiveSync() async throws {
+        let stage = makeStage()
+        let store = StateStore(), keys = KeyStore(), transport = SlowTransport()
+        let material = try SyncCrypto.derive(Self.key)
+        var state = SyncState(phase: .active, origin: Self.origin, blobID: material.blobID, clock: SyncClock(dev: 7))
+        state.epoch = "0123456789abcdef0123456789abcdef"
+        store.stored = state
+        keys.entry = SyncKeychainEntry(key: Self.key, dev: 7, blobID: material.blobID)
+        let (hub, service) = hub(stage, store: store, keys: keys, transport: transport)
+        hub.setExperiment(false)
+        try? await Task.sleep(nanoseconds: 500_000_000)
+        XCTAssertFalse(!hub.experimentEnabled && (hub.phase == .active || service.isActive),
+                       "实验已关却有活动同步：phase=\(hub.phase) active=\(service.isActive)")
+        if hub.experimentEnabled { XCTAssertNotNil(hub.notice, "拒绝关闭要说明原因") }
+    }
+
+    /// 「仍用此码创建」在等首个周期时关闭实验开关：同上。
+    func testH5_turningExperimentOffDuringCreateNeverLeavesActiveSync() async throws {
+        let stage = makeStage()
+        let store = StateStore(), keys = KeyStore(), transport = SlowTransport()
+        transport.delay = 10_000_000
+        let (hub, service) = hub(stage, store: store, keys: keys, transport: transport)
+        await waitUntil { hub.phase == .off }
+        XCTAssertEqual(hub.phase, .off)
+        transport.script(gets: [.notFound(epoch: "0123456789abcdef0123456789abcdef", now: 1_800_000_000_000)])
+        let code = try XCTUnwrap(SyncCrypto.formatCode(key: Self.key, origin: Self.origin))
+        await hub.prepareJoin(code)
+        guard case .notFound = hub.joinStage else { return XCTFail("前提：404 可用此码创建，实际 \(hub.joinStage)") }
+        transport.delay = 600_000_000
+        let create = Task { await hub.createFromJoin() }
+        await waitUntil { service.isActive }
+        XCTAssertTrue(hub.busy, "前提：创建还在等首个周期")
+        hub.setExperiment(false)
+        await create.value
+        XCTAssertFalse(!hub.experimentEnabled && (hub.phase == .active || service.isActive),
+                       "实验已关却有活动同步：phase=\(hub.phase) active=\(service.isActive)")
+    }
+
+    /// 钥匙串暂时不可用时，离散触发会重排启动；排上之后立刻关实验开关：要么拒绝关闭，要么之后绝不再启动同步
+    /// （不读钥匙串、不激活）。
+    func testH5_turningExperimentOffRightAfterUnavailableRetryNeverStartsSync() async throws {
+        let stage = makeStage()
+        let store = StateStore(), keys = KeyStore(), transport = SlowTransport()
+        let material = try SyncCrypto.derive(Self.key)
+        var state = SyncState(phase: .active, origin: Self.origin, blobID: material.blobID, clock: SyncClock(dev: 7))
+        state.epoch = "0123456789abcdef0123456789abcdef"
+        store.stored = state
+        keys.entry = SyncKeychainEntry(key: Self.key, dev: 7, blobID: material.blobID)
+        keys.unavailable = true
+        let (hub, service) = hub(stage, store: store, keys: keys, transport: transport)
+        await waitUntil { hub.phase == .unavailable }
+        XCTAssertEqual(hub.phase, .unavailable, "前提：钥匙串暂时不可用")
+        keys.unavailable = false
+        let readsBefore = keys.reads
+        hub.trigger(.foreground)
+        hub.setExperiment(false)
+        try? await Task.sleep(nanoseconds: 500_000_000)
+        if hub.experimentEnabled {
+            XCTAssertNotNil(hub.notice, "拒绝关闭要说明原因")
+        } else {
+            XCTAssertEqual(keys.reads, readsBefore, "开关已关：排上的启动不再调用服务（不读钥匙串）")
+            XCTAssertFalse(service.isActive)
+            XCTAssertNotEqual(hub.phase, .active)
+        }
+    }
+
+    private static let epoch = "0123456789abcdef0123456789abcdef"
+    private static var nowMillis: UInt64 { UInt64(Date().timeIntervalSince1970 * 1000) }
+
+    /// 已有空间的 GET 响应：远端收藏 zed。
+    private static func remoteBlob(ver: UInt64) throws -> SyncServerResponse {
+        let keys = try SyncCrypto.derive(key)
+        var doc = SyncDocument()
+        doc.rooms["cb:zed"] = SyncRoom(f: SyncRegister(hlc: HLC(l: nowMillis - 60_000, c: 0, dev: 9), payload: "+"))
+        let data = try XCTUnwrap(SyncCryptoCodec(keys: keys).seal(doc.encoded(), ver: ver))
+        return .blob(ver: ver, pub: keys.publicKeyText, data: data, epoch: epoch, now: nowMillis)
+    }
+
+    private func isIdle(_ stage: SyncHub.JoinStage) -> Bool { if case .idle = stage { return true } else { return false } }
+
+    // MARK: H8 提交锁保持到界面激活之后
+
+    /// 加入成功：主线程激活界面、按文档重建投影时提交锁仍在（这段空隙里本机写操作被拒），激活之后才释放。
+    func testH8_commitLockIsHeldUntilJoinActivationFinishes() async throws {
+        let stage = makeStage()
+        let store = StateStore(), keys = KeyStore(), transport = SlowTransport()
+        transport.delay = 10_000_000
+        let (hub, service) = hub(stage, store: store, keys: keys, transport: transport)
+        await waitUntil { hub.phase == .off }
+        transport.script(gets: [try Self.remoteBlob(ver: 3)], puts: [.stored(ver: 4, epoch: Self.epoch, now: Self.nowMillis)])
+        let code = try XCTUnwrap(SyncCrypto.formatCode(key: Self.key, origin: Self.origin))
+        await hub.prepareJoin(code)
+        guard case .preview = hub.joinStage else { return XCTFail("前提：确认页，实际 \(hub.joinStage)") }
+        var lockedAtProjection: [Bool] = []
+        let watch = stage.$curation.dropFirst().sink { _ in lockedAtProjection.append(service.isCommittingJoin) }
+        await hub.confirmJoin()
+        watch.cancel()
+        XCTAssertEqual(hub.phase, .active)
+        XCTAssertTrue(stage.curation.isFavorite("zed"), "前提：激活时按文档重建了投影")
+        XCTAssertFalse(lockedAtProjection.isEmpty)
+        XCTAssertTrue(lockedAtProjection.allSatisfy { $0 }, "提交锁要保持到主线程完成激活")
+        XCTAssertFalse(service.isCommittingJoin, "激活之后释放")
+        XCTAssertTrue(service.localWriteAllowed)
+    }
+
+    // MARK: M9 回滚重读不写设置
+
+    /// 快照换回「未设置」之后的重读：只同步内存，不把默认值写成显式设置（否则之后会被当成用户设置上传）。
+    func testM9_rollbackReloadKeepsUnsetSettingUnset() {
+        let stage = makeStage()
+        XCTAssertFalse(stage.settings.hasExplicitValue(forKey: SyncHub.publicOnlyKey), "前提：没设过")
+        let original = stage.publicOnly
+        stage.applyPublicOnly(!original)  // 投影写入
+        stage.settings.setExplicit(SyncHub.publicOnlyKey, nil)  // 快照换回「未设置」
+        SyncModelSink(model: stage).reloadAfterRollback()
+        XCTAssertFalse(stage.settings.hasExplicitValue(forKey: SyncHub.publicOnlyKey), "仍是未设置")
+        XCTAssertEqual(stage.publicOnly, stage.settings.publicOnly, "内存跟随存储")
+    }
+
+    // MARK: M10 检查阶段取消后迟到的结果丢弃
+
+    /// 粘贴同步码后在等 GET 时取消（关面板、进后台）：迟到的响应不得重新装上确认页票据。
+    func testM10_cancelWhileCheckingDropsLateResult() async throws {
+        let stage = makeStage()
+        let store = StateStore(), keys = KeyStore(), transport = SlowTransport()
+        transport.delay = 10_000_000
+        let (hub, _) = hub(stage, store: store, keys: keys, transport: transport)
+        await waitUntil { hub.phase == .off }
+        transport.delay = 400_000_000
+        transport.script(gets: [try Self.remoteBlob(ver: 3)])
+        let code = try XCTUnwrap(SyncCrypto.formatCode(key: Self.key, origin: Self.origin))
+        let prepare = Task { await hub.prepareJoin(code) }
+        await waitUntil { if case .checking = hub.joinStage { return true } else { return false } }
+        guard case .checking = hub.joinStage else { return XCTFail("前提：在检查") }
+        hub.cancelJoin()
+        await prepare.value
+        XCTAssertTrue(isIdle(hub.joinStage), "取消后迟到的结果丢弃，实际 \(hub.joinStage)")
+        XCTAssertFalse(hub.busy)
+    }
+
+    // MARK: H9 磁盘上有同步状态就不能关实验开关
+
+    /// 磁盘上同步状态是已开启，但启动因钥匙串暂时不可用停在 `.unavailable`、启动任务已结束：关实验开关要被拒，
+    /// 否则之后的本机编辑会在再开开关时被旧文档的投影覆盖。
+    func testH9_cannotTurnExperimentOffWhileStateIsStoredButUnavailable() async throws {
+        let stage = makeStage()
+        let store = StateStore(), keys = KeyStore(), transport = SlowTransport()
+        let material = try SyncCrypto.derive(Self.key)
+        var state = SyncState(phase: .active, origin: Self.origin, blobID: material.blobID, clock: SyncClock(dev: 7))
+        state.epoch = Self.epoch
+        store.stored = state
+        keys.entry = SyncKeychainEntry(key: Self.key, dev: 7, blobID: material.blobID)
+        keys.unavailable = true
+        let (hub, service) = hub(stage, store: store, keys: keys, transport: transport)
+        await waitUntil { hub.phase == .unavailable }
+        XCTAssertEqual(hub.phase, .unavailable, "前提：钥匙串暂时不可用")
+        try? await Task.sleep(nanoseconds: 200_000_000)
+        XCTAssertFalse(service.isActive, "前提：协调器没挂上")
+        hub.setExperiment(false)
+        XCTAssertTrue(hub.experimentEnabled, "磁盘上还有同步状态：拒绝关闭")
+        XCTAssertNotNil(hub.notice)
+        XCTAssertTrue(stage.settings.experimentSync)
+    }
+
+    // MARK: M7 停留记账不绕过提交锁
+
+    /// 加入提交中：停留结算不改口味、不排保存；锁一放开照常记账。
+    func testM7_dwellRecordIsRejectedWhileCommitting() {
+        let stage = makeStage()
+        let service = stage.sync.service
+        let before = stage.taste
+        service.commitLock.withLock { service.committing = true }
+        stage.record(settled("alice", seconds: 120), from: stage.primary, reason: .swipe)
+        XCTAssertEqual(stage.taste, before, "提交中不改口味")
+        stage.tasteSaver.flush()
+        XCTAssertEqual(stage.tasteStore.load(), before, "提交中不写偏好文件")
+        service.commitLock.withLock { service.committing = false }
+        stage.record(settled("alice", seconds: 120), from: stage.primary, reason: .swipe)
+        XCTAssertNotEqual(stage.taste, before, "锁放开后照常记账")
+    }
+
+    /// 未定局的快照：完成恢复前不接受口味写入。
+    final class PendingJournal: SyncJoinJournal {
+        var status: SyncJoinJournalStatus { .pending }
+        func snapshot() -> Bool { false }
+        func markCommitted() -> Bool { false }
+        func restore() -> Bool { false }
+        func discard() -> Bool { false }
+    }
+
+    /// 上次加入待修复（回滚没完成）：停留结算同样不改口味。
+    func testM7_dwellRecordIsRejectedWhileJoinRepairPending() {
+        let stage = makeStage()
+        let before = stage.taste
+        stage.sync.service.configureJournal(PendingJournal())
+        defer { stage.sync.service.configureJournal(NoJournal()) }
+        XCTAssertTrue(stage.sync.service.joinRepairPending)
+        stage.record(settled("alice", seconds: 120), from: stage.primary, reason: .swipe)
+        XCTAssertEqual(stage.taste, before)
+        XCTAssertTrue(stage.rejectWhileJoining(), "收藏、屏蔽等写入同样被拒")
+    }
+
+    // MARK: H1 模型 sink 落盘与重读
+
+    /// 提交拍快照之前：保存队列里待写的收藏先写盘；换回之后按文件重读，保存队列里不留会覆盖换回结果的旧值。
+    func testH1_modelSinkPersistsPendingEditsAndReloadsAfterRollback() {
+        let stage = makeStage()
+        stage.commit(Curation(favorites: ["alice"]), nil)
+        XCTAssertNotEqual(stage.curationStore.load(), stage.curation, "前提：alice 还在保存队列里")
+        let sink = SyncModelSink(model: stage)
+        XCTAssertTrue(sink.persistPending())
+        XCTAssertEqual(stage.curationStore.load(), stage.curation, "落盘并确认")
+        XCTAssertTrue(stage.curationStore.save(Curation(favorites: ["bob"])), "模拟快照换回")
+        sink.reloadAfterRollback()
+        XCTAssertEqual(stage.curation.favorites, ["bob"], "内存按换回的文件重读")
+        stage.curationSaver.flush()
+        XCTAssertEqual(stage.curationStore.load().favorites, ["bob"], "保存队列与磁盘一致")
+    }
+}
+
 /// 落到实测已私密 / 离线的房间：不显示提示，立即沿划动方向跳走并从列表筛掉（「仅公开」开着时）。
 @MainActor
 final class SkipNonPublicTests: XCTestCase {

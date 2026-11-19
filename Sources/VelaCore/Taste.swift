@@ -236,6 +236,22 @@ public struct Taste: Codable, Equatable, Sendable {
         return next
     }
 
+    /// 同步投影专用（docs/plans/sync.md 第 6.5 节）：只改 `vetoed`，不动证据、`at` 与计数，不触发学习。
+    /// 设为 false 且证据全为 0 时删除条目；对同一文档重复投影结果不变。
+    public func settingSyncedVeto(_ key: String, _ vetoed: Bool) -> Taste {
+        var next = self
+        if vetoed {
+            var b = beliefs[key] ?? Belief()
+            b.vetoed = true
+            next.beliefs[key] = b
+        } else if var b = beliefs[key] {
+            b.vetoed = false
+            let empty = b.hit == 0 && b.miss == 0 && b.hits == 0 && b.misses == 0
+            next.beliefs[key] = empty ? nil : b
+        }
+        return next
+    }
+
     public func settingPaused(_ value: Bool) -> Taste {
         var next = self
         next.paused = value
@@ -284,13 +300,16 @@ public struct Taste: Codable, Equatable, Sendable {
         return next
     }
 
-    /// 超出上限时保留证据最强的标签（用户标过「不想看」的优先保留）。
+    /// 超出上限时保留证据最强的标签（用户标过「不想看」的优先保留）；强度相同按键的 UTF-8 字节升序，结果确定。
     private static func trimmed(_ beliefs: [String: Belief], now: Date) -> [String: Belief] {
         guard beliefs.count > maxBeliefs else { return beliefs }
         func strength(_ b: Belief) -> Double {
             b.vetoed ? .infinity : (b.hit + b.miss) * decay(now.timeIntervalSince1970 - b.at)
         }
-        let kept = beliefs.sorted { strength($0.value) > strength($1.value) }.prefix(maxBeliefs)
+        let ranked = beliefs.map { (key: $0.key, value: $0.value, strength: strength($0.value)) }
+        let kept = ranked.sorted {
+            $0.strength != $1.strength ? $0.strength > $1.strength : $0.key.utf8.lexicographicallyPrecedes($1.key.utf8)
+        }.prefix(maxBeliefs)
         return Dictionary(uniqueKeysWithValues: kept.map { ($0.key, $0.value) })
     }
 

@@ -43,7 +43,7 @@ extension StageModel {
         }
     }
 
-    private func commitTaste(_ next: Taste) {
+    func commitTaste(_ next: Taste) {
         let previous = taste
         taste = next
         tasteSaver.schedule(next)
@@ -98,15 +98,28 @@ extension StageModel {
         Task { await loadMoreIfNeeded() }
     }
 
-    func boostTaste(_ key: String) { commitTasteAndRearrange(taste.boosting(key, now: Date())) }
+    func boostTaste(_ key: String) {
+        guard syncedUnveto(key) else { return }
+        commitTasteAndRearrange(taste.boosting(key, now: Date()))
+    }
 
-    func vetoTaste(_ key: String) { commitTasteAndRearrange(taste.vetoing(key, now: Date())) }
+    func vetoTaste(_ key: String) {
+        guard syncedVeto(key) else { return }
+        commitTasteAndRearrange(taste.vetoing(key, now: Date()))
+    }
 
-    func restoreTaste(_ key: String) { commitTasteAndRearrange(taste.restoring(key, now: Date())) }
+    func restoreTaste(_ key: String) {
+        guard syncedUnveto(key) else { return }
+        commitTasteAndRearrange(taste.restoring(key, now: Date()))
+    }
 
-    func removeTaste(_ key: String) { commitTasteAndRearrange(taste.removing(key)) }
+    func removeTaste(_ key: String) {
+        guard syncedUnveto(key) else { return }
+        commitTasteAndRearrange(taste.removing(key))
+    }
 
     func setLearningPaused(_ paused: Bool) {
+        if rejectWhileJoining() { return }
         commitTaste(taste.settingPaused(paused))
         if paused {
             favoriteSuggest = nil
@@ -119,12 +132,14 @@ extension StageModel {
     }
 
     func resetTasteProfile() {
+        guard syncedClearVetoes() else { return }
         commitTaste(taste.resettingProfile())
         showToast("口味画像已重置")
     }
 
     /// 清掉画像、最近看过、旧版偏好文件，并作废每一路当前房间的停留（否则它离开时又会写回一条）。
     func clearAllPreferences() {
+        guard syncedClearVetoes() else { return }
         for lane in lanes { lane.dwell.discard() }
         commitTaste(taste.erased())
         tasteSaver.flush()
@@ -140,6 +155,7 @@ extension StageModel {
 
     /// 对当前房间不感兴趣：记一次强落空，作废它的停留，立刻切到下一个。
     func markNotInterested(_ target: RoomTarget?) {
+        if rejectWhileJoining() { return }
         guard let lane = matchedLane(target), let room = room(of: lane) else { return }
         commitTaste(taste.rejecting(room: room, source: lane.dwellSource, now: Date()))
         lane.dwell.discard()

@@ -15,6 +15,8 @@ struct TastePanel: View {
     var setPaused: (Bool) -> Void
     var resetProfile: () -> Void
     var clearAll: () -> Void
+    /// 同步开启时「清除全部偏好」会在所有同步设备上取消「不想看」，确认文案随之改变（第 12.6 节）。
+    var syncOn = false
 
     /// 关掉滚动容器：只给离屏渲染自查用（ImageRenderer 画不出 ScrollView）。
     var scrolls = true
@@ -204,7 +206,7 @@ struct TastePanel: View {
 
     private func confirmRow(_ kind: Confirm) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(kind == .reset ? "重置后标签统计清零，最近看过保留。" : "将清除口味（标签统计、停留记录、最近看过）和观看记录；收藏与屏蔽保留。")
+            Text(confirmText(kind))
                 .font(.system(size: 12))
                 .foregroundStyle(Theme.textPrimary)
                 .lineLimit(2)
@@ -217,6 +219,13 @@ struct TastePanel: View {
                 textButton("取消", Theme.textSecondary) { confirm = nil }
                 Spacer(minLength: 0)
             }
+        }
+    }
+
+    private func confirmText(_ kind: Confirm) -> String {
+        switch kind {
+        case .reset: return syncOn ? "重置后标签统计清零，最近看过保留；并在所有同步设备上取消「不想看」。" : "重置后标签统计清零，最近看过保留。"
+        case .clear: return syncOn ? "将清除本机的学习与观看记录，并在所有同步设备上取消「不想看」；收藏与屏蔽保留。" : "将清除口味（标签统计、停留记录、最近看过）和观看记录；收藏与屏蔽保留。"
         }
     }
 

@@ -56,10 +56,13 @@ struct PhoneChrome: View {
                     .sheet(isPresented: $model.showTaste, onDismiss: { model.noteActivity() }) {
                         TasteView(model: model, width: nil)
                             .frame(maxWidth: .infinity)
-                            // 面板底部的「诊断」入口，默认收起（展开才读本机文件）。
+                            // 面板底部：同步入口在上、「诊断」在下，都默认收起（iOS 没有设置页；诊断展开才读本机文件）。
                             .safeAreaInset(edge: .bottom, spacing: 0) {
-                                PhoneDiagnosticsSection(expanded: PerfEntry.openDiagnostics)
-                                    .background(Theme.ink)
+                                VStack(alignment: .leading, spacing: 0) {
+                                    PhoneSyncSection(hub: model.sync, expanded: PerfEntry.openSync)
+                                    PhoneDiagnosticsSection(expanded: PerfEntry.openDiagnostics)
+                                }
+                                .background(Theme.ink)
                             }
                             .phoneSheet()
                     }
@@ -344,5 +347,29 @@ extension View {
         presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
             .preferredColorScheme(.dark)
+    }
+}
+
+/// 口味面板底部的同步入口：默认收起，展开后是共用的 `SyncPanel`。
+struct PhoneSyncSection: View {
+    @ObservedObject var hub: SyncHub
+    @State private var expanded: Bool
+
+    init(hub: SyncHub, expanded: Bool = false) {
+        self.hub = hub
+        _expanded = State(initialValue: expanded)
+    }
+
+    var body: some View {
+        DisclosureGroup(isExpanded: $expanded) {
+            ScrollView { SyncExperimentPage(hub: hub, width: nil).padding(.top, 8) }
+                .frame(maxHeight: 360)
+        } label: {
+            Text(hub.experimentEnabled ? (hub.isOn ? "跨设备同步（实验，已开启）" : "跨设备同步（实验）") : "实验功能")
+                .font(.system(size: 13, weight: .semibold))
+        }
+        .tint(Theme.textSecondary)
+        .padding(.horizontal, Theme.inset + 4)
+        .padding(.bottom, Theme.inset + 4)
     }
 }
