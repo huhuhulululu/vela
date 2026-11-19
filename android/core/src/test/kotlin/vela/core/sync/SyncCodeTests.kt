@@ -62,6 +62,28 @@ class SyncCodeTests {
         for (b in bad) assertFalse(SyncCode.isCanonicalOrigin(b), b)
     }
 
+    /** 第 4.3 节、第 23 节第 10 条：数字或 0x 十六进制标签可被解析成 IP，顶级标签首字符必须是字母。 */
+    @Test
+    fun testOriginRejectsNumericLookingLabels() {
+        val bad = listOf(
+            "https://0x7f.0x1",
+            "https://0177.0.0.0x1",
+            "https://sync.0x1",
+            "https://10.example",
+            "https://a.1b",
+            "https://sync.123",
+        )
+        for (b in bad) assertFalse(SyncCode.isCanonicalOrigin(b), b)
+        val ok = listOf(
+            "https://sync.example",
+            "https://a1.b2c",
+            "https://sync.xn--fiqs8s",
+            "https://0xbox.example",
+            "https://s3.example",
+        )
+        for (b in ok) assertTrue(SyncCode.isCanonicalOrigin(b), b)
+    }
+
     @Test
     fun testFingerprint() {
         assertEquals("3F9A-0C21", SyncCode.fingerprint("3f9a0c21" + "0".repeat(56)))

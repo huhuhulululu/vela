@@ -31,11 +31,9 @@ class SyncLifecycleTests {
         val present = SyncKeychainRead.Present(blob)
         val cases = listOf(
             Triple(SyncStateRead.None, SyncKeychainRead.None, SyncStartupAction.NotEnabled),
-            Triple(SyncStateRead.None, present, SyncStartupAction.StateLost),
+            Triple(SyncStateRead.None, present, SyncStartupAction.OrphanEntry),
             Triple(SyncStateRead.Present(state(SyncPhase.CREATING)), SyncKeychainRead.None, SyncStartupAction.DiscardCreating),
             Triple(SyncStateRead.Present(state(SyncPhase.CREATING)), present, SyncStartupAction.ResumeCreating),
-            Triple(SyncStateRead.Present(state(SyncPhase.JOINING)), SyncKeychainRead.None, SyncStartupAction.DiscardJoining),
-            Triple(SyncStateRead.Present(state(SyncPhase.JOINING)), present, SyncStartupAction.ResumeJoining),
             Triple(SyncStateRead.Present(state(SyncPhase.ACTIVE)), SyncKeychainRead.None, SyncStartupAction.KeyLost),
             Triple(SyncStateRead.Present(state(SyncPhase.ACTIVE)), SyncKeychainRead.Invalidated, SyncStartupAction.KeyLost),
             Triple(SyncStateRead.Present(state(SyncPhase.ACTIVE)), present, SyncStartupAction.Normal),
@@ -45,7 +43,6 @@ class SyncLifecycleTests {
             Triple(SyncStateRead.Present(state(SyncPhase.CLEARING)), SyncKeychainRead.None, SyncStartupAction.FinishClearingLocally),
             Triple(SyncStateRead.Present(state(SyncPhase.ACTIVE)), SyncKeychainRead.Present(other), SyncStartupAction.Mismatch),
             Triple(SyncStateRead.Present(state(SyncPhase.CREATING)), SyncKeychainRead.Present(other), SyncStartupAction.Mismatch),
-            Triple(SyncStateRead.Present(state(SyncPhase.JOINING)), SyncKeychainRead.Present(other), SyncStartupAction.Mismatch),
             Triple(SyncStateRead.Present(state(SyncPhase.CLEARING)), SyncKeychainRead.Present(other), SyncStartupAction.Mismatch),
             Triple(SyncStateRead.Present(state(SyncPhase.ACTIVE)), SyncKeychainRead.Unavailable, SyncStartupAction.Skip),
             Triple(SyncStateRead.None, SyncKeychainRead.Unavailable, SyncStartupAction.Skip),
@@ -71,32 +68,20 @@ class SyncLifecycleTests {
     private class Quad(val action: SyncStartupAction, val result: SyncFlowResult?, val store: MemoryStateStore, val keychain: MemoryKeychain)
 
     @Test
-    fun testRecoverDiscardsUnfinishedCreateAndJoin() = runBlocking {
-        for (phase in listOf(SyncPhase.CREATING, SyncPhase.JOINING)) {
-            val q = recover(state(phase), SyncKeychainRead.None)
-            assertEquals(SyncFlowResult.Done, q.result, "${q.action}")
-            assertNull(q.store.stored)
-        }
+    fun testRecoverDiscardsUnfinishedCreate() = runBlocking {
+        val q = recover(state(SyncPhase.CREATING), SyncKeychainRead.None)
+        assertEquals(SyncFlowResult.Done, q.result, "${q.action}")
+        assertNull(q.store.stored)
     }
 
+    /** 加入是一次性事务：只剩钥匙串条目没有状态，删掉条目即未加入。 */
     @Test
-    fun testRecoverJoiningWithoutPlanDeletesEntryAndState() = runBlocking {
-        val q = recover(state(SyncPhase.JOINING), SyncKeychainRead.Present(blob))
-        assertEquals(SyncStartupAction.ResumeJoining, q.action)
+    fun testRecoverDeletesOrphanEntry() = runBlocking {
+        val q = recover(null, SyncKeychainRead.Present(blob))
+        assertEquals(SyncStartupAction.OrphanEntry, q.action)
         assertEquals(SyncFlowResult.Done, q.result)
         assertNull(q.store.stored)
         assertEquals(SyncKeychainRead.None, q.keychain.entry)
-    }
-
-    @Test
-    fun testRecoverJoiningWithPlanIsLeftToFlow() = runBlocking {
-        val s = state(SyncPhase.JOINING)
-        s.joinPlan = SyncJoinPlan(s.origin, blob, "e", 3, "h", SyncJoinPreview(n = 1))
-        val q = recover(s, SyncKeychainRead.Present(blob))
-        assertEquals(SyncStartupAction.ResumeJoining, q.action)
-        assertNull(q.result)
-        assertTrue(q.store.stored != null)
-        assertEquals(SyncKeychainRead.Present(blob), q.keychain.entry)
     }
 
     @Test
@@ -113,10 +98,6 @@ class SyncLifecycleTests {
             assertEquals(s, q.store.stored)
             assertEquals(k, q.keychain.entry)
         }
-        val q = recover(null, SyncKeychainRead.Present(blob))
-        assertEquals(SyncStartupAction.StateLost, q.action)
-        assertNull(q.result)
-        assertEquals(SyncKeychainRead.Present(blob), q.keychain.entry, "需用户确认，不自动删条目")
     }
 
     @Test
@@ -221,6 +202,45 @@ class SyncLifecycleTests {
         assertEquals(SyncKeychainRead.None, keychain.entry)
     }
 
+    /** 还没有 epoch 不能证明空间不存在：先 GET，404 或 410 才本机关闭；空间存在就按返回的版本删除。 */
+    @Test
+    fun testClearWithoutEpochChecksServerFirst() = runBlocking {
+        val s = state(SyncPhase.ACTIVE, sampleDoc())
+        assertNull(s.epoch)
+        run {
+            val store = MemoryStateStore(s)
+            val keychain = MemoryKeychain(SyncKeychainRead.Present(blob))
+            val transport = MemoryTransport(MemoryServer())
+            val result = SyncLifecycle.clear(s, store, keychain, MemorySink(), transport)
+            assertEquals(SyncFlowResult.Done, result)
+            assertEquals(emptyList<Long>(), transport.deletes)
+            assertNull(store.stored)
+        }
+        run {
+            val server = MemoryServer()
+            server.ver = 5
+            server.pub = "PUB"
+            server.data = PlainCodec.envelope(SyncDocument.empty(), 5)
+            val store = MemoryStateStore(s)
+            val keychain = MemoryKeychain(SyncKeychainRead.Present(blob))
+            val transport = MemoryTransport(server)
+            val result = SyncLifecycle.clear(s, store, keychain, MemorySink(), transport)
+            assertEquals(SyncFlowResult.Done, result)
+            assertEquals(listOf(5L), transport.deletes)
+            assertTrue(server.deletedAt != null)
+        }
+        run {
+            val store = MemoryStateStore(s)
+            val keychain = MemoryKeychain(SyncKeychainRead.Present(blob))
+            val transport = MemoryTransport(MemoryServer())
+            transport.scriptedGets.add(SyncServerResponse.Transient)
+            val result = SyncLifecycle.clear(s, store, keychain, MemorySink(), transport)
+            assertEquals(SyncFlowResult.RemotePending, result)
+            assertEquals(SyncPhase.CLEARING, store.stored?.phase)
+            assertEquals(SyncKeychainRead.Present(blob), keychain.entry)
+        }
+    }
+
     @Test
     fun testClearKeepsClearingWhenNetworkFails() = runBlocking {
         val server = MemoryServer()
@@ -242,36 +262,6 @@ class SyncLifecycleTests {
         assertTrue(server.deletedAt != null)
         val again = SyncLifecycle.finishClear(s, MemoryStateStore(s), MemoryKeychain(SyncKeychainRead.Present(blob)), transport)
         assertEquals(SyncFlowResult.Done, again)
-    }
-
-    @Test
-    fun testJoinRecoveryThreeBranches() {
-        val plan = SyncJoinPlan("https://sync.example.org", blob, "e", 7, "h7", SyncJoinPreview(n = 3, m = 1))
-        assertEquals(SyncLifecycle.JoinRecovery.Proceed, SyncLifecycle.joinRecovery(plan, 7, "h7", SyncJoinPreview(n = 3, m = 1)))
-        assertEquals(SyncLifecycle.JoinRecovery.Proceed, SyncLifecycle.joinRecovery(plan, 8, "h8", SyncJoinPreview(n = 3, m = 1)))
-        assertEquals(
-            SyncLifecycle.JoinRecovery.Reconfirm(SyncJoinPreview(n = 2, m = 1, z = 1)),
-            SyncLifecycle.joinRecovery(plan, 8, "h8", SyncJoinPreview(n = 2, m = 1, z = 1)),
-        )
-        assertEquals(SyncLifecycle.JoinRecovery.Abort, SyncLifecycle.joinRecovery(null, 7, "h7", SyncJoinPreview()))
-    }
-
-    @Test
-    fun testCompleteJoinStampsOnceAndActivates() {
-        val remote = SyncDocument.empty()
-        remote.rooms["cb:shared"] = SyncRoom(f = SyncFixture.reg(10, "+", dev = 9))
-        val local = SyncLocalData(Curation(favorites = listOf("mine", "shared")))
-        val s = state(SyncPhase.JOINING)
-        s.joinPlan = SyncJoinPlan(s.origin, blob, "e", 1, "h", SyncJoinPreview(n = 1))
-        val joined = SyncLifecycle.completeJoin(s, local, remote, 100)
-        assertEquals(SyncPhase.ACTIVE, joined.phase)
-        assertNull(joined.joinPlan)
-        assertTrue(joined.migrated)
-        assertEquals(setOf("mine", "shared"), SyncProjection(joined.doc).curation.favorites.toSet())
-        assertTrue(joined.gen > joined.pushedGen, "立即推送")
-        val replay = joined.deepCopy()
-        replay.phase = SyncPhase.JOINING
-        assertEquals(joined.doc, SyncLifecycle.completeJoin(replay, local, remote, 200).doc, "迁移标记防止重复盖章")
     }
 
     @Test

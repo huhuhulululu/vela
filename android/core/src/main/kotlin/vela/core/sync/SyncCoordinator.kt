@@ -106,6 +106,8 @@ class SyncCoordinator(
             when (val put = response) {
                 is SyncServerResponse.Stored -> {
                     if (state.epoch != null && state.epoch != put.epoch) return halt(SyncHalt.EpochChanged)
+                    // 200 回的版本必须恰为请求的 next；不符则保留 inflight，下一周期再核对。
+                    if (put.ver != request.next) return SyncCycleResult.Transient
                     state.lastSeenVer = put.ver
                     state.lastSeenHash = hash
                     state.pushedGen = maxOf(state.pushedGen, state.inflight?.sentGen ?: 0L)
@@ -154,7 +156,9 @@ class SyncCoordinator(
             is SyncDecodeResult.Valid -> decoded.doc
             SyncDecodeResult.NewerSchema -> return Accepted.Bad(SyncCycleResult.ReadOnly)
             is SyncDecodeResult.Invalid -> {
-                state.lastFailure = "invalid:${decoded.reason}"
+                // 只记类别（冒号前），不把房间键、标签等文档内容写进同步状态。
+                val category = decoded.reason.substringBefore(':')
+                state.lastFailure = "invalid:$category"
                 store.save(state)
                 return Accepted.Bad(SyncCycleResult.InvalidRemote)
             }

@@ -85,8 +85,24 @@ data class SyncCode(val key: ByteArray, val origin: String) {
                     if (!ok) return false
                 }
             }
-            // 顶级标签全为数字的不是 DNS 名（点分 IPv4）。
-            return !labels.last().all { (it.toInt() and 0xFF) in 48..57 }
+            // 能被解析成 IP 的写法（第 4.3 节、第 23 节第 10 条）：任何标签不得全为数字，
+            // 也不得是 0x 加十六进制；顶级标签首字符必须是字母。
+            for (label in labels) {
+                if (label.all { (it.toInt() and 0xFF) in 48..57 }) return false
+                if (isHexLabel(label)) return false
+            }
+            val first = labels.last().first().toInt() and 0xFF
+            return first in 97..122
+        }
+
+        private fun isHexLabel(label: ByteArray): Boolean {
+            if (label.size < 2) return false
+            if (label[0] != '0'.code.toByte() || label[1] != 'x'.code.toByte()) return false
+            for (i in 2 until label.size) {
+                val v = label[i].toInt() and 0xFF
+                if (v !in 48..57 && v !in 97..102) return false
+            }
+            return true
         }
 
         fun fingerprint(blobID: String): String {

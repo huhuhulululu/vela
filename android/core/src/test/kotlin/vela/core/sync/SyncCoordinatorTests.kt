@@ -2,6 +2,7 @@ package vela.core.sync
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
@@ -257,6 +258,20 @@ class SyncCoordinatorTests {
         assertEquals(SyncCycleResult.Halted(SyncHalt.Missing), a.coordinator.runCycle(), "结果未知的创建之后遇 404 停写")
     }
 
+    /** PUT 200 回的版本必须恰为请求的 next，否则不确认推送、不推进水位。 */
+    @Test
+    fun testStoredWithUnexpectedVersionIsTransient() = runBlocking {
+        val a = seeded()
+        val before = a.coordinator.state.lastSeenVer
+        a.coordinator.perform(SyncLocalOp.Favorite("carol"))
+        a.transport.putOverride = SyncServerResponse.Stored(before + 5, server.epoch, server.now)
+        val r = a.coordinator.runCycle()
+        assertEquals(SyncCycleResult.Transient, r)
+        assertEquals(before, a.coordinator.state.lastSeenVer)
+        assertTrue(a.coordinator.state.inflight != null, "结果未知，留到下一周期核对")
+        assertTrue(a.coordinator.state.gen > a.coordinator.state.pushedGen)
+    }
+
     @Test
     fun testForbiddenHalts() = runBlocking {
         val a = seeded()
@@ -291,6 +306,22 @@ class SyncCoordinatorTests {
         val a = seeded()
         a.transport.scriptedGets.add(SyncServerResponse.Blob(3, "PUB", "e9.xxxx", server.epoch, server.now))
         assertEquals(SyncCycleResult.ReadOnly, a.coordinator.runCycle())
+    }
+
+    /** sync-state.json 的 lastFailure 只记类别，不带房间键等文档内容。 */
+    @Test
+    fun testInvalidRemoteFailureRecordsOnlyCategory() = runBlocking {
+        val a = seeded()
+        val bad = PlainCodec().seal(
+            "{\"schema\":2,\"rooms\":{\"cb:secretname\":{}},\"veto\":{},\"settings\":{}}".toByteArray(Charsets.UTF_8),
+            3,
+        )!!
+        a.transport.scriptedGets.add(SyncServerResponse.Blob(3, "PUB", bad, server.epoch, server.now))
+        val r = a.coordinator.runCycle()
+        assertEquals(SyncCycleResult.InvalidRemote, r)
+        val failure = a.coordinator.state.lastFailure ?: ""
+        assertFalse(failure.contains("secretname"), failure)
+        assertEquals("invalid:room", failure)
     }
 
     @Test

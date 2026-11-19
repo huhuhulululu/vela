@@ -12,7 +12,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.longOrNull
 import vela.core.base.io.PreferenceQuarantine
 
-enum class SyncPhase { CREATING, JOINING, ACTIVE, DISABLING, CLEARING }
+enum class SyncPhase { CREATING, ACTIVE, DISABLING, CLEARING }
 
 sealed class SyncHalt {
     data object Forbidden : SyncHalt()
@@ -25,15 +25,6 @@ sealed class SyncHalt {
 }
 
 data class SyncInflight(val base: Long, val next: Long, val envelopeHash: String, val sentGen: Long)
-
-data class SyncJoinPlan(
-    val origin: String,
-    val blobID: String,
-    val epoch: String,
-    val ver: Long,
-    val envelopeHash: String,
-    val preview: SyncJoinPreview,
-)
 
 data class SyncState(
     var phase: SyncPhase,
@@ -48,7 +39,6 @@ data class SyncState(
     var lastSeenVer: Long = 0,
     var lastSeenHash: String? = null,
     var inflight: SyncInflight? = null,
-    var joinPlan: SyncJoinPlan? = null,
     var migrated: Boolean = false,
     var oversize: Boolean = false,
     var halt: SyncHalt? = null,
@@ -100,7 +90,6 @@ object SyncStateJson {
         field("lastSeenVer", state.lastSeenVer.toString())
         field("lastSeenHash", state.lastSeenHash?.let { quote(it) } ?: "null")
         field("inflight", state.inflight?.let { inflightJson(it) } ?: "null")
-        field("joinPlan", state.joinPlan?.let { planJson(it) } ?: "null")
         field("migrated", state.migrated.toString())
         field("oversize", state.oversize.toString())
         field("halt", state.halt?.let { haltJson(it) } ?: "null")
@@ -134,13 +123,6 @@ object SyncStateJson {
             inflight = root.objOrNull("inflight")?.let {
                 SyncInflight(it.long("base"), it.long("next"), it.str("envelopeHash"), it.long("sentGen"))
             },
-            joinPlan = root.objOrNull("joinPlan")?.let { plan ->
-                val p = plan.obj("preview")
-                SyncJoinPlan(
-                    plan.str("origin"), plan.str("blobID"), plan.str("epoch"), plan.long("ver"), plan.str("envelopeHash"),
-                    SyncJoinPreview(p.long("n").toInt(), p.long("m").toInt(), p.long("v").toInt(), p.long("x").toInt(), p.long("y").toInt(), p.long("z").toInt()),
-                )
-            },
             migrated = root.bool("migrated"),
             oversize = root.bool("oversize"),
             halt = root.objOrNull("halt")?.let { haltOf(it) },
@@ -152,15 +134,6 @@ object SyncStateJson {
 
     private fun inflightJson(i: SyncInflight) =
         """{"base":${i.base},"next":${i.next},"envelopeHash":${quote(i.envelopeHash)},"sentGen":${i.sentGen}}"""
-
-    private fun planJson(p: SyncJoinPlan): String {
-        val v = p.preview
-        return buildString {
-            append("""{"origin":${quote(p.origin)},"blobID":${quote(p.blobID)},"epoch":${quote(p.epoch)},"ver":${p.ver},"envelopeHash":${quote(p.envelopeHash)},"preview":""")
-            append("""{"n":${v.n},"m":${v.m},"v":${v.v},"x":${v.x},"y":${v.y},"z":${v.z}}""")
-            append('}')
-        }
-    }
 
     private fun haltJson(h: SyncHalt): String = when (h) {
         SyncHalt.Forbidden -> """{"kind":"forbidden"}"""
