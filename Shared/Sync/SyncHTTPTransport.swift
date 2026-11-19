@@ -13,6 +13,7 @@ final class SyncHTTPTransport: SyncTransport {
     static let userAgent = "Vela-Sync/2"
     /// 单个请求的超时（设计稿只要求「超时」，未写数值；20 秒足够 800 KB 信封走完一次往返）。
     static let requestTimeout: TimeInterval = 20
+    static let maxRetryAfter = 86_400
 
     let blobURL: URL
     let deleteURL: URL
@@ -96,7 +97,8 @@ final class SyncHTTPTransport: SyncTransport {
 
     /// 把状态码与 JSON 体解析成协调器的响应；非 JSON、截断、字段缺失、3xx 与 5xx 一律暂时故障。
     static func parse(status: Int, body: Data, retryAfter: Int?, kind: Kind) -> SyncServerResponse {
-        if status == 429 { return .rateLimited(retryAfter: max(1, retryAfter ?? 60)) }
+        // Retry-After 夹到 1 秒到 1 天：极大值不能让调度层的乘法溢出，也不该让客户端停一辈子。
+        if status == 429 { return .rateLimited(retryAfter: min(maxRetryAfter, max(1, retryAfter ?? 60))) }
         if status == 413 { return .payloadTooLarge }
         if status == 507 { return .quotaFull }
         if status == 403 { return .forbidden }

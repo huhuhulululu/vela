@@ -32,6 +32,12 @@ struct SyncScheduler: Equatable {
     private(set) var hardUntil: UInt64 = 0
     private(set) var failures = 0
 
+    /// 饱和加法：截止时刻到顶就停在顶，不溢出。
+    static func later(_ now: UInt64, _ delta: UInt64) -> UInt64 {
+        let (sum, overflow) = now.addingReportingOverflow(delta)
+        return overflow ? .max : sum
+    }
+
     func allows(_ trigger: Trigger, now: UInt64) -> Bool {
         guard now >= hardUntil else { return false }
         if trigger == .manual { return true }
@@ -39,7 +45,7 @@ struct SyncScheduler: Equatable {
         switch trigger {
         case .panel, .activate:
             guard let last = lastContactAt else { return true }
-            return now > last + Self.panelGapMillis
+            return now > Self.later(last, Self.panelGapMillis)
         default:
             return true
         }
@@ -62,7 +68,7 @@ struct SyncScheduler: Equatable {
     /// 本地操作之后等多久再跑：去抖 5 秒，且距上次 PUT 至少 10 秒。
     func editDelay(now: UInt64) -> UInt64 {
         var delay = Self.debounceMillis
-        if let last = lastPutAt, last + Self.minPutGapMillis > now { delay = max(delay, last + Self.minPutGapMillis - now) }
+        if let last = lastPutAt, Self.later(last, Self.minPutGapMillis) > now { delay = max(delay, Self.later(last, Self.minPutGapMillis) - now) }
         return delay
     }
 
@@ -78,13 +84,14 @@ struct SyncScheduler: Equatable {
         case .transient, .conflictLimit, .decryptFailed, .storageFailed:
             failures += 1
             let step = Self.backoffBaseMillis << UInt64(min(failures - 1, 20))
-            backoffUntil = now + min(step, Self.backoffMaxMillis)
+            backoffUntil = Self.later(now, min(step, Self.backoffMaxMillis))
         case .rateLimited(let seconds):
             lastContactAt = now
-            hardUntil = now + UInt64(max(1, seconds)) * 1000
+            let clamped = UInt64(min(86_400, max(1, seconds)))
+            hardUntil = Self.later(now, clamped * 1000)
         case .quotaFull:
             lastContactAt = now
-            hardUntil = now + Self.backoffMaxMillis
+            hardUntil = Self.later(now, Self.backoffMaxMillis)
         case .halted, .readOnly, .invalidRemote, .clockSkew, .oversize, .payloadTooLarge:
             lastContactAt = now
         case .cancelled:
