@@ -59,7 +59,7 @@ public struct FavoritesBoard: Equatable, Sendable {
         }
         var playable: [String: Room] = [:]
         for room in catalog where room.show.isPlayable {
-            let key = Curation.key(room.username)
+            let key = Curation.key(room.ref)
             if playable[key] == nil { playable[key] = room }
         }
 
@@ -80,7 +80,7 @@ public struct FavoritesBoard: Equatable, Sendable {
                     username: name,
                     state: .online,
                     room: room,
-                    thumbnailURL: room.thumbnailURL ?? URL(string: "https://thumb.live.mmcdn.com/riw/\(key).jpg"),
+                    thumbnailURL: room.thumbnailURL ?? Self.fallbackThumb(key),
                     detail: onlineDetail(room)
                 ))
             case .offline?:
@@ -116,6 +116,12 @@ public struct FavoritesBoard: Equatable, Sendable {
             case (nil, nil): return lhs.offset < rhs.offset
             }
         }.map(\.element)
+    }
+
+    /// cb 没有目录缩略图时按小写用户名拼接。带站点前缀的 ref 不拼这条旧地址。
+    private static func fallbackThumb(_ key: String) -> URL? {
+        guard !key.contains(":") else { return nil }
+        return URL(string: "https://thumb.live.mmcdn.com/riw/\(key).jpg")
     }
 
     private static func onlineDetail(_ room: Room) -> String {

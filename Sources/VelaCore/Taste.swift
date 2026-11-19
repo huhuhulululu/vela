@@ -53,9 +53,33 @@ public struct Taste: Codable, Equatable, Sendable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         beliefs = try c.decodeIfPresent([String: Belief].self, forKey: .beliefs) ?? [:]
-        seen = try c.decodeIfPresent([String: TimeInterval].self, forKey: .seen) ?? [:]
+        let rawSeen = try c.decodeIfPresent([String: TimeInterval].self, forKey: .seen) ?? [:]
+        var merged: [String: TimeInterval] = [:]
+        for (key, value) in rawSeen {
+            let clipped = Self.clipped(SiteKeys.memory(key))
+            merged[clipped] = max(merged[clipped] ?? 0, value)
+        }
+        seen = merged
         daily = try c.decodeIfPresent([String: DayTally].self, forKey: .daily) ?? [:]
         paused = try c.decodeIfPresent(Bool.self, forKey: .paused) ?? false
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(beliefs, forKey: .beliefs)
+        var disk: [String: TimeInterval] = [:]
+        for (key, value) in seen {
+            let stored = SiteKeys.disk(key)
+            disk[stored] = max(disk[stored] ?? 0, value)
+        }
+        try container.encode(disk, forKey: .seen)
+        try container.encode(daily, forKey: .daily)
+        try container.encode(paused, forKey: .paused)
+        try container.encode(SiteKeyMigration.version, forKey: .keyVersion)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case beliefs, seen, daily, paused, keyVersion
     }
 
     public static func tagKey(_ tag: String) -> String { Preferences.tagKey(String(tag.prefix(Preferences.maxNameLength))) }
@@ -91,7 +115,9 @@ public struct Taste: Codable, Equatable, Sendable {
         seen[Self.clipped(username)].map(Date.init(timeIntervalSince1970:))
     }
 
-    private static func clipped(_ name: String) -> String { String(name.lowercased().prefix(Preferences.maxNameLength)) }
+    private static func clipped(_ name: String) -> String {
+        String(RoomKey.normalizeRef(name).prefix(Preferences.maxNameLength))
+    }
 
     // MARK: 更新
 
@@ -128,7 +154,7 @@ public struct Taste: Codable, Equatable, Sendable {
     private func settling(
         room: Room, feedback: Feedback, dwell: TimeInterval?, source: FeedSource, now: Date, rarity: TagRarity?
     ) -> Taste {
-        let base = marking(seen: room.username, now: now)
+        let base = marking(seen: room.ref, now: now)
         guard !paused else { return base }
         var next = base
         if feedback != .none {
@@ -146,7 +172,7 @@ public struct Taste: Codable, Equatable, Sendable {
 
     /// 对当前房间不感兴趣：强落空，也标记看过。
     public func rejecting(room: Room, source: FeedSource, now: Date) -> Taste {
-        let base = marking(seen: room.username, now: now)
+        let base = marking(seen: room.ref, now: now)
         guard !paused else { return base }
         var next = base.applying(room, hit: 0, miss: Self.rejectStep, now: now)
         if source == .guess { next.tally(isHit: false, now: now) }

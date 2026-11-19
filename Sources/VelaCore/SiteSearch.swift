@@ -95,7 +95,7 @@ public enum SiteSearch {
 
     /// 搜索结果整理成一次给全的临时列表（去重、去掉屏蔽的；没有后续页）。
     public static func page(_ rooms: [Room], blocked: Set<String>) -> CatalogPage {
-        let kept = dedupeRooms(rooms).filter { !blocked.contains($0.username.lowercased()) }
+        let kept = dedupeRooms(rooms).filter { !blocked.contains($0.identity) }
         return CatalogPage(rooms: kept, total: kept.count, nextOffset: kept.count)
     }
 }

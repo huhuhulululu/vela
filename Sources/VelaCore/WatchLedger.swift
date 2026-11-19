@@ -26,9 +26,39 @@ public struct WatchLedger: Codable, Equatable, Sendable {
         self.entries = entries
     }
 
+    /// 账本键是小写 ref。参数名仍叫 username，存的是 ref（裸名与 `cb:` 归到同一键）。
     public static func key(_ username: String) -> String {
-        let trimmed = String(username.trimmingCharacters(in: .whitespacesAndNewlines).prefix(Preferences.maxNameLength))
-        return trimmed.lowercased()
+        String(RoomKey.normalizeRef(username).prefix(Preferences.maxNameLength))
+    }
+
+    private enum CodingKeys: String, CodingKey { case entries, keyVersion }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        var disk: [String: Entry] = [:]
+        for (key, value) in entries { disk[SiteKeys.disk(key)] = value }
+        try container.encode(disk, forKey: .entries)
+        try container.encode(SiteKeyMigration.version, forKey: .keyVersion)
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let raw = try container.decodeIfPresent([String: Entry].self, forKey: .entries) ?? [:]
+        var merged: [String: Entry] = [:]
+        for (key, value) in raw {
+            let mem = Self.key(SiteKeys.memory(key))
+            if let existing = merged[mem] {
+                merged[mem] = Self.prefer(existing, value)
+            } else {
+                merged[mem] = value
+            }
+        }
+        self.init(entries: merged)
+    }
+
+    private static func prefer(_ first: Entry, _ second: Entry) -> Entry {
+        if second.lastUsed != first.lastUsed { return second.lastUsed > first.lastUsed ? second : first }
+        return second.totalSeconds > first.totalSeconds ? second : first
     }
 
     /// 结算一段有效停留：累计秒数，并按规则计「有效次数」。

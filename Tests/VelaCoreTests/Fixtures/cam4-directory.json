@@ -1,0 +1,38 @@
+{
+  "users": [
+    {
+      "username": "Sample_One",
+      "gender": "female",
+      "age": 24,
+      "countryCode": "us",
+      "privateRoom": false,
+      "hlsPreviewUrl": "https://preview.example/sample_one/master.m3u8?token=abc",
+      "snapshotImageLink": "https://snapshots.example/sample_one.jpg?sign=s1",
+      "profileImageLink": "https://images.example/sample_one.jpg?validfrom=1700000000&validto=1700003600",
+      "defaultImageLink": "https://images.example/default.jpg",
+      "blockedRegions": ["643", "804", "4"],
+      "viewers": 128,
+      "showTags": ["talk", "dance"],
+      "broadcastType": "public",
+      "languages": ["en", "es"]
+    },
+    {
+      "username": "sample_two",
+      "gender": "shemale",
+      "age": 17,
+      "countryCode": "usa",
+      "privateRoom": true,
+      "hlsPreviewUrl": "http://insecure.example/a.m3u8",
+      "snapshotImageLink": "https://snapshots.example/sample_two.jpg",
+      "viewers": "7",
+      "showTags": [],
+      "blockedRegions": "840, nope",
+      "broadcastType": "private",
+      "languages": ["fr"]
+    },
+    {
+      "username": "bare_min"
+    }
+  ],
+  "totalCount": 40
+}

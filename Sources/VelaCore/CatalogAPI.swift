@@ -193,11 +193,11 @@ public enum PageMerge {
     public static func keepingCurrent(
         existing: [Room], incoming: [Room], current: String?, order: ([Room]) -> [Room]
     ) -> PageMergeResult {
-        var seen = Set(existing.map { $0.username.lowercased() })
-        let fresh = incoming.filter { seen.insert($0.username.lowercased()).inserted }
+        var seen = Set(existing.map(\.identity))
+        let fresh = incoming.filter { seen.insert($0.identity).inserted }
         guard !fresh.isEmpty else { return PageMergeResult(rooms: existing, added: 0) }
         let combined = existing + fresh
-        guard let current, let at = combined.firstIndex(where: { $0.username == current }) else {
+        guard let current, let at = combined.firstIndex(where: { $0.ref == current }) else {
             return PageMergeResult(rooms: order(combined), added: fresh.count)
         }
         let head = Array(combined[...at])

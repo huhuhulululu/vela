@@ -49,7 +49,7 @@ public enum TasteTargeting {
     public static func merging(_ regular: [Room], extra pages: [[Room]]) -> [Room] {
         var seen = Set<String>()
         var out: [Room] = []
-        for room in regular + pages.joined() where seen.insert(room.username.lowercased()).inserted {
+        for room in regular + pages.joined() where seen.insert(room.identity).inserted {
             out.append(room)
         }
         return out

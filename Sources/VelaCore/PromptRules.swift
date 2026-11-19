@@ -51,9 +51,9 @@ public enum EmptyListCopy {
             withoutText.text = ""
             if catalog.contains(where: withoutText.matches) { return "没有匹配「\(text)」的房间。回车搜索全站" }
         }
-        let unblocked = catalog.filter { !query.blocked.contains($0.username.lowercased()) }
+        let unblocked = catalog.filter { !query.blocked.contains($0.identity) }
         if unblocked.isEmpty { return "目录里的房间都在屏蔽名单里" }
-        let allowed = unblocked.filter { room in query.only.map { $0.contains(room.username.lowercased()) } ?? true }
+        let allowed = unblocked.filter { room in query.only.map { $0.contains(room.identity) } ?? true }
         if allowed.isEmpty { return "收藏的人现在都不在线" }
         if !query.hidden.isEmpty, allowed.allSatisfy({ RoomQuery.isHidden($0, by: query.hidden) }) {
             return "目录里的房间都被「我的口味」里不想看的标签过滤掉了"

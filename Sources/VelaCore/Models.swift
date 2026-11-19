@@ -63,7 +63,8 @@ public enum ShowState: Equatable, Sendable {
 }
 
 public struct Room: Identifiable, Equatable, Sendable {
-    public var id: String { username }
+    /// 内存简写：`cb` 房间等于 `username`，其他站点是 `c4:<名>`。
+    public var id: String { ref }
     public var username: String
     public var displayName: String
     public var subject: String
@@ -77,6 +78,13 @@ public struct Room: Identifiable, Equatable, Sendable {
     public var thumbnailURL: URL?
     public var age: Int?
     public var secondsOnline: Int?
+    public var site: SiteID
+    /// 目录直接带来的播放主列表（Cam4 `hlsPreviewUrl`）。cb 为 nil。
+    public var stream: URL?
+    /// 缩略图过期时刻。cb 为 nil。
+    public var thumbnailExpires: Date?
+    /// 大写 ISO 3166-1 alpha-2。cb 为空。
+    public var blockedRegions: Set<String>
 
     public init(
         username: String,
@@ -91,7 +99,11 @@ public struct Room: Identifiable, Equatable, Sendable {
         location: String = "",
         thumbnailURL: URL? = nil,
         age: Int? = nil,
-        secondsOnline: Int? = nil
+        secondsOnline: Int? = nil,
+        site: SiteID = .chaturbate,
+        stream: URL? = nil,
+        thumbnailExpires: Date? = nil,
+        blockedRegions: Set<String> = []
     ) {
         self.username = username
         let trimmedName = displayName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -107,7 +119,22 @@ public struct Room: Identifiable, Equatable, Sendable {
         self.thumbnailURL = thumbnailURL
         self.age = Self.displayableAge(age)
         self.secondsOnline = secondsOnline
+        self.site = site
+        self.stream = stream
+        self.thumbnailExpires = thumbnailExpires
+        self.blockedRegions = blockedRegions
     }
+
+    /// 名字不合法时也有值：内部不校验，保证非可选。`c4` 的用户名部分统一小写。
+    public var key: RoomKey {
+        if let key = RoomKey(site: site, name: username) { return key }
+        let name = site == .cam4 ? username.lowercased() : username
+        return RoomKey(unchecked: site, name: name)
+    }
+
+    public var ref: String { key.ref }
+    /// 小写 ref，集合与比较用。
+    public var identity: String { key.normalized }
 
     public static func displayableAge(_ age: Int?) -> Int? {
         guard let age, (18...80).contains(age) else { return nil }
@@ -122,14 +149,21 @@ public struct Room: Identifiable, Equatable, Sendable {
     }
 
     public static func direct(username raw: String) -> Room? {
-        let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard isValidUsername(name) else { return nil }
+        guard let key = RoomKey(site: .chaturbate, name: raw) else { return nil }
+        return direct(key: key)
+    }
+
+    public static func direct(key: RoomKey) -> Room {
+        let thumb = key.site == .chaturbate
+            ? URL(string: "https://thumb.live.mmcdn.com/riw/\(key.name).jpg")
+            : nil
         return Room(
-            username: name,
-            displayName: name,
+            username: key.name,
+            displayName: key.name,
             subject: "",
             show: .publicShow,
-            thumbnailURL: URL(string: "https://thumb.live.mmcdn.com/riw/\(name).jpg")
+            thumbnailURL: thumb,
+            site: key.site
         )
     }
 }
@@ -163,9 +197,9 @@ public enum BroadcastClock {
 public struct RoomQuery: Equatable, Sendable {
     public var text: String
     public var publicOnly: Bool
-    /// 已屏蔽的用户名（小写）。在所有来源里一律不出现。
+    /// 已屏蔽的 ref（小写）。在所有来源里一律不出现。
     public var blocked: Set<String>
-    /// 只允许这些用户名（小写）出现；nil 表示不限。收藏来源用它把列表限定在当前收藏名单内。
+    /// 只允许这些 ref（小写）出现；nil 表示不限。收藏来源用它把列表限定在当前收藏名单内。
     public var only: Set<String>?
     /// 「不想看」的口味键（标签键 / 性别键）：带其中任一键的房间不显示，但仍留在目录里，恢复后重新出现。
     public var hidden: Set<String>
@@ -187,13 +221,14 @@ public struct RoomQuery: Equatable, Sendable {
     }
 
     public func matches(_ room: Room) -> Bool {
-        if blocked.contains(room.username.lowercased()) { return false }
-        if let only, !only.contains(room.username.lowercased()) { return false }
+        if blocked.contains(room.identity) { return false }
+        if let only, !only.contains(room.identity) { return false }
         if publicOnly && room.show != .publicShow { return false }
         if !hidden.isEmpty, Self.isHidden(room, by: hidden) { return false }
         let needle = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if needle.isEmpty { return true }
         if room.username.lowercased().contains(needle) { return true }
+        if room.ref.lowercased().contains(needle) { return true }
         if room.displayName.lowercased().contains(needle) { return true }
         if room.subject.lowercased().contains(needle) { return true }
         return room.tags.contains { $0.lowercased().contains(needle) }
@@ -238,5 +273,5 @@ struct FlexInt: Decodable {
 
 func dedupeRooms(_ rooms: [Room]) -> [Room] {
     var seen = Set<String>()
-    return rooms.filter { seen.insert($0.username.lowercased()).inserted }
+    return rooms.filter { seen.insert($0.identity).inserted }
 }

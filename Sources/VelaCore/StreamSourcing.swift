@@ -11,6 +11,8 @@ public enum StreamOrigin: String, Equatable, Sendable {
     case edge = "ajax"
     /// 侧车网页里的 `get_edge_hls_url_ajax`。
     case sidecar
+    /// Cam4 目录直接带来的 HLS 主列表。
+    case cam4Directory = "c4-directory"
 }
 
 /// 解析结果与来源。

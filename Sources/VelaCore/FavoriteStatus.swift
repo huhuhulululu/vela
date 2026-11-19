@@ -242,7 +242,7 @@ public final class SupersedingRunner<Value: Sendable> {
 public enum FavoriteResolver {
     public static func plan(favorites: [String], catalog: KnownCatalog, cache: FavoriteCache, now: Date) -> FavoritePlan {
         let known = Dictionary(
-            catalog.usable(now: now).map { (Curation.key($0.room.username), $0) },
+            catalog.usable(now: now).map { (Curation.key($0.room.ref), $0) },
             uniquingKeysWith: { first, second in first.at >= second.at ? first : second }
         )
         var plan = FavoritePlan(resolved: [:], fromCatalog: [:], pending: [])
@@ -371,7 +371,7 @@ public enum FavoriteExchange {
     public static func encode(_ names: [String]) throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        return try encoder.encode(File(app: "Vela", version: 1, favorites: names))
+        return try encoder.encode(File(app: "Vela", version: 1, favorites: names.map(SiteKeys.disk)))
     }
 
     /// 接受 `{"favorites": [...]}`，也接受直接的字符串数组。
@@ -388,8 +388,12 @@ public enum FavoriteExchange {
         var names: [String] = []
         var rejected = 0
         for item in raw {
-            let name = item.trimmingCharacters(in: .whitespacesAndNewlines)
-            if Room.isValidUsername(name) { names.append(name) } else { rejected += 1 }
+            let memory = SiteKeys.memory(item)
+            if RoomKey(parsing: memory) != nil || Room.isValidUsername(memory) {
+                names.append(memory)
+            } else {
+                rejected += 1
+            }
         }
         return Imported(names: names, rejected: rejected)
     }
@@ -416,7 +420,7 @@ public enum LoadCommit {
         if source != .favorites { catalog.record(raw.rooms, firstPage: offset == 0, at: now) }
         if replacing { reasons = [:] }
         if source == .guess {
-            for room in arranged.rooms { reasons[room.username.lowercased()] = reason(room) }
+            for room in arranged.rooms { reasons[room.identity] = reason(room) }
         }
         return true
     }
