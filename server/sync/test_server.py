@@ -1603,6 +1603,18 @@ class AuditFixTest(unittest.TestCase):
         self.assertEqual(app.ip_bucket(mapped), app.ip_bucket(app.parse_ip("203.0.113.7")))
         self.assertEqual(app.ip_log_prefix(mapped), "203.0.113.0/24")
 
+    def test_systemd_unit_is_hardened(self):
+        unit = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "vela-sync.service")).read()
+        for line in [
+            "PrivateDevices=yes", "ProtectKernelTunables=yes", "ProtectKernelModules=yes", "ProtectControlGroups=yes",
+            "RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX", "RestrictNamespaces=yes", "LockPersonality=yes",
+            "CapabilityBoundingSet=", "SystemCallFilter=@system-service", "IPAddressDeny=any", "IPAddressAllow=localhost",
+            "MemoryMax=256M",
+        ]:
+            self.assertIn("\n" + line + "\n", unit, line)
+        tunnel = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "cloudflared.yml")).read()
+        self.assertIn("0600", tunnel)
+
     def test_access_log_memory_is_bounded(self):
         srv = self.make()
         devnull = open(os.devnull, "w")

@@ -382,7 +382,7 @@
 ### 10.5 实现约束
 
 - Python 3 标准库（`http.server.ThreadingHTTPServer`、`sqlite3`、`hashlib`、`hmac`、`json`、`secrets`）加 Ubuntu 系统包 `python3-cryptography`（apt 安装，不用 pip）。验签：先按第 9 节做格式检查；创建时 `EllipticCurvePublicKey.from_encoded_point(SECP256R1(), pub)`，抛 `ValueError`（点不合法）返回 400；然后 `pub.verify(encode_dss_signature(r, s), msg, ECDSA(SHA256()))`，捕获 `InvalidSignature` 返回 403。
-- systemd：`NoNewPrivileges`、`ProtectSystem=strict`、`ReadWritePaths` 只到数据目录、`MemoryMax=128M`、专用用户。
+- systemd：`NoNewPrivileges`、`ProtectSystem=strict`、`ReadWritePaths` 只到数据目录、`PrivateDevices`、`ProtectKernelTunables`、`ProtectKernelModules`、`ProtectControlGroups`、`RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX`、`RestrictNamespaces`、`LockPersonality`、空的 `CapabilityBoundingSet`、`SystemCallFilter=@system-service`、`IPAddressDeny=any` 加 `IPAddressAllow=localhost`、`MemoryMax=256M`（并发 32 不变，见第 23 节第 9 条）、专用用户；cloudflared 凭据文件 0600。
 
 ## 11. 客户端同步流程
 
@@ -773,6 +773,7 @@ minSdk 26 只是平台门槛，不能代替探针的实测证据。「公钥派�
 6. 加入预览计数：N/M/V 按实际盖章的数量；X/Y 按合并后被裁掉的收藏与屏蔽总数（不只本机）。
 7. 口味投影：本机已标「不想看」、属于同步域、但同步文档里没有的键要撤销；本机专用键不动。
 8. 其他：在线时钟偏差只暂停推送，本地操作照常记录；origin 的 IP 字面量判定为「顶级标签全为数字」；`schema` 检查先于形状检查，`2.0` 非法；房间墓碑的「最旧」按条目内 f、b、n 三个寄存器 HLC 的最大值排序。
+9. 服务端内存上限（PR #11 安全审查）：保持并发连接上限 32，`MemoryMax` 由 128M 提到 256M。32 个连接各带最多约 800 KB 的请求体，解析时还要翻倍，128M 余量不足；降并发会改动第 10.3 节写死的上限，所以提内存。
 
 ## 24. v5 变更记录（2026-11-18）
 

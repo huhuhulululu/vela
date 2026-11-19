@@ -23,7 +23,21 @@ ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
 ReadWritePaths=/var/lib/vela-sync
-MemoryMax=128M
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+SystemCallFilter=@system-service
+# 只和同机的 cloudflared 通信（第 10.3 节）。
+IPAddressDeny=any
+IPAddressAllow=localhost
+# 并发连接上限 32 是设计稿写死的（第 10.3 节），每个请求体最多约 800 KB、解析时还要翻倍，
+# 所以提高内存上限而不是降低并发：32 x 约 2 MB 加解释器与 SQLite 缓存，128M 余量不足。
+MemoryMax=256M
 Environment=PYTHONUNBUFFERED=1
 
 [Install]
