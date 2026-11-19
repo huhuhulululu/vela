@@ -58,6 +58,8 @@ HOUR_MS = 3_600_000
 DAY_MS = 86_400_000
 KEEP_CREATIONS_MS = 2 * DAY_MS
 LRU_BUCKETS = 10_000
+# 访问日志只经 stderr 进 journald；内存里只留最近这些行（测试读取用），防止长期运行无限增长。
+ACCESS_LOG_KEEP = 1000
 BASE_MAX = (1 << 53) - 2
 # Section 4.1. Order of P-256. Reject r or s outside [1, n-1] before verify.
 P256_N = 0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551
@@ -739,7 +741,7 @@ def make_server(db_path, host="127.0.0.1", port=0, clock=None):
     server.db_path = db_path
     server.clock = clock or (lambda: int(time.time() * 1000))
     server.limiter = RateLimiter()
-    server.access_log = []
+    server.access_log = deque(maxlen=ACCESS_LOG_KEEP)
     server.conn_lock = threading.Lock()
     server.active = 0
     server.started_at = {}

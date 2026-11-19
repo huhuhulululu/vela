@@ -1562,5 +1562,30 @@ def _split_http(raw):
     return status, headers, body
 
 
+class AuditFixTest(unittest.TestCase):
+    """PR #11 审计后的修复回归。"""
+
+    def make(self):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(lambda: __import__("shutil").rmtree(tmp, ignore_errors=True))
+        srv = app.make_server(os.path.join(tmp, "s.db"))
+        self.addCleanup(srv.server_close)
+        return srv
+
+    def test_access_log_memory_is_bounded(self):
+        srv = self.make()
+        devnull = open(os.devnull, "w")
+        self.addCleanup(devnull.close)
+        old = app.sys.stderr
+        app.sys.stderr = devnull
+        try:
+            for i in range(app.ACCESS_LOG_KEEP + 500):
+                srv.record_log("line %d" % i)
+        finally:
+            app.sys.stderr = old
+        self.assertEqual(len(srv.access_log), app.ACCESS_LOG_KEEP)
+        self.assertEqual(list(srv.access_log)[-1], "line %d" % (app.ACCESS_LOG_KEEP + 499))
+
+
 if __name__ == "__main__":
     unittest.main()
