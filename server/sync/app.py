@@ -24,7 +24,13 @@ import time
 from collections import OrderedDict, deque
 
 from cryptography.exceptions import InvalidSignature
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+from cryptography.hazmat.primitives.asymmetric.ec import (
+    ECDSA,
+    SECP256R1,
+    EllipticCurvePublicKey,
+)
+from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
+from cryptography.hazmat.primitives.hashes import SHA256
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCHEMA_PATH = os.path.join(HERE, "schema.sql")
@@ -53,6 +59,8 @@ DAY_MS = 86_400_000
 KEEP_CREATIONS_MS = 2 * DAY_MS
 LRU_BUCKETS = 10_000
 BASE_MAX = (1 << 53) - 2
+# Section 4.1. Order of P-256. Reject r or s outside [1, n-1] before verify.
+P256_N = 0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551
 
 ENVELOPE_RE = re.compile(r"^e1\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{22,}$")
 BLOB_ID_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -118,17 +126,33 @@ def b64url_decode(text):
     return raw
 
 
-def verify_ed25519(pub, sig, msg):
+def p256_public_key(pub):
+    """Section 10.5. ValueError if pub is not a 65-byte uncompressed P-256 point."""
+    if not isinstance(pub, (bytes, bytearray)):
+        raise ValueError("pub")
+    return EllipticCurvePublicKey.from_encoded_point(SECP256R1(), bytes(pub))
+
+
+def verify_p256(pub, sig, msg):
+    """Section 9. Format-check r||s, then ECDSA(SHA256). False rejects the signature."""
     if not isinstance(pub, (bytes, bytearray)) or not isinstance(sig, (bytes, bytearray)):
         return False
-    if len(pub) != 32 or len(sig) != 64:
+    if not isinstance(msg, (bytes, bytearray)):
+        return False
+    if len(sig) != 64:
+        return False
+    r = int.from_bytes(sig[:32], "big")
+    s = int.from_bytes(sig[32:], "big")
+    if r < 1 or r >= P256_N or s < 1 or s >= P256_N:
         return False
     try:
-        Ed25519PublicKey.from_public_bytes(bytes(pub)).verify(bytes(sig), msg)
+        key = p256_public_key(pub)
+    except ValueError:
+        return False
+    try:
+        key.verify(encode_dss_signature(r, s), msg, ECDSA(SHA256()))
         return True
     except InvalidSignature:
-        return False
-    except Exception:
         return False
 
 
@@ -427,10 +451,8 @@ def _creation_block(conn, bucket, now):
 
 
 def _decode_sig(sig_text):
-    sig = b64url_decode(sig_text)
-    if len(sig) != 64:
-        raise ValueError("sig")
-    return sig
+    # Length is a signature-format check (section 9), not a 400 decode error.
+    return b64url_decode(sig_text)
 
 
 def _put_locked(conn, blob_id, obj, bucket, now, limiter):
@@ -461,13 +483,12 @@ def _put_locked(conn, blob_id, obj, bucket, now, limiter):
             return Outcome(400, epoch=epoch)
         try:
             pub = b64url_decode(obj["pub"])
-            if len(pub) != 32:
-                raise ValueError("pub")
+            p256_public_key(pub)
         except ValueError:
             return Outcome(400, epoch=epoch)
         digest = hashlib.sha256(raw).hexdigest()
         msg = signed_message("put", blob_id, epoch, base, digest)
-        if not verify_ed25519(pub, sig, msg):
+        if not verify_p256(pub, sig, msg):
             return Outcome(403, sig_failed=True, epoch=epoch)
         if row is not None:
             return Outcome(409, _conflict_fields(row), epoch=epoch)
@@ -500,7 +521,7 @@ def _put_locked(conn, blob_id, obj, bucket, now, limiter):
         return Outcome(404, epoch=epoch)
     digest = hashlib.sha256(raw).hexdigest()
     msg = signed_message("put", blob_id, epoch, base, digest)
-    if not verify_ed25519(bytes(row["pub"]), sig, msg):
+    if not verify_p256(bytes(row["pub"]), sig, msg):
         return Outcome(403, sig_failed=True, epoch=epoch)
     if base != int(row["ver"]):
         return Outcome(409, _conflict_fields(row), epoch=epoch)
@@ -546,7 +567,7 @@ def _delete_locked(conn, blob_id, obj, now, limiter):
     if row is None:
         return Outcome(404, epoch=epoch)
     msg = signed_message("delete", blob_id, epoch, base, "-")
-    if not verify_ed25519(bytes(row["pub"]), sig, msg):
+    if not verify_p256(bytes(row["pub"]), sig, msg):
         return Outcome(403, sig_failed=True, epoch=epoch)
     if base != int(row["ver"]):
         return Outcome(409, _conflict_fields(row), epoch=epoch)
