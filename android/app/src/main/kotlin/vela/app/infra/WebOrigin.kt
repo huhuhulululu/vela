@@ -13,7 +13,10 @@ import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URL
+import java.util.Collections
 import java.util.Locale
+import java.util.WeakHashMap
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * 侧车和质询页只访问站点本身，以及过确认页时绕不开的质询域名。
@@ -171,6 +174,27 @@ internal fun isFirstPartyRequest(url: String, documentRoot: String): Boolean {
     return false
 }
 
+/** 当前顶层页面。导航客户端会被换掉，上下文挂在 WebView 上，不能只留在旧实例里。 */
+internal object WebTopFrame {
+    private val frames = Collections.synchronizedMap(WeakHashMap<WebView, String>())
+
+    fun remember(view: WebView?, url: String?) {
+        if (view == null || url.isNullOrBlank()) return
+        frames[view] = url
+    }
+
+    fun current(view: WebView?): String? = if (view == null) null else frames[view]
+}
+
+internal fun rememberTopFrame(view: WebView?, local: AtomicReference<String?>, url: String?) {
+    if (url.isNullOrBlank()) return
+    local.set(url)
+    WebTopFrame.remember(view, url)
+}
+
+internal fun documentRootFor(view: WebView?, local: AtomicReference<String?>, fallback: String): String =
+    WebTopFrame.current(view) ?: local.get() ?: fallback
+
 private fun forwardSubresourceHeaders(
     connection: HttpURLConnection,
     headers: Map<String, String>,
@@ -288,6 +312,8 @@ internal open class OriginWebViewClient(
     private val onOriginRejected: () -> Unit = {},
     private val delegateUnvalidatedMethods: Boolean = true,
 ) : WebViewClient() {
+    private val topLevel = AtomicReference<String?>(null)
+
     init {
         WebNetworkGate.watch(siteRoot)
     }
@@ -295,19 +321,27 @@ internal open class OriginWebViewClient(
     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
         if (!request.isForMainFrame) return false
         val url = request.url?.toString() ?: return true
-        return !WebOriginPolicy.allows(url, siteRoot)
+        val allowed = WebOriginPolicy.allows(url, siteRoot)
+        if (allowed) rememberTopFrame(view, topLevel, url)
+        return !allowed
     }
 
     @Deprecated("Use the request overload")
     override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean {
-        return !WebOriginPolicy.allows(url, siteRoot)
+        val allowed = WebOriginPolicy.allows(url, siteRoot)
+        if (allowed) rememberTopFrame(view, topLevel, url)
+        return !allowed
     }
 
     override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
+        val url = request?.url?.toString()
+        if (request?.isForMainFrame == true && url != null && WebOriginPolicy.allows(url, siteRoot)) {
+            rememberTopFrame(view, topLevel, url)
+        }
         return interceptWhitelisted(
             view,
             request,
-            siteRoot,
+            documentRootFor(view, topLevel, siteRoot),
             { WebOriginPolicy.allows(it, siteRoot) },
             delegateUnvalidatedMethods,
         )

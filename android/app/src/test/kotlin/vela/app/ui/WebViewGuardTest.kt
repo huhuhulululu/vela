@@ -3,6 +3,8 @@ package vela.app.ui
 import android.net.Uri
 import android.webkit.CookieManager
 import android.webkit.WebResourceRequest
+import android.webkit.WebView
+import androidx.test.core.app.ApplicationProvider
 import com.sun.net.httpserver.HttpServer
 import java.net.InetAddress
 import java.net.InetSocketAddress
@@ -20,6 +22,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import vela.app.infra.Endpoints
 import vela.app.infra.OriginWebViewClient
 
 /**
@@ -224,6 +227,152 @@ class WebViewGuardTest {
             server.stop(0)
             pool.shutdownNow()
         }
+    }
+
+    @Test
+    fun testChallengeCookiesFollowTheCurrentTopLevelPage() {
+        val seen = AtomicReference<String?>(null)
+        val server = cookieServer(seen)
+        val pool = server.second
+        val http = server.first
+        http.start()
+        val origin = "http://127.0.0.1:${http.address.port}"
+        val url = "$origin/a.js"
+        Endpoints.overrideRoot(origin)
+        try {
+            val cookies = primeCookie(url)
+            val client = ChallengeNavigationClient()
+            client.shouldInterceptRequest(null, frame("https://challenges.cloudflare.com/", "GET", true))
+            val third = client.shouldInterceptRequest(null, frame(url, "GET", false))
+            assertNotNull(third)
+            assertEquals(200, third!!.statusCode)
+            assertEquals("质询页上的站点子资源被当成了第一方", null, seen.get())
+            val stored = cookies.getCookie(url)
+            assertTrue("质询页收下了站点 Set-Cookie $stored", stored == null || !stored.contains("third=1"))
+
+            seen.set(null)
+            client.shouldInterceptRequest(null, frame("$origin/", "GET", true))
+            val first = client.shouldInterceptRequest(null, frame(url, "GET", false))
+            assertEquals(200, first!!.statusCode)
+            assertTrue("回到站点顶层后第一方 Cookie 没送出 ${seen.get()}", seen.get()?.contains("sid=secret") == true)
+        } finally {
+            Endpoints.clearOverride()
+            http.stop(0)
+            pool.shutdownNow()
+        }
+    }
+
+    @Test
+    fun testChallengeRedirectHopsStayThirdPartyOnTheChallengePage() {
+        val hops = AtomicReference("")
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        val pool = Executors.newCachedThreadPool()
+        server.executor = pool
+        server.createContext("/") { exchange ->
+            val path = exchange.requestURI.path
+            val cookie = exchange.requestHeaders.getFirst("Cookie")
+            hops.set(hops.get() + path + "=" + (cookie ?: "-") + ";")
+            if (path == "/hop.js") {
+                exchange.responseHeaders.add("Location", "/land.js")
+                exchange.sendResponseHeaders(302, -1)
+                exchange.close()
+                return@createContext
+            }
+            val body = "js".toByteArray(StandardCharsets.UTF_8)
+            exchange.responseHeaders.add("Content-Type", "application/javascript")
+            exchange.responseHeaders.add("Set-Cookie", "third=1; Path=/")
+            exchange.sendResponseHeaders(200, body.size.toLong())
+            exchange.responseBody.use { it.write(body) }
+        }
+        server.start()
+        val origin = "http://127.0.0.1:${server.address.port}"
+        Endpoints.overrideRoot(origin)
+        try {
+            primeCookie("$origin/hop.js")
+            val client = ChallengeNavigationClient()
+            client.shouldInterceptRequest(null, frame("https://challenges.cloudflare.com/cdn-cgi", "GET", true))
+            val response = client.shouldInterceptRequest(null, frame("$origin/hop.js", "GET", false))
+            assertEquals(200, response!!.statusCode)
+            assertTrue("重定向每一跳都该按质询页算第三方 ${hops.get()}", hops.get().contains("/hop.js=-") && hops.get().contains("/land.js=-"))
+            val stored = CookieManager.getInstance().getCookie("$origin/land.js")
+            assertTrue("跳转后的 Set-Cookie 被写回了 $stored", stored == null || !stored.contains("third=1"))
+        } finally {
+            Endpoints.clearOverride()
+            server.stop(0)
+            pool.shutdownNow()
+        }
+    }
+
+    @Test
+    fun testSidecarCookiesFollowTheCurrentTopLevelPage() {
+        val seen = AtomicReference<String?>(null)
+        val server = cookieServer(seen)
+        val pool = server.second
+        val http = server.first
+        http.start()
+        try {
+            val origin = "http://127.0.0.1:${http.address.port}"
+            val url = "$origin/a.js"
+            primeCookie(url)
+            val client = OriginWebViewClient(origin)
+            client.shouldInterceptRequest(null, frame("https://challenges.cloudflare.com/", "GET", true))
+            val response = client.shouldInterceptRequest(null, frame(url, "GET", false))
+            assertEquals(200, response!!.statusCode)
+            assertEquals("侧车在质询页仍把站点子资源当第一方", null, seen.get())
+        } finally {
+            http.stop(0)
+            pool.shutdownNow()
+        }
+    }
+
+    @Test
+    fun testReplacedChallengeClientKeepsTheTopLevelCookieContext() {
+        val seen = AtomicReference<String?>(null)
+        val server = cookieServer(seen)
+        val pool = server.second
+        val http = server.first
+        http.start()
+        val origin = "http://127.0.0.1:${http.address.port}"
+        Endpoints.overrideRoot(origin)
+        try {
+            val url = "$origin/a.js"
+            primeCookie(url)
+            val view = WebView(ApplicationProvider.getApplicationContext())
+            val first = ChallengeNavigationClient()
+            first.shouldInterceptRequest(view, frame("https://challenges.cloudflare.com/", "GET", true))
+            val second = ChallengeNavigationClient()
+            val response = second.shouldInterceptRequest(view, frame(url, "GET", false))
+            assertEquals(200, response!!.statusCode)
+            assertEquals("换过导航客户端后仍按入口根发送 Cookie", null, seen.get())
+        } finally {
+            Endpoints.clearOverride()
+            http.stop(0)
+            pool.shutdownNow()
+        }
+    }
+
+    private fun cookieServer(seen: AtomicReference<String?>): Pair<HttpServer, java.util.concurrent.ExecutorService> {
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        val pool = Executors.newCachedThreadPool()
+        server.executor = pool
+        server.createContext("/") { exchange ->
+            seen.set(exchange.requestHeaders.getFirst("Cookie"))
+            val body = "js".toByteArray(StandardCharsets.UTF_8)
+            exchange.responseHeaders.add("Content-Type", "application/javascript")
+            exchange.responseHeaders.add("Set-Cookie", "third=1; Path=/")
+            exchange.sendResponseHeaders(200, body.size.toLong())
+            exchange.responseBody.use { it.write(body) }
+        }
+        return server to pool
+    }
+
+    private fun primeCookie(url: String): CookieManager {
+        val cookies = CookieManager.getInstance()
+        cookies.setAcceptCookie(true)
+        cookies.removeAllCookies(null)
+        cookies.setCookie(url, "sid=secret")
+        cookies.flush()
+        return cookies
     }
 
     private fun frame(url: String, method: String, mainFrame: Boolean): WebResourceRequest =

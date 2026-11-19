@@ -8,11 +8,14 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import java.net.URI
+import java.util.concurrent.atomic.AtomicReference
 import vela.app.BuildConfig
 import vela.app.infra.Endpoints
 import vela.app.infra.WebNetworkGate
 import vela.app.infra.applyFirstPartyCookiesOnly
+import vela.app.infra.documentRootFor
 import vela.app.infra.interceptWhitelisted
+import vela.app.infra.rememberTopFrame
 import vela.core.base.net.UserAgent
 
 /**
@@ -59,21 +62,31 @@ internal fun loadChallengePage(view: WebView, url: String) {
 internal class ChallengeNavigationClient(
     private val delegateUnvalidatedMethods: Boolean = true,
 ) : WebViewClient() {
+    private val topLevel = AtomicReference<String?>(null)
+
     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-        return !challengeNavigationAllowed(request.url)
+        val allowed = challengeNavigationAllowed(request.url)
+        if (allowed && request.isForMainFrame) rememberTopFrame(view, topLevel, request.url?.toString())
+        return !allowed
     }
 
     @Deprecated("旧 WebView 仍会走字符串重载")
     override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean {
-        return !challengeNavigationAllowed(url)
+        val allowed = challengeNavigationAllowed(url)
+        if (allowed) rememberTopFrame(view, topLevel, url)
+        return !allowed
     }
 
     override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
         // POST 导航不会进 shouldOverrideUrlLoading。代理没接上时不交回 WebView。
+        val url = request?.url?.toString()
+        if (request?.isForMainFrame == true && url != null && challengeNavigationAllowed(url)) {
+            rememberTopFrame(view, topLevel, url)
+        }
         return interceptWhitelisted(
             view,
             request,
-            Endpoints.siteRoot(),
+            documentRootFor(view, topLevel, Endpoints.siteRoot()),
             ::challengeNavigationAllowed,
             delegateUnvalidatedMethods,
         )
