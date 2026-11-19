@@ -539,9 +539,15 @@ func buildSign() []any {
 	msg2 := signMessage("delete", d.BlobID, fixedEpoch(), 4, 5, "-")
 	sig2 := signWith(d.D, msg2)
 	must(verifySig(d.Pub, msg2, sig2), "sign del")
+	// S2 回填（第 17 节）：CryptoKit 用随机 k 生成的一组签名，字面量收录；Go 验签通过才写出，三端都只做验签比对。
+	sum3 := sha256Hex([]byte("e1.cryptokit-sample"))
+	msg3 := signMessage("put", d.BlobID, fixedEpoch(), 7, 8, sum3)
+	sig3 := mustB64("YUZ1-S62K6wCahiG8WOPzXR2Bm4_57chg8DXAyOhl5WE7wJihV8J4AQcc3n4x-ISZ88aM27j-jTo-MxyTZ1ZOw")
+	must(verifySig(d.Pub, msg3, sig3), "sign cryptokit")
 	return []any{
 		signFields(true, "", d.PubB64, "put", d.BlobID, fixedEpoch(), sum, 0, 1, msg, sig),
 		signFields(true, "", d.PubB64, "delete", d.BlobID, fixedEpoch(), "-", 4, 5, msg2, sig2),
+		signFields(true, "", d.PubB64, "put", d.BlobID, fixedEpoch(), sum3, 7, 8, msg3, sig3),
 	}
 }
 

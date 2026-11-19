@@ -1,0 +1,6 @@
+// 入库的基础配置：项目级 Debug、Release、Perf 都以它为基础。
+// 同步服务器地址不进公开仓：真实值写在不入库的 Config/Local.xcconfig 里（模板见 Local.xcconfig.template）。
+// 未配置时 App 隐藏「在这台设备上开启同步」，仍可用同步码「加入」（同步码自带地址）。
+VELA_SYNC_BASE =
+
+#include? "Local.xcconfig"

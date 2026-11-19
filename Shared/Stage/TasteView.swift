@@ -18,6 +18,7 @@ struct TasteView: View {
             setPaused: { model.setLearningPaused($0) },
             resetProfile: { model.resetTasteProfile() },
             clearAll: { model.clearAllPreferences() },
+            syncOn: model.sync.isOn,
             width: width
         )
         .task {

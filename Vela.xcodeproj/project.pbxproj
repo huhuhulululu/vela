@@ -7,6 +7,36 @@
 	objects = {
 
 /* Begin PBXFileReference section */
+		5C0D5A000000000000000001 /* HLC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HLC.swift; sourceTree = "<group>"; };
+		5C0D5A000000000000000004 /* SyncCode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncCode.swift; sourceTree = "<group>"; };
+		5C0D5A000000000000000007 /* SyncCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncCoordinator.swift; sourceTree = "<group>"; };
+		5C0D5A00000000000000000A /* SyncDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncDocument.swift; sourceTree = "<group>"; };
+		5C0D5A00000000000000000D /* SyncEncoding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncEncoding.swift; sourceTree = "<group>"; };
+		5C0D5A000000000000000010 /* SyncJSON.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncJSON.swift; sourceTree = "<group>"; };
+		5C0D5A000000000000000013 /* SyncKeys.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncKeys.swift; sourceTree = "<group>"; };
+		5C0D5A000000000000000016 /* SyncLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncLifecycle.swift; sourceTree = "<group>"; };
+		5C0D5A000000000000000019 /* SyncLimits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncLimits.swift; sourceTree = "<group>"; };
+		5C0D5A00000000000000001C /* SyncMerge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncMerge.swift; sourceTree = "<group>"; };
+		5C0D5A00000000000000001F /* SyncMigration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncMigration.swift; sourceTree = "<group>"; };
+		5C0D5A000000000000000022 /* SyncOps.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncOps.swift; sourceTree = "<group>"; };
+		5C0D5A000000000000000025 /* SyncProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncProjection.swift; sourceTree = "<group>"; };
+		5C0D5A000000000000000028 /* SyncRestamp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncRestamp.swift; sourceTree = "<group>"; };
+		5C0D5A00000000000000002B /* SyncState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncState.swift; sourceTree = "<group>"; };
+		5C0D5A00000000000000002E /* SyncTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncTransport.swift; sourceTree = "<group>"; };
+		5C0D5A000000000000000031 /* SyncBackupExcludedStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncBackupExcludedStore.swift; sourceTree = "<group>"; };
+		5C0D5A000000000000000034 /* SyncCrypto.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncCrypto.swift; sourceTree = "<group>"; };
+		5C0D5A000000000000000037 /* SyncEnvelope.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncEnvelope.swift; sourceTree = "<group>"; };
+		5C0D5A00000000000000003A /* SyncHTTPTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncHTTPTransport.swift; sourceTree = "<group>"; };
+		5C0D5A00000000000000003D /* SyncKeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncKeychainStore.swift; sourceTree = "<group>"; };
+		5C0D5A000000000000000040 /* SyncPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncPayload.swift; sourceTree = "<group>"; };
+		5C0D5A000000000000000043 /* SyncScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncScheduler.swift; sourceTree = "<group>"; };
+		5C0D5A000000000000000046 /* SyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncService.swift; sourceTree = "<group>"; };
+		5C0D5A000000000000000049 /* SyncStatusText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncStatusText.swift; sourceTree = "<group>"; };
+		5C0D5A00000000000000004C /* StageModel+Sync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "StageModel+Sync.swift"; sourceTree = "<group>"; };
+		5C0D5A00000000000000004F /* SyncPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncPanel.swift; sourceTree = "<group>"; };
+		5C0D5A000000000000000052 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		5C0D5A000000000000000053 /* Sync.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Sync.xcconfig; sourceTree = "<group>"; };
+		5C0D5A000000000000000054 /* Local.xcconfig.template */ = {isa = PBXFileReference; lastKnownFileType = text; path = Local.xcconfig.template; sourceTree = "<group>"; };
 		E1A0C0DE00000000000000A1 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		0638102034C5E7A666AF3C0A /* PhoneViewLogicTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneViewLogicTests.swift; sourceTree = "<group>"; };
 		B13942897F484DDD9D9F6F79 /* FilterPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilterPanel.swift; sourceTree = "<group>"; };
@@ -182,9 +212,58 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		5C0D5A000000000000000055 /* Sync */ = {
+			isa = PBXGroup;
+			children = (
+				5C0D5A000000000000000001 /* HLC.swift */,
+				5C0D5A000000000000000004 /* SyncCode.swift */,
+				5C0D5A000000000000000007 /* SyncCoordinator.swift */,
+				5C0D5A00000000000000000A /* SyncDocument.swift */,
+				5C0D5A00000000000000000D /* SyncEncoding.swift */,
+				5C0D5A000000000000000010 /* SyncJSON.swift */,
+				5C0D5A000000000000000013 /* SyncKeys.swift */,
+				5C0D5A000000000000000016 /* SyncLifecycle.swift */,
+				5C0D5A000000000000000019 /* SyncLimits.swift */,
+				5C0D5A00000000000000001C /* SyncMerge.swift */,
+				5C0D5A00000000000000001F /* SyncMigration.swift */,
+				5C0D5A000000000000000022 /* SyncOps.swift */,
+				5C0D5A000000000000000025 /* SyncProjection.swift */,
+				5C0D5A000000000000000028 /* SyncRestamp.swift */,
+				5C0D5A00000000000000002B /* SyncState.swift */,
+				5C0D5A00000000000000002E /* SyncTransport.swift */,
+			);
+			path = Sync;
+			sourceTree = "<group>";
+		};
+		5C0D5A000000000000000056 /* Sync */ = {
+			isa = PBXGroup;
+			children = (
+				5C0D5A000000000000000031 /* SyncBackupExcludedStore.swift */,
+				5C0D5A000000000000000034 /* SyncCrypto.swift */,
+				5C0D5A000000000000000037 /* SyncEnvelope.swift */,
+				5C0D5A00000000000000003A /* SyncHTTPTransport.swift */,
+				5C0D5A00000000000000003D /* SyncKeychainStore.swift */,
+				5C0D5A000000000000000040 /* SyncPayload.swift */,
+				5C0D5A000000000000000043 /* SyncScheduler.swift */,
+				5C0D5A000000000000000046 /* SyncService.swift */,
+				5C0D5A000000000000000049 /* SyncStatusText.swift */,
+			);
+			path = Sync;
+			sourceTree = "<group>";
+		};
+		5C0D5A000000000000000057 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				5C0D5A000000000000000053 /* Sync.xcconfig */,
+				5C0D5A000000000000000054 /* Local.xcconfig.template */,
+			);
+			path = Config;
+			sourceTree = "<group>";
+		};
 		870B3294C0CBD48AF6BBCC1B = {
 			isa = PBXGroup;
 			children = (
+				5C0D5A000000000000000057 /* Config */,
 				3C3B0F03DC089F93B8457928 /* App */,
 				B0B8C84E77856132D5681A59 /* VelaCore */,
 				A1F0C0DE00000000000000B1 /* Shared */,
@@ -197,6 +276,7 @@
 		3C3B0F03DC089F93B8457928 /* App */ = {
 			isa = PBXGroup;
 			children = (
+				5C0D5A000000000000000052 /* Info.plist */,
 				6D7118E8A3C25F19E34481AA /* SidecarHost+Mac.swift */,
 				EAC96C9A604DC39521611610 /* ChallengeSheet+Mac.swift */,
 				EDDF236238A89A159826934E /* SiteWebView+Mac.swift */,
@@ -225,6 +305,7 @@
 		B0B8C84E77856132D5681A59 /* VelaCore */ = {
 			isa = PBXGroup;
 			children = (
+				5C0D5A000000000000000055 /* Sync */,
 				B6C2710BAE15BF34AD8D8064 /* CatalogAPI.swift */,
 				6C6318BDB00A5C5629A5771D /* DisplayFit.swift */,
 				3B5557D6CBCE24FB261DDCF2 /* LaneCursor.swift */,
@@ -296,6 +377,7 @@
 		A1F0C0DE00000000000000B1 /* Shared */ = {
 			isa = PBXGroup;
 			children = (
+				5C0D5A000000000000000056 /* Sync */,
 				975A89D73816608AEB69F9E0 /* Playback */,
 				CB34A6584F241E6CEF4433EF /* Stage */,
 				A1F0C0DE00000000000000B2 /* Relay */,
@@ -352,6 +434,8 @@
 		CB34A6584F241E6CEF4433EF /* Stage */ = {
 			isa = PBXGroup;
 			children = (
+				5C0D5A00000000000000004C /* StageModel+Sync.swift */,
+				5C0D5A00000000000000004F /* SyncPanel.swift */,
 				B13942897F484DDD9D9F6F79 /* FilterPanel.swift */,
 				6E46E2782D9B25FD5CED2CCD /* CurationPanel.swift */,
 				AB10C0DE0400000000000F04 /* FavoritesRows.swift */,
@@ -549,6 +633,33 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5C0D5A000000000000000002 /* HLC.swift in Sources (Vela) */,
+				5C0D5A000000000000000005 /* SyncCode.swift in Sources (Vela) */,
+				5C0D5A000000000000000008 /* SyncCoordinator.swift in Sources (Vela) */,
+				5C0D5A00000000000000000B /* SyncDocument.swift in Sources (Vela) */,
+				5C0D5A00000000000000000E /* SyncEncoding.swift in Sources (Vela) */,
+				5C0D5A000000000000000011 /* SyncJSON.swift in Sources (Vela) */,
+				5C0D5A000000000000000014 /* SyncKeys.swift in Sources (Vela) */,
+				5C0D5A000000000000000017 /* SyncLifecycle.swift in Sources (Vela) */,
+				5C0D5A00000000000000001A /* SyncLimits.swift in Sources (Vela) */,
+				5C0D5A00000000000000001D /* SyncMerge.swift in Sources (Vela) */,
+				5C0D5A000000000000000020 /* SyncMigration.swift in Sources (Vela) */,
+				5C0D5A000000000000000023 /* SyncOps.swift in Sources (Vela) */,
+				5C0D5A000000000000000026 /* SyncProjection.swift in Sources (Vela) */,
+				5C0D5A000000000000000029 /* SyncRestamp.swift in Sources (Vela) */,
+				5C0D5A00000000000000002C /* SyncState.swift in Sources (Vela) */,
+				5C0D5A00000000000000002F /* SyncTransport.swift in Sources (Vela) */,
+				5C0D5A000000000000000032 /* SyncBackupExcludedStore.swift in Sources (Vela) */,
+				5C0D5A000000000000000035 /* SyncCrypto.swift in Sources (Vela) */,
+				5C0D5A000000000000000038 /* SyncEnvelope.swift in Sources (Vela) */,
+				5C0D5A00000000000000003B /* SyncHTTPTransport.swift in Sources (Vela) */,
+				5C0D5A00000000000000003E /* SyncKeychainStore.swift in Sources (Vela) */,
+				5C0D5A000000000000000041 /* SyncPayload.swift in Sources (Vela) */,
+				5C0D5A000000000000000044 /* SyncScheduler.swift in Sources (Vela) */,
+				5C0D5A000000000000000047 /* SyncService.swift in Sources (Vela) */,
+				5C0D5A00000000000000004A /* SyncStatusText.swift in Sources (Vela) */,
+				5C0D5A00000000000000004D /* StageModel+Sync.swift in Sources (Vela) */,
+				5C0D5A000000000000000050 /* SyncPanel.swift in Sources (Vela) */,
 				61CB972CE6D828FF67E25309 /* FilterPanel.swift in Sources */,
 				C13A00000000000000000002 /* LifecycleWiring.swift in Sources */,
 				8E337A72BB6D6883438A22BA /* SidecarHost+Mac.swift in Sources */,
@@ -673,6 +784,33 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5C0D5A000000000000000003 /* HLC.swift in Sources (VelaPhone) */,
+				5C0D5A000000000000000006 /* SyncCode.swift in Sources (VelaPhone) */,
+				5C0D5A000000000000000009 /* SyncCoordinator.swift in Sources (VelaPhone) */,
+				5C0D5A00000000000000000C /* SyncDocument.swift in Sources (VelaPhone) */,
+				5C0D5A00000000000000000F /* SyncEncoding.swift in Sources (VelaPhone) */,
+				5C0D5A000000000000000012 /* SyncJSON.swift in Sources (VelaPhone) */,
+				5C0D5A000000000000000015 /* SyncKeys.swift in Sources (VelaPhone) */,
+				5C0D5A000000000000000018 /* SyncLifecycle.swift in Sources (VelaPhone) */,
+				5C0D5A00000000000000001B /* SyncLimits.swift in Sources (VelaPhone) */,
+				5C0D5A00000000000000001E /* SyncMerge.swift in Sources (VelaPhone) */,
+				5C0D5A000000000000000021 /* SyncMigration.swift in Sources (VelaPhone) */,
+				5C0D5A000000000000000024 /* SyncOps.swift in Sources (VelaPhone) */,
+				5C0D5A000000000000000027 /* SyncProjection.swift in Sources (VelaPhone) */,
+				5C0D5A00000000000000002A /* SyncRestamp.swift in Sources (VelaPhone) */,
+				5C0D5A00000000000000002D /* SyncState.swift in Sources (VelaPhone) */,
+				5C0D5A000000000000000030 /* SyncTransport.swift in Sources (VelaPhone) */,
+				5C0D5A000000000000000033 /* SyncBackupExcludedStore.swift in Sources (VelaPhone) */,
+				5C0D5A000000000000000036 /* SyncCrypto.swift in Sources (VelaPhone) */,
+				5C0D5A000000000000000039 /* SyncEnvelope.swift in Sources (VelaPhone) */,
+				5C0D5A00000000000000003C /* SyncHTTPTransport.swift in Sources (VelaPhone) */,
+				5C0D5A00000000000000003F /* SyncKeychainStore.swift in Sources (VelaPhone) */,
+				5C0D5A000000000000000042 /* SyncPayload.swift in Sources (VelaPhone) */,
+				5C0D5A000000000000000045 /* SyncScheduler.swift in Sources (VelaPhone) */,
+				5C0D5A000000000000000048 /* SyncService.swift in Sources (VelaPhone) */,
+				5C0D5A00000000000000004B /* SyncStatusText.swift in Sources (VelaPhone) */,
+				5C0D5A00000000000000004E /* StageModel+Sync.swift in Sources (VelaPhone) */,
+				5C0D5A000000000000000051 /* SyncPanel.swift in Sources (VelaPhone) */,
 				CDC8E405B032BF8C8DFC25AD /* FilterPanel.swift in Sources (VelaPhone) */,
 				22E28147B5E0D53228B0F2FE /* ChallengeSheet+Phone.swift in Sources (VelaPhone) */,
 				49F196D4ACA307DCE8CFFA14 /* AgeGate+Phone.swift in Sources (VelaPhone) */,
@@ -826,6 +964,60 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXBuildFile section */
+		5C0D5A000000000000000002 /* HLC.swift in Sources (Vela) */ = {isa = PBXBuildFile; fileRef = 5C0D5A000000000000000001 /* HLC.swift */; };
+		5C0D5A000000000000000003 /* HLC.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 5C0D5A000000000000000001 /* HLC.swift */; };
+		5C0D5A000000000000000005 /* SyncCode.swift in Sources (Vela) */ = {isa = PBXBuildFile; fileRef = 5C0D5A000000000000000004 /* SyncCode.swift */; };
+		5C0D5A000000000000000006 /* SyncCode.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 5C0D5A000000000000000004 /* SyncCode.swift */; };
+		5C0D5A000000000000000008 /* SyncCoordinator.swift in Sources (Vela) */ = {isa = PBXBuildFile; fileRef = 5C0D5A000000000000000007 /* SyncCoordinator.swift */; };
+		5C0D5A000000000000000009 /* SyncCoordinator.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 5C0D5A000000000000000007 /* SyncCoordinator.swift */; };
+		5C0D5A00000000000000000B /* SyncDocument.swift in Sources (Vela) */ = {isa = PBXBuildFile; fileRef = 5C0D5A00000000000000000A /* SyncDocument.swift */; };
+		5C0D5A00000000000000000C /* SyncDocument.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 5C0D5A00000000000000000A /* SyncDocument.swift */; };
+		5C0D5A00000000000000000E /* SyncEncoding.swift in Sources (Vela) */ = {isa = PBXBuildFile; fileRef = 5C0D5A00000000000000000D /* SyncEncoding.swift */; };
+		5C0D5A00000000000000000F /* SyncEncoding.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 5C0D5A00000000000000000D /* SyncEncoding.swift */; };
+		5C0D5A000000000000000011 /* SyncJSON.swift in Sources (Vela) */ = {isa = PBXBuildFile; fileRef = 5C0D5A000000000000000010 /* SyncJSON.swift */; };
+		5C0D5A000000000000000012 /* SyncJSON.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 5C0D5A000000000000000010 /* SyncJSON.swift */; };
+		5C0D5A000000000000000014 /* SyncKeys.swift in Sources (Vela) */ = {isa = PBXBuildFile; fileRef = 5C0D5A000000000000000013 /* SyncKeys.swift */; };
+		5C0D5A000000000000000015 /* SyncKeys.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 5C0D5A000000000000000013 /* SyncKeys.swift */; };
+		5C0D5A000000000000000017 /* SyncLifecycle.swift in Sources (Vela) */ = {isa = PBXBuildFile; fileRef = 5C0D5A000000000000000016 /* SyncLifecycle.swift */; };
+		5C0D5A000000000000000018 /* SyncLifecycle.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 5C0D5A000000000000000016 /* SyncLifecycle.swift */; };
+		5C0D5A00000000000000001A /* SyncLimits.swift in Sources (Vela) */ = {isa = PBXBuildFile; fileRef = 5C0D5A000000000000000019 /* SyncLimits.swift */; };
+		5C0D5A00000000000000001B /* SyncLimits.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 5C0D5A000000000000000019 /* SyncLimits.swift */; };
+		5C0D5A00000000000000001D /* SyncMerge.swift in Sources (Vela) */ = {isa = PBXBuildFile; fileRef = 5C0D5A00000000000000001C /* SyncMerge.swift */; };
+		5C0D5A00000000000000001E /* SyncMerge.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 5C0D5A00000000000000001C /* SyncMerge.swift */; };
+		5C0D5A000000000000000020 /* SyncMigration.swift in Sources (Vela) */ = {isa = PBXBuildFile; fileRef = 5C0D5A00000000000000001F /* SyncMigration.swift */; };
+		5C0D5A000000000000000021 /* SyncMigration.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 5C0D5A00000000000000001F /* SyncMigration.swift */; };
+		5C0D5A000000000000000023 /* SyncOps.swift in Sources (Vela) */ = {isa = PBXBuildFile; fileRef = 5C0D5A000000000000000022 /* SyncOps.swift */; };
+		5C0D5A000000000000000024 /* SyncOps.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 5C0D5A000000000000000022 /* SyncOps.swift */; };
+		5C0D5A000000000000000026 /* SyncProjection.swift in Sources (Vela) */ = {isa = PBXBuildFile; fileRef = 5C0D5A000000000000000025 /* SyncProjection.swift */; };
+		5C0D5A000000000000000027 /* SyncProjection.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 5C0D5A000000000000000025 /* SyncProjection.swift */; };
+		5C0D5A000000000000000029 /* SyncRestamp.swift in Sources (Vela) */ = {isa = PBXBuildFile; fileRef = 5C0D5A000000000000000028 /* SyncRestamp.swift */; };
+		5C0D5A00000000000000002A /* SyncRestamp.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 5C0D5A000000000000000028 /* SyncRestamp.swift */; };
+		5C0D5A00000000000000002C /* SyncState.swift in Sources (Vela) */ = {isa = PBXBuildFile; fileRef = 5C0D5A00000000000000002B /* SyncState.swift */; };
+		5C0D5A00000000000000002D /* SyncState.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 5C0D5A00000000000000002B /* SyncState.swift */; };
+		5C0D5A00000000000000002F /* SyncTransport.swift in Sources (Vela) */ = {isa = PBXBuildFile; fileRef = 5C0D5A00000000000000002E /* SyncTransport.swift */; };
+		5C0D5A000000000000000030 /* SyncTransport.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 5C0D5A00000000000000002E /* SyncTransport.swift */; };
+		5C0D5A000000000000000032 /* SyncBackupExcludedStore.swift in Sources (Vela) */ = {isa = PBXBuildFile; fileRef = 5C0D5A000000000000000031 /* SyncBackupExcludedStore.swift */; };
+		5C0D5A000000000000000033 /* SyncBackupExcludedStore.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 5C0D5A000000000000000031 /* SyncBackupExcludedStore.swift */; };
+		5C0D5A000000000000000035 /* SyncCrypto.swift in Sources (Vela) */ = {isa = PBXBuildFile; fileRef = 5C0D5A000000000000000034 /* SyncCrypto.swift */; };
+		5C0D5A000000000000000036 /* SyncCrypto.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 5C0D5A000000000000000034 /* SyncCrypto.swift */; };
+		5C0D5A000000000000000038 /* SyncEnvelope.swift in Sources (Vela) */ = {isa = PBXBuildFile; fileRef = 5C0D5A000000000000000037 /* SyncEnvelope.swift */; };
+		5C0D5A000000000000000039 /* SyncEnvelope.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 5C0D5A000000000000000037 /* SyncEnvelope.swift */; };
+		5C0D5A00000000000000003B /* SyncHTTPTransport.swift in Sources (Vela) */ = {isa = PBXBuildFile; fileRef = 5C0D5A00000000000000003A /* SyncHTTPTransport.swift */; };
+		5C0D5A00000000000000003C /* SyncHTTPTransport.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 5C0D5A00000000000000003A /* SyncHTTPTransport.swift */; };
+		5C0D5A00000000000000003E /* SyncKeychainStore.swift in Sources (Vela) */ = {isa = PBXBuildFile; fileRef = 5C0D5A00000000000000003D /* SyncKeychainStore.swift */; };
+		5C0D5A00000000000000003F /* SyncKeychainStore.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 5C0D5A00000000000000003D /* SyncKeychainStore.swift */; };
+		5C0D5A000000000000000041 /* SyncPayload.swift in Sources (Vela) */ = {isa = PBXBuildFile; fileRef = 5C0D5A000000000000000040 /* SyncPayload.swift */; };
+		5C0D5A000000000000000042 /* SyncPayload.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 5C0D5A000000000000000040 /* SyncPayload.swift */; };
+		5C0D5A000000000000000044 /* SyncScheduler.swift in Sources (Vela) */ = {isa = PBXBuildFile; fileRef = 5C0D5A000000000000000043 /* SyncScheduler.swift */; };
+		5C0D5A000000000000000045 /* SyncScheduler.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 5C0D5A000000000000000043 /* SyncScheduler.swift */; };
+		5C0D5A000000000000000047 /* SyncService.swift in Sources (Vela) */ = {isa = PBXBuildFile; fileRef = 5C0D5A000000000000000046 /* SyncService.swift */; };
+		5C0D5A000000000000000048 /* SyncService.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 5C0D5A000000000000000046 /* SyncService.swift */; };
+		5C0D5A00000000000000004A /* SyncStatusText.swift in Sources (Vela) */ = {isa = PBXBuildFile; fileRef = 5C0D5A000000000000000049 /* SyncStatusText.swift */; };
+		5C0D5A00000000000000004B /* SyncStatusText.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 5C0D5A000000000000000049 /* SyncStatusText.swift */; };
+		5C0D5A00000000000000004D /* StageModel+Sync.swift in Sources (Vela) */ = {isa = PBXBuildFile; fileRef = 5C0D5A00000000000000004C /* StageModel+Sync.swift */; };
+		5C0D5A00000000000000004E /* StageModel+Sync.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 5C0D5A00000000000000004C /* StageModel+Sync.swift */; };
+		5C0D5A000000000000000050 /* SyncPanel.swift in Sources (Vela) */ = {isa = PBXBuildFile; fileRef = 5C0D5A00000000000000004F /* SyncPanel.swift */; };
+		5C0D5A000000000000000051 /* SyncPanel.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 5C0D5A00000000000000004F /* SyncPanel.swift */; };
 		E1A0C0DE00000000000000A2 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E1A0C0DE00000000000000A1 /* Assets.xcassets */; };
 		036C0C7D6C970966BE45B68E /* PhoneViewLogicTests.swift in Sources (VelaPhoneTests) */ = {isa = PBXBuildFile; fileRef = 0638102034C5E7A666AF3C0A /* PhoneViewLogicTests.swift */; };
 		CDC8E405B032BF8C8DFC25AD /* FilterPanel.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = B13942897F484DDD9D9F6F79 /* FilterPanel.swift */; };
@@ -1108,6 +1300,7 @@
 /* Begin XCBuildConfiguration section */
 		413A043F17974B31D5DED153 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 5C0D5A000000000000000053 /* Sync.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
@@ -1131,6 +1324,7 @@
 		};
 		20CC6DB161E5F84AFC48BDEB /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 5C0D5A000000000000000053 /* Sync.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
@@ -1157,6 +1351,7 @@
 		FE30E34D2E074F83C0BB8B14 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				INFOPLIST_FILE = App/Info.plist;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CODE_SIGN_IDENTITY = "-";
@@ -1186,6 +1381,7 @@
 		8DB33D080F2095ABF270D5AF /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				INFOPLIST_FILE = App/Info.plist;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CODE_SIGN_IDENTITY = "-";
@@ -1269,6 +1465,7 @@
 		};
 		C12A00000000000000000020 /* Perf */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 5C0D5A000000000000000053 /* Sync.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
@@ -1295,6 +1492,7 @@
 		C12A00000000000000000021 /* Perf */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				INFOPLIST_FILE = App/Info.plist;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CODE_SIGN_IDENTITY = "-";

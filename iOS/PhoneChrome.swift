@@ -54,9 +54,13 @@ struct PhoneChrome: View {
                     }
                 PhonePill(title: "口味", active: model.taste.paused) { model.showTaste = true }
                     .sheet(isPresented: $model.showTaste, onDismiss: { model.noteActivity() }) {
-                        TasteView(model: model, width: nil)
-                            .frame(maxWidth: .infinity)
-                            .phoneSheet()
+                        VStack(alignment: .leading, spacing: 0) {
+                            TasteView(model: model, width: nil)
+                            // iOS 没有设置页：同步入口放在口味面板底部，默认收起。
+                            PhoneSyncSection(hub: model.sync)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .phoneSheet()
                     }
                 if let pip = model.platform.pipCoordinator {
                     PhonePiPPill(pip: pip) { model.platform.setPictureInPictureAutoEnter($0, stage: model) }
@@ -300,5 +304,24 @@ extension View {
         presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
             .preferredColorScheme(.dark)
+    }
+}
+
+/// 口味面板底部的同步入口：默认收起，展开后是共用的 `SyncPanel`。
+struct PhoneSyncSection: View {
+    @ObservedObject var hub: SyncHub
+    @State private var expanded = false
+
+    var body: some View {
+        DisclosureGroup(isExpanded: $expanded) {
+            ScrollView { SyncPanel(hub: hub, width: nil).padding(.top, 8) }
+                .frame(maxHeight: 360)
+        } label: {
+            Text(hub.isOn ? "跨设备同步（已开启）" : "跨设备同步")
+                .font(.system(size: 13, weight: .semibold))
+        }
+        .tint(Theme.textSecondary)
+        .padding(.horizontal, Theme.inset + 4)
+        .padding(.bottom, Theme.inset + 4)
     }
 }

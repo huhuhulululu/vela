@@ -209,9 +209,10 @@ extension StageModel {
               WatchLedger.key(room.username) == prompt.username else { return }
         endFavoriteSuggest(.accepted)
         guard !curation.isFavorite(room.username) else { return }
+        guard let next = syncedCuration(.favorite(room.username), local: curation.favoriting(room.username)) else { return }
         taste = taste.following(room: room, now: Date(), rarity: tagRarity)
         tasteSaver.schedule(taste)
-        commit(curation.favoriting(room.username), nil)
+        commit(next, nil)
     }
 
     /// 点了提示上的关闭：明确的「不用」，记为问过。

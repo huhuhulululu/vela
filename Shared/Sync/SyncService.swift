@@ -324,30 +324,39 @@ final class SyncService: @unchecked Sendable {
 
     // MARK: 关闭与清除（第 12.6 节）
 
-    func disable(sink: SyncLocalSink) -> SyncFlowResult {
-        // 先在 gate 内作废协调器令牌：在途周期回来后一律丢弃，不会在删除状态之后又把它写回来。
-        let live = locked { () -> SyncState? in
-            coordinator?.cancel()
-            return coordinator?.state
+    /// 在 gate 内作废协调器令牌并摘下协调器：在途周期回来后一律丢弃，之后的本地操作只在本机生效，
+    /// 不会在删除状态之后又把它写回来。返回摘下时的状态与材料，流程失败时据此恢复。
+    private func detach() -> (state: SyncState, keys: SyncKeyMaterial)? {
+        locked {
+            guard let c = coordinator, let keys else { return nil }
+            c.cancel()
+            let snapshot = (c.state, keys)
+            coordinator = nil
+            self.keys = nil
+            origin = nil
+            return snapshot
         }
-        let current = live ?? { if case .present(let s) = env.stateStore.load() { return s } else { return nil } }()
+    }
+
+    func disable(sink: SyncLocalSink) -> SyncFlowResult {
+        let live = detach()
+        let current = live?.state ?? { if case .present(let s) = env.stateStore.load() { return s } else { return nil } }()
         guard let current else {
             // 只有钥匙串条目（「同步状态丢失」时的关闭）：删条目即可。
             return env.keyStore.delete() ? .done : .storageFailed
         }
         let result = SyncLifecycle.disable(current, store: env.stateStore, keychain: env.keyStore, sink: sink)
-        if result != .localSaveFailed { deactivate() }
+        // 屏障失败：同步状态与钥匙串都没动，恢复原样。
+        if result == .localSaveFailed, let live { activate(live.state, keys: live.keys) }
         return result
     }
 
+    /// 清除云端。网络暂时失败时状态停在 `clearing`，下次启动按第 12.1 节表格继续；屏障失败则恢复原样。
     func clear(sink: SyncLocalSink) async -> SyncFlowResult {
-        let live = locked { () -> SyncState? in
-            coordinator?.cancel()
-            return coordinator?.state
-        }
-        guard let current = live, let keys, let origin else { return .storageFailed }
-        let result = await SyncLifecycle.clear(current, store: env.stateStore, keychain: env.keyStore, sink: sink, transport: env.makeTransport(origin, keys))
-        if result == .done { deactivate() }
+        guard let live = detach() else { return .storageFailed }
+        let result = await SyncLifecycle.clear(live.state, store: env.stateStore, keychain: env.keyStore, sink: sink,
+                                               transport: env.makeTransport(live.state.origin, live.keys))
+        if result == .localSaveFailed { activate(live.state, keys: live.keys) }
         return result
     }
 }

@@ -18,6 +18,12 @@ struct VelaApp: App {
         .commands {
             VelaCommands(model: model, menuBar: menuBar)
         }
+        // 「设置…」（⌘,）：目前只有跨设备同步一页。
+        Settings {
+            SyncPanel(hub: model.sync, width: 420)
+                .padding(20)
+                .preferredColorScheme(.dark)
+        }
         MenuBarExtra(isInserted: $menuBar.isShown) {
             MenuBarFavorites(model: model)
         } label: {

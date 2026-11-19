@@ -7,6 +7,12 @@ final class SettingsStore {
         self.defaults = defaults
     }
 
+    /// 用户是否明确设过这个键（docs/plans/sync.md 第 14.1 节）：未设过的缺省值开启同步时不盖章。
+    func hasExplicitValue(forKey key: String) -> Bool { defaults.object(forKey: key) != nil }
+
+    /// 同步投影写入后提示系统落盘（第 12.2 节第 3 步）。
+    func synchronize() { defaults.synchronize() }
+
     var ageConfirmed: Bool {
         get { defaults.bool(forKey: "ageConfirmed") }
         set { defaults.set(newValue, forKey: "ageConfirmed") }
