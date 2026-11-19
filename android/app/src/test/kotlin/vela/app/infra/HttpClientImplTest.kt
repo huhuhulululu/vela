@@ -5,10 +5,17 @@ import java.net.CookieHandler
 import java.net.HttpURLConnection
 import java.net.InetSocketAddress
 import java.net.URL
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -87,6 +94,41 @@ class HttpClientImplTest {
             assertEquals("ok", first.data.toString(Charsets.UTF_8))
             assertNull(seen.get())
             assertNull(CookieHandler.getDefault())
+        }
+    }
+
+    @Test(timeout = 8_000)
+    fun testCancelDisconnectsInFlightConnection() {
+        val accepted = CountDownLatch(1)
+        val closed = CountDownLatch(1)
+        withServer({ exchange ->
+            accepted.countDown()
+            try {
+                exchange.sendResponseHeaders(200, 0)
+                val body = exchange.responseBody
+                while (true) {
+                    body.write(byteArrayOf(1))
+                    body.flush()
+                    Thread.sleep(100)
+                }
+            } catch (_: Exception) {
+                closed.countDown()
+            }
+        }) { port ->
+            val scope = CoroutineScope(Dispatchers.IO)
+            val job = scope.launch {
+                HttpClientImpl().send(HTTPRequest(url = "http://127.0.0.1:$port/drip", timeoutSeconds = 12.0))
+            }
+            try {
+                assertTrue(accepted.await(3, TimeUnit.SECONDS))
+                Thread.sleep(200)
+                job.cancel()
+                assertTrue("取消后连接没有断开", closed.await(2, TimeUnit.SECONDS))
+                runBlocking { withTimeout(2_000) { job.join() } }
+            } finally {
+                job.cancel()
+                scope.cancel()
+            }
         }
     }
 

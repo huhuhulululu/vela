@@ -104,6 +104,12 @@ android {
         unitTests.all {
             // P1 播放管线实验按墙钟跑数分钟，只在 -Pspike 时执行；日常与 CI 不跑。
             if (!project.hasProperty("spike")) it.exclude("vela/app/spike/**")
+            // 取消 HTTP 时要关掉 java.net 的底层 socket。这些包没有对测试模块打开。
+            it.jvmArgs(
+                "--add-opens", "java.base/sun.net.www.protocol.http=ALL-UNNAMED",
+                "--add-opens", "java.base/sun.net.www.http=ALL-UNNAMED",
+                "--add-opens", "java.base/sun.net=ALL-UNNAMED",
+            )
         }
     }
 
