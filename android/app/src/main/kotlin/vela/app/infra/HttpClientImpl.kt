@@ -1,7 +1,10 @@
 package vela.app.infra
 
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.Socket
+import java.net.SocketTimeoutException
 import java.net.URL
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -82,8 +85,21 @@ class HttpClientImpl : HTTPClient {
             }
             val status = connection.responseCode
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-            val data = stream?.use { it.readBytes() } ?: ByteArray(0)
+            val deadline = System.nanoTime() + resolveTimeoutMillis(request.timeoutSeconds).toLong() * 1_000_000L
+            val data = stream?.use { readBounded(it, deadline) } ?: ByteArray(0)
             return HTTPResult(status = status, data = data, headers = readHeaders(connection))
+        }
+
+        private fun readBounded(stream: InputStream, deadlineNanos: Long): ByteArray {
+            val out = ByteArrayOutputStream()
+            val buf = ByteArray(8 * 1024)
+            while (true) {
+                if (System.nanoTime() >= deadlineNanos) throw SocketTimeoutException("deadline")
+                val n = stream.read(buf)
+                if (n < 0) break
+                out.write(buf, 0, n)
+            }
+            return out.toByteArray()
         }
 
         /**

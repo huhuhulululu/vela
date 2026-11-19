@@ -132,6 +132,32 @@ class HttpClientImplTest {
         }
     }
 
+    @Test(timeout = 8_000)
+    fun testSlowDripStopsAtTheTotalDeadline() {
+        withServer({ exchange ->
+            exchange.sendResponseHeaders(200, 0)
+            val body = exchange.responseBody
+            try {
+                while (true) {
+                    body.write(byteArrayOf(1))
+                    body.flush()
+                    Thread.sleep(200)
+                }
+            } catch (_: Exception) {
+            }
+        }) { port ->
+            val started = System.nanoTime()
+            val failed = runCatching {
+                runBlocking {
+                    HttpClientImpl().send(HTTPRequest(url = "http://127.0.0.1:$port/drip", timeoutSeconds = 1.0))
+                }
+            }
+            val elapsedMs = (System.nanoTime() - started) / 1_000_000
+            assertTrue(failed.isFailure)
+            assertTrue("持续滴数据时没有总期限 elapsed=$elapsedMs", elapsedMs < 3_000)
+        }
+    }
+
     @Test
     fun testForwardsCallerHeadersAndErrorBody() {
         val userAgent = AtomicReference<String?>(null)
