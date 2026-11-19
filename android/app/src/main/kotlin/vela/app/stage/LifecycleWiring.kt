@@ -343,6 +343,10 @@ class AppPlaybackSession(
             stage.applyMute(muted, writeSettings = true)
         }
 
+        override fun syncRuntimeMuted(muted: Boolean) {
+            stage.applyMute(muted, writeSettings = false)
+        }
+
         override fun showNotice(text: String) {
             val message = text.ifEmpty { AudioFocusPlan.FAILURE_NOTICE }
             stage.showNotice(message)

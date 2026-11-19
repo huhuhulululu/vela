@@ -341,6 +341,10 @@ class AudioFocusControllerTest {
             events.add("write:$muted")
         }
 
+        override fun syncRuntimeMuted(muted: Boolean) {
+            events.add("runtime:$muted")
+        }
+
         override fun showNotice(text: String) {
             notices.add(text)
             events.add("notice:$text")

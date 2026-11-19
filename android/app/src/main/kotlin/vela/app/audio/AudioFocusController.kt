@@ -38,7 +38,11 @@ class AudioFocusController(
         fun muteAll()
         fun unmuteLane(role: PlaybackLaneRole)
         fun detachLane(role: PlaybackLaneRole)
+        /** 持久化静音偏好。运行时静音走 [syncRuntimeMuted]，两者分开。 */
         fun writeMuted(muted: Boolean)
+
+        /** 只改运行时静音。丢焦点和申请失败必须走这里，不能顺手写设置。 */
+        fun syncRuntimeMuted(muted: Boolean)
         fun showNotice(text: String)
         fun pausePlayback()
     }
@@ -170,6 +174,7 @@ class AudioFocusController(
         val done = AudioFocusPlan.finished(planned, focusGranted = granted)
         if (!done.preservesAudibleLane) {
             audibleLane = done.audibleLane
+            sinks.syncRuntimeMuted(done.audibleLane == null)
         }
         if (done.writesSettings) {
             sinks.writeMuted(done.audibleLane == null)
