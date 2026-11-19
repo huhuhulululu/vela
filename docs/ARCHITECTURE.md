@@ -360,7 +360,8 @@ App 引用 Core，Core 不引用 App。`PlayerController` 与 `StageModel` 的�
 - 开启期间同步文档是唯一事实来源：收藏、屏蔽、导入、「不想看」、`publicOnly` 与 `infoAlwaysOn` 的用户操作先经 `SyncHub.perform` 写寄存器，再由 `SyncProjection` 得到本机 `Curation` 与 `Taste` 的 `vetoed`；合并后与启动时由文档重建投影（同值不提交）。被拒绝的操作（同步数据已满、「不想看」额度 450 加本机专用 50）不改本机视图并提示。
 - 线程：协调器周期在协作线程池里跑，主线程的本地操作与它用 `SyncService` 的 gate（信号量）互斥，周期只在等网络时让出；屏障可能在后台线程执行，碰模型的部分经 `SyncModelSink` 回主线程。
 - 联网时机（第 11.3 节）：启动、iOS 回前台（`willEnterForeground`）、macOS 激活（距上次联系服务端超过 60 秒）、打开收藏或口味面板与同步设置页（同 60 秒门槛）、本地操作去抖 5 秒且两次 PUT 至少间隔 10 秒、iOS 进后台（`beginBackgroundTask`）与 macOS 退出（最多等 3 秒）在有未推送改动时、「立即同步」。没有任何常驻定时器、轮询或常驻连接；未开启时不发请求。失败 30 秒起翻倍到 1 小时，429 按 `Retry-After`，507 一小时。
-- 加入（`Shared/Sync/SyncJoin.swift`）是一次性事务：`prepareJoin` 只 GET 并在内存里算好合并结果与预览，`commitJoin` 先 PUT 云端成功，再写钥匙串、同步状态、投影落盘屏障，本机任一步失败回滚并恢复本机文件；确认前或提交途中取消（`SyncJoinTicket.cancel`）一律未加入。
+- 加入（`Shared/Sync/SyncJoin.swift`）是一次性事务：`prepareJoin` 只 GET 并在内存里算好合并结果与预览；`commitJoin` 先上提交锁（`isCommittingJoin`，期间 `rejectWhileJoining` 拒绝一切本机收藏、屏蔽、口味与同步设置写操作，舞台置灰，`SyncCommitGuard`），上锁后才取本机数据，PUT 成功（409 先查水位）后按文件快照（`FileJoinJournal`，同目录 `sync-join-snapshot/`，0600，原子 rename 换回）→ 钥匙串 → 投影屏障 → 同步状态（「已开启」，最后写）→ 删快照的顺序写本机；任一步失败或被取消就换回快照、删状态与条目，回滚失败进入「需要修复」。启动时发现快照：已开启只删快照，否则换回。离开加入页、退出、挂起都作废票据。
+- 实验开关：`SettingsStore.experimentSync`（默认关）；关着时 `SyncHub` 不接线（不读钥匙串、不联网、不注册生命周期观察），设置里只显示「实验：跨设备同步」开关（macOS 设置窗口、iOS 口味面板底部）。
 - 入口：macOS「设置…」窗口（`Settings` 场景，⌘,）；iOS 口味面板底部默认收起的「跨设备同步」。完整同步码只在「保存你的同步码」、需设备密码或生物识别的「查看同步码」与「加入」输入框出现，其余只显示短指纹；复制时 iOS 限本机且 120 秒过期，macOS 加 `org.nspasteboard.ConcealedType`。
 - 服务器地址：`Config/Sync.xcconfig`（入库，项目级基础配置）声明空的 `VELA_SYNC_BASE` 并 `#include?` 不入库的 `Config/Local.xcconfig`（模板 `Config/Local.xcconfig.template`）；两端 Info.plist 的 `VelaSyncBase` 取它。未配置时隐藏「开启」，仍可「加入」（同步码自带 origin）。
 - 服务端接口（`server/sync/app.py`，第 10.1 节）：`GET /v2/blob/{id}`、`PUT /v2/blob/{id}`、`POST /v2/blob/{id}/delete`，请求地址 = 同步码里的 origin；客户端不跟随重定向、不带 cookie、不用 URL 缓存，UA `Vela-Sync/2`，单请求超时 20 秒。
