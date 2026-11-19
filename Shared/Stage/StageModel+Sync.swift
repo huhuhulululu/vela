@@ -204,10 +204,8 @@ final class SyncHub: ObservableObject {
         switch result {
         case .notEnabled:
             set(\.phase, .off)
-            if service.rolledBackAtStartup {
-                model?.reloadPreferencesAfterJoinRollback()
-                set(\.notice, "上次加入同步没有完成，已恢复本机数据。")
-            }
+            // 换回快照后的重读已在服务里经 `SyncModelSink.reloadAfterRollback` 做完（删快照之前）。
+            if service.rolledBackAtStartup { set(\.notice, "上次加入同步没有完成，已恢复本机数据。") }
         case .needsRepair(let text): set(\.phase, .attention(text))
         case .unsupported: set(\.phase, .unsupported)
         case .unavailable: set(\.phase, .unavailable)
@@ -424,6 +422,8 @@ final class SyncHub: ObservableObject {
         case .joined:
             joinStage = .idle
             activated()
+            // 快照没删掉（H2）：加入已完成；关闭、清除之前会先删它，删不掉就不继续。
+            if service.env.journal.exists { set(\.notice, "已加入同步；临时文件没能删除，下次关闭或启动时再清理。") }
         case .cancelled:
             joinStage = .idle
             model.reloadSyncedSettingsFromStore()
@@ -465,11 +465,18 @@ final class SyncHub: ObservableObject {
 
     // MARK: 关闭与清除（第 12.6 节）
 
+    /// 关闭同步。上次加入待修复时这也是重试入口（H3）：服务先完成没做完的恢复（换回快照、删状态与钥匙串、
+    /// 按文件重读本机数据），恢复不了就什么都不动、继续提示需要修复。
     func disable() {
         guard let sink, !busy else { return }
+        let repairing = service.joinRepairPending
         let result = service.disable(sink: sink)
         finishFlow(result)
+        if repairing, result == .done { set(\.notice, "上次加入同步没有完成，已恢复本机数据。") }
     }
+
+    /// 「需要修复」的重试入口，与提示页上的「关闭同步」相同。
+    func retryJoinRepair() { disable() }
 
     func clearCloud() async {
         guard let sink, !busy else { return }
@@ -509,7 +516,7 @@ enum SyncHubError: Error, Equatable {
 
 /// 投影落盘屏障用的本机存储（第 12.2 节）。屏障可能在协作线程上跑（清除、启动恢复），
 /// 所以碰模型的部分一律回主线程；`save` 直接调用两个 store（它们自带锁）。
-final class SyncModelSink: SyncLocalSink, @unchecked Sendable {
+final class SyncModelSink: SyncJoinSink, @unchecked Sendable {
     private weak var model: StageModel?
     private let curationStore: CurationStore
     private let tasteStore: TasteStore
@@ -534,6 +541,21 @@ final class SyncModelSink: SyncLocalSink, @unchecked Sendable {
             model?.curationSaver.flush()
             model?.tasteSaver.flush()
         }
+    }
+
+    /// 加入提交拍快照之前（H1）：保存队列里待写的值先写出，再把内存里的当前收藏与口味直接写盘并确认。
+    func persistPending() -> Bool {
+        onMain {
+            guard let model else { return false }
+            model.curationSaver.flush()
+            model.tasteSaver.flush()
+            return curationStore.save(model.curation) && tasteStore.save(model.taste)
+        }
+    }
+
+    /// 快照换回之后（还在提交锁或待修复闸门内）：按文件重读收藏、口味与两个设置。
+    func reloadAfterRollback() {
+        onMain { model?.reloadPreferencesAfterJoinRollback() }
     }
 
     func currentTaste() -> Taste { onMain { model?.taste ?? Taste() } }

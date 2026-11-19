@@ -101,6 +101,15 @@ enum SyncJoinCommit: Equatable {
     }
 }
 
+/// 加入提交用的本机存储（第 12.4 节、第 23 节第 14 条）：在屏障需要的接口之外，提交前把保存队列里待写的数据
+/// 落盘并确认，回滚换回文件之后按文件重读内存。
+protocol SyncJoinSink: SyncLocalSink {
+    /// 写出保存队列里待写的值，再把内存里的当前收藏与口味直接写盘；都成功才返回 true。
+    func persistPending() -> Bool
+    /// 快照换回之后：按磁盘重读收藏、口味与两个设置，内存、磁盘、保存队列三者一致。
+    func reloadAfterRollback()
+}
+
 /// 加入是一次性事务（第 12.4 节，用户裁决）：解析 → 拉取 → 内存里算好合并与预览 → 用户确认 →
 /// 先写云端（PUT 成功）→ 再写本机（钥匙串 → 同步状态 → 投影落盘屏障）。本机任一步失败回滚为「未加入」；
 /// 云端已写入的是本机数据与云端的合并结果，对其他设备无害。确认前或提交途中取消、退出都等于未加入。
@@ -151,7 +160,7 @@ extension SyncService {
     /// 用户确认后提交（第 12.4 节）。先上提交锁：从这里到结束，本机收藏、屏蔽、口味与同步设置的写操作一律被拒
     /// （`localWriteAllowed` 为 false），所以 `local` 在上锁之后才取，网络往返期间不可能有新的本机改动被覆盖。
     /// 锁在任何结局下都释放；App 退出时锁随进程消失，没写「已开启」就按未加入处理。
-    func commitJoin(_ original: SyncJoinTicket, local takeLocal: () -> SyncLocalData, sink: SyncLocalSink) async -> SyncJoinCommit {
+    func commitJoin(_ original: SyncJoinTicket, local takeLocal: () -> SyncLocalData, sink: SyncJoinSink) async -> SyncJoinCommit {
         if original.isCancelled { return .cancelled }
         guard !isActive else { return .failed("这台设备已开启同步，请先关闭") }
         guard case .none = env.stateStore.load(), !env.journal.exists else { return .failed("本机还有未清理的同步状态，请先关闭同步") }
@@ -211,14 +220,18 @@ extension SyncService {
                                        preview: stamped.preview, report: stamped.report))
     }
 
-    /// 本机提交（第 12.4 节、第 23 节第 13 条）：文件快照 → 钥匙串 → 投影（屏障落盘）→ 同步状态（「已开启」，最后写）→ 删快照。
-    /// 每步之间看一次取消；任一步失败或被取消，用快照换回本机文件，再删钥匙串与状态。回滚本身失败就报「需要修复」。
-    private func commitLocally(_ original: SyncJoinTicket, _ t: SyncJoinTicket, ver: UInt64, envelopeHash: String, sink: SyncLocalSink) -> SyncJoinCommit {
+    /// 本机提交（第 12.4 节、第 23 节第 13、14 条）：待写数据落盘 → 文件快照 → 钥匙串 → 投影（屏障落盘）→
+    /// 同步状态（「已开启」，最后写）→ 标记快照已提交 → 删快照。
+    /// 每步之间看一次取消；任一步失败或被取消，用快照换回本机文件、按文件重读内存，再删钥匙串与状态（都在提交锁内）。
+    /// 回滚本身失败就报「需要修复」。
+    private func commitLocally(_ original: SyncJoinTicket, _ t: SyncJoinTicket, ver: UInt64, envelopeHash: String, sink: SyncJoinSink) -> SyncJoinCommit {
         let failed = SyncJoinCommit.failed("本机保存失败，未加入；本机数据保持原样")
         func undo(_ outcome: SyncJoinCommit) -> SyncJoinCommit {
-            rollbackJoin() ? outcome : .needsRepair(SyncStatusText.joinRepair)
+            rollbackJoin(sink: sink) ? outcome : .needsRepair(SyncStatusText.joinRepair)
         }
         if original.isCancelled { return .cancelled }
+        // 保存队列里还有最近 2 秒的编辑：先落盘并确认，快照才是提交那一刻的本机数据（H1）。
+        guard sink.persistPending() else { return failed }
         guard env.journal.snapshot() else { return failed }
         guard env.keyStore.write(SyncKeychainEntry(key: t.code.key, dev: t.dev, blobID: t.keys.blobID)) == .ok else { return undo(failed) }
         if original.isCancelled { return undo(.cancelled) }
@@ -232,26 +245,57 @@ extension SyncService {
         // 定局：写「已开启」之前与取消用同一把锁裁决。
         guard original.finalize() else { return undo(.cancelled) }
         guard env.stateStore.save(state) else { return undo(failed) }
-        // 快照删不掉不影响结果：状态已是「已开启」，下次启动只会删掉它。
-        _ = env.journal.discard()
+        // 已定局：快照先标记已提交（之后只能删除），再删。删不掉不算加入失败，但关闭、清除、新建之前必须先清掉它，
+        // 清不掉就不继续（`settleJoinSnapshot`），界面据 `journal.exists` 提示（H2）。
+        _ = retireSnapshot()
         activate(state, keys: t.keys)
         onDocumentChanged?(state.doc)
         return .joined
     }
 
-    /// 撤销未完成的加入：换回快照，再删同步状态与钥匙串条目。全部成功才返回 true。
-    func rollbackJoin() -> Bool {
-        guard env.journal.restore() else { return false }
-        guard env.stateStore.delete() else { return false }
-        return env.keyStore.delete()
+    /// 撤销未完成的加入：换回快照、删同步状态与钥匙串条目、按文件重读内存，最后删快照。全部成功才返回 true。
+    /// 已提交的快照只删、不换回（也不动状态与钥匙串）；不完整的快照没写过本机，同样只删。
+    func rollbackJoin(sink: SyncLocalSink? = nil) -> Bool {
+        switch env.journal.status {
+        case .none: return true
+        case .committed, .incomplete: return env.journal.discard()
+        case .pending:
+            guard env.journal.restore(), env.stateStore.delete(), env.keyStore.delete() else { return false }
+            (sink as? SyncJoinSink)?.reloadAfterRollback()
+            return env.journal.discard()
+        }
     }
+
+    /// 已定局的快照：标记已提交，再删除。删除成功才返回 true。
+    @discardableResult
+    func retireSnapshot() -> Bool {
+        _ = env.journal.markCommitted()
+        return env.journal.discard()
+    }
+
+    /// 关闭、清除之前处理残留快照（H2、H3）：已提交或不完整的只删；未定局的，有同步状态（「已开启」已写）也只删，
+    /// 没有同步状态就完成待做的恢复。返回 false：快照还在，调用方不得继续（否则之后可能把加入前的旧文件换回）。
+    func settleJoinSnapshot(sink: SyncLocalSink?) -> Bool {
+        switch env.journal.status {
+        case .none: return true
+        case .committed, .incomplete: return env.journal.discard()
+        case .pending:
+            if isActive { return retireSnapshot() }
+            if case .none = env.stateStore.load() { return rollbackJoin(sink: sink) }
+            return retireSnapshot()
+        }
+    }
+
+    /// 上次加入没收尾、回滚还没完成（需要修复）：未定局的快照在、同步没开启。期间本机偏好写入一律被拒，
+    /// 否则之后的恢复会把这些编辑换掉（H3）。
+    var joinRepairPending: Bool { !isActive && env.journal.status == .pending }
 
     // MARK: 提交锁
 
     var isCommittingJoin: Bool { commitLock.withLock { committing } }
 
-    /// 本机收藏、屏蔽、口味与同步设置的写操作是否允许（提交中一律拒绝，不排队）。
-    var localWriteAllowed: Bool { !isCommittingJoin }
+    /// 本机收藏、屏蔽、口味与同步设置的写操作是否允许（提交中与待修复期间一律拒绝，不排队）。
+    var localWriteAllowed: Bool { !isCommittingJoin && !joinRepairPending }
 
     private func beginCommit() -> Bool {
         commitLock.withLock {

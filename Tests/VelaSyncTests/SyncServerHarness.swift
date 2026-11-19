@@ -141,7 +141,7 @@ final class MemoryKeyStore: SyncKeyStore {
     func delete() -> Bool { entry = nil; return true }
 }
 
-final class MemorySink: SyncLocalSink {
+final class MemorySink: SyncJoinSink {
     var curation = Curation()
     var taste = Taste()
     var settings: [String: Bool] = [:]
@@ -165,6 +165,10 @@ final class MemorySink: SyncLocalSink {
         return true
     }
     func applySettings(_ s: [String: Bool]) { settings.merge(s) { $1 } }
+    /// 内存替身没有保存队列：内存即磁盘。
+    var failPersist = false
+    func persistPending() -> Bool { !failPersist }
+    func reloadAfterRollback() {}
 }
 /// 不经网络的服务端替身：按顺序返回脚本里的响应，记录请求，可在请求里插入等待。
 final class ScriptedTransport: SyncTransport, @unchecked Sendable {
@@ -210,22 +214,28 @@ final class MemoryJournal: SyncJoinJournal {
     var failRestore = false
     private(set) var restores = 0
     init(_ sink: MemorySink) { self.sink = sink }
-    var exists: Bool { saved != nil }
+    private var committed = false
+    var status: SyncJoinJournalStatus { saved == nil ? .none : (committed ? .committed : .pending) }
     func snapshot() -> Bool {
         guard !failSnapshot else { return false }
         saved = (sink.curation, sink.taste, sink.settings)
+        committed = false
+        return true
+    }
+    func markCommitted() -> Bool {
+        guard saved != nil else { return false }
+        committed = true
         return true
     }
     func restore() -> Bool {
         restores += 1
-        guard !failRestore else { return false }
-        guard let saved else { return true }
+        guard !failRestore, !committed, let saved else { return false }
         (sink.curation, sink.taste, sink.settings) = saved
-        self.saved = nil
         return true
     }
     func discard() -> Bool {
         saved = nil
+        committed = false
         return true
     }
 }

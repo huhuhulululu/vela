@@ -109,13 +109,18 @@ final class SyncService: @unchecked Sendable {
         let read = env.stateStore.load()
         // 状态文件坏掉：只进入「状态损坏」，不再读第二次，更不删钥匙串里的 K（复审 high）。
         if read == .corrupted { return .attention(.stateCorrupted) }
-        // 上次加入提交没收尾（第 12.4 节）：已开启说明提交已完成，只删快照；否则换回快照，删掉钥匙串与状态。
-        if env.journal.exists {
-            if case .present(let s) = read, s.phase == .active {
-                _ = env.journal.discard()
+        // 上次加入提交没收尾（第 12.4 节、第 23 节第 14 条）。已提交的快照只删；不完整的快照（没有完整性标记）没写过本机，
+        // 也只删、不换回。未定局的完整快照：有同步状态说明「已开启」已写、提交已完成，只删；否则换回快照、按文件重读、
+        // 删掉钥匙串与状态。删不掉的已定局快照不影响判断（不会被换回），关闭、清除之前会再删。
+        switch env.journal.status {
+        case .none: break
+        case .committed, .incomplete: _ = env.journal.discard()
+        case .pending:
+            if case .present = read {
+                retireSnapshot()
             } else {
                 guard lookup != .unavailable else { return .unavailable }
-                guard rollbackJoin() else { return .needsRepair(SyncStatusText.joinRepair) }
+                guard rollbackJoin(sink: sink) else { return .needsRepair(SyncStatusText.joinRepair) }
                 rolledBackAtStartup = true
                 return .notEnabled
             }
@@ -157,6 +162,9 @@ final class SyncService: @unchecked Sendable {
         origin = state.origin
         coordinator = c
     }
+
+    /// 只停协调器（不动磁盘上的状态与钥匙串）：界面层摘线后迟到的流程结果用它收掉（第 23 节第 14 条）。
+    func suspend() { _ = detach() }
 
     private func deactivate() {
         coordinator?.cancel()
@@ -201,6 +209,14 @@ final class SyncService: @unchecked Sendable {
 
     /// 用给定的 `K` 创建（新生成的，或加入时 404 后「仍用此码创建」）。
     func create(key k: [UInt8], origin: String, local: SyncLocalData) async -> SyncCreateResult {
+        // 上次加入没收尾的快照还在：未定局的要先经「关闭同步」完成恢复；已定局或不完整的先删掉，删不掉就不创建（H3）。
+        switch env.journal.status {
+        case .none: break
+        case .pending: return .failed(SyncStatusText.joinRepairFirst)
+        case .committed, .incomplete:
+            guard env.journal.discard() else { return .failed("本机还有未清理的同步数据，请稍后再试") }
+        }
+        guard case .none = env.stateStore.load() else { return .failed("本机还有未清理的同步状态，请先关闭同步") }
         guard let dev = try? randomDevice(), let keys = try? SyncCrypto.derive(k),
               let code = SyncCrypto.formatCode(key: k, origin: origin) else { return .failed("系统随机源不可用") }
         var state = SyncState(phase: .creating, origin: origin, blobID: keys.blobID, clock: SyncClock(dev: dev))
@@ -255,6 +271,8 @@ final class SyncService: @unchecked Sendable {
     }
 
     func disable(sink: SyncLocalSink) -> SyncFlowResult {
+        // 残留的加入快照先处理：未完成的恢复在这里重试，已定局的删掉；处理不了就什么都不动（H2、H3）。
+        guard settleJoinSnapshot(sink: sink) else { return .storageFailed }
         let live = detach()
         let current = live?.state ?? { if case .present(let s) = env.stateStore.load() { return s } else { return nil } }()
         guard let current else {
@@ -269,6 +287,7 @@ final class SyncService: @unchecked Sendable {
 
     /// 清除云端。网络暂时失败时状态停在 `clearing`，下次启动按第 12.1 节表格继续；屏障失败则恢复原样。
     func clear(sink: SyncLocalSink) async -> SyncFlowResult {
+        guard settleJoinSnapshot(sink: sink) else { return .storageFailed }
         guard let live = detach() else { return .storageFailed }
         let result = await SyncLifecycle.clear(live.state, store: env.stateStore, keychain: env.keyStore, sink: sink,
                                                transport: env.makeTransport(live.state.origin, live.keys))

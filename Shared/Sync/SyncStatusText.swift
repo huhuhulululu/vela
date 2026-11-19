@@ -41,7 +41,8 @@ enum SyncStatusText {
     }
 
     /// 加入提交没收尾、换回快照也失败时的提示（第 12.4 节）。
-    static let joinRepair = "上次加入同步没有完成，本机数据恢复失败，需要修复。请保持 App 打开后重试；仍不行请联系支持。"
+    static let joinRepair = "上次加入同步没有完成，本机数据恢复失败，需要修复。恢复完成前收藏、屏蔽与口味暂不能修改；点「关闭同步」重试恢复。"
+    static let joinRepairFirst = "上次加入同步没有完成，请先点「关闭同步」恢复本机数据。"
 
     /// 关闭、清除、启动恢复等流程的结果（第 12 节），按实际发生的事说。
     static func flow(_ result: SyncFlowResult) -> String {

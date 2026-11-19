@@ -30,7 +30,19 @@ final class SyncFileJournalTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: curation, encoding: .utf8), "old-curation")
         XCTAssertFalse(FileManager.default.fileExists(atPath: taste.path), "原本没有的文件换回后删除")
         XCTAssertEqual(settings, ["publicOnly": false])
+        XCTAssertTrue(journal.restore(), "换回可重复执行")
+        XCTAssertEqual(try String(contentsOf: curation, encoding: .utf8), "old-curation")
+        XCTAssertEqual(journal.status, .pending, "换回不删快照：收尾完成后由调用方删除")
+        XCTAssertTrue(journal.discard())
         XCTAssertFalse(journal.exists)
-        XCTAssertTrue(journal.restore(), "没有快照时换回是空操作")
+        XCTAssertFalse(journal.restore(), "没有快照时拒绝换回")
+
+        // 已提交的快照只能删除，不能换回。
+        XCTAssertTrue(journal.snapshot())
+        XCTAssertTrue(journal.markCommitted())
+        try Data("projected".utf8).write(to: curation)
+        XCTAssertFalse(journal.restore())
+        XCTAssertEqual(try String(contentsOf: curation, encoding: .utf8), "projected")
+        XCTAssertTrue(journal.discard())
     }
 }

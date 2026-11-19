@@ -349,3 +349,152 @@ final class AuditFixTests: XCTestCase {
         XCTAssertFalse(coordinator.active, "旧控制器迟到的事件无害")
     }
 }
+
+// MARK: - 加入同步又一轮修复（PR #11，H1、H5、M7）
+
+/// 同步界面层的事务缺陷回归：真的 `StageModel` 与真实 `DeferredSaver`、偏好文件；同步服务换成本机替身（不联网、不碰钥匙串）。
+/// 模型自己的同步入口保持实验开关关闭（默认值），用例里另造一个 `SyncHub` 接在模型上。
+@MainActor
+final class SyncJoinWiringTests: XCTestCase {
+    private var suites: [String] = []
+    private var hubs: [SyncHub] = []
+    private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
+    private static let key = [UInt8](repeating: 5, count: 32)
+    private static let origin = "https://sync.example"
+
+    override func setUp() {
+        super.setUp()
+        TestPrefs.reset()
+    }
+
+    override func tearDown() {
+        for hub in hubs {
+            hub.disable()
+            hub.setExperiment(false)
+        }
+        hubs = []
+        RoomInfoPrefs.shared.onUserToggle = nil
+        RoomInfoPrefs.shared.allowsToggle = nil
+        TestPrefs.reset()
+        for name in suites { UserDefaults().removePersistentDomain(forName: name) }
+        suites = []
+        super.tearDown()
+    }
+
+    final class StateStore: SyncStateStore {
+        var stored: SyncState?
+        func load() -> SyncStateRead { stored.map { .present($0) } ?? .none }
+        func save(_ state: SyncState) -> Bool { stored = state; return true }
+        func delete() -> Bool { stored = nil; return true }
+    }
+
+    final class KeyStore: SyncKeyStore {
+        var entry: SyncKeychainEntry?
+        func readEntry() -> SyncKeychainLookup { entry.map { .present($0) } ?? .none }
+        func write(_ entry: SyncKeychainEntry) -> SyncKeychainWrite { self.entry = entry; return .ok }
+        func read() -> SyncKeychainRead { entry.map { .present(blobID: $0.blobID) } ?? .none }
+        func delete() -> Bool { entry = nil; return true }
+    }
+
+    /// 慢网络：每个请求等 `delay` 纳秒后返回脚本里的响应（没有脚本就是暂时失败）。
+    final class SlowTransport: SyncTransport, @unchecked Sendable {
+        private let lock = NSLock()
+        private var gets: [SyncServerResponse] = []
+        var delay: UInt64 = 300_000_000
+        func script(gets: [SyncServerResponse]) { lock.withLock { self.gets = gets } }
+        func get() async -> SyncServerResponse {
+            let r = lock.withLock { gets.isEmpty ? SyncServerResponse.transient : gets.removeFirst() }
+            try? await Task.sleep(nanoseconds: delay)
+            return r
+        }
+        func put(_ request: SyncPutRequest) async -> SyncServerResponse {
+            try? await Task.sleep(nanoseconds: delay)
+            return .transient
+        }
+        func delete(base: UInt64, epoch: String?) async -> SyncServerResponse { .transient }
+    }
+
+    private func makeStage() -> StageModel {
+        let name = "vela-phone-sync-\(UUID().uuidString)"
+        suites.append(name)
+        let stage = TestPrefs.stage(settings: SettingsStore(defaults: UserDefaults(suiteName: name)!))
+        XCTAssertFalse(stage.sync.experimentEnabled, "实验开关默认关闭")
+        return stage
+    }
+
+    private func hub(_ stage: StageModel, store: StateStore, keys: KeyStore, transport: SlowTransport) -> (SyncHub, SyncService) {
+        let service = SyncService(env: SyncService.Environment(stateStore: store, keyStore: keys, makeTransport: { _, _ in transport }))
+        let hub = SyncHub(service: service)
+        hubs.append(hub)
+        stage.settings.experimentSync = true
+        hub.attach(stage)
+        return (hub, service)
+    }
+
+    private func waitUntil(_ seconds: Double = 3, _ condition: () -> Bool) async {
+        let deadline = Date().addingTimeInterval(seconds)
+        while !condition(), Date() < deadline { try? await Task.sleep(nanoseconds: 20_000_000) }
+    }
+
+    private func settled(_ name: String, seconds: TimeInterval) -> DwellTracker.Settled {
+        var tracker = DwellTracker()
+        _ = tracker.switchTo(Room.direct(username: name), now: t0)
+        tracker.setActive(true, now: t0)
+        return tracker.finish(now: t0.addingTimeInterval(seconds))!
+    }
+
+    // MARK: M7 停留记账不绕过提交锁
+
+    /// 加入提交中：停留结算不改口味、不排保存；锁一放开照常记账。
+    func testM7_dwellRecordIsRejectedWhileCommitting() {
+        let stage = makeStage()
+        let service = stage.sync.service
+        let before = stage.taste
+        service.commitLock.withLock { service.committing = true }
+        stage.record(settled("alice", seconds: 120), from: stage.primary, reason: .swipe)
+        XCTAssertEqual(stage.taste, before, "提交中不改口味")
+        stage.tasteSaver.flush()
+        XCTAssertEqual(stage.tasteStore.load(), before, "提交中不写偏好文件")
+        service.commitLock.withLock { service.committing = false }
+        stage.record(settled("alice", seconds: 120), from: stage.primary, reason: .swipe)
+        XCTAssertNotEqual(stage.taste, before, "锁放开后照常记账")
+    }
+
+    /// 未定局的快照：完成恢复前不接受口味写入。
+    final class PendingJournal: SyncJoinJournal {
+        var status: SyncJoinJournalStatus { .pending }
+        func snapshot() -> Bool { false }
+        func markCommitted() -> Bool { false }
+        func restore() -> Bool { false }
+        func discard() -> Bool { false }
+    }
+
+    /// 上次加入待修复（回滚没完成）：停留结算同样不改口味。
+    func testM7_dwellRecordIsRejectedWhileJoinRepairPending() {
+        let stage = makeStage()
+        let before = stage.taste
+        stage.sync.service.configureJournal(PendingJournal())
+        defer { stage.sync.service.configureJournal(NoJournal()) }
+        XCTAssertTrue(stage.sync.service.joinRepairPending)
+        stage.record(settled("alice", seconds: 120), from: stage.primary, reason: .swipe)
+        XCTAssertEqual(stage.taste, before)
+        XCTAssertTrue(stage.rejectWhileJoining(), "收藏、屏蔽等写入同样被拒")
+    }
+
+    // MARK: H1 模型 sink 落盘与重读
+
+    /// 提交拍快照之前：保存队列里待写的收藏先写盘；换回之后按文件重读，保存队列里不留会覆盖换回结果的旧值。
+    func testH1_modelSinkPersistsPendingEditsAndReloadsAfterRollback() {
+        let stage = makeStage()
+        stage.commit(Curation(favorites: ["alice"]), nil)
+        XCTAssertNotEqual(stage.curationStore.load(), stage.curation, "前提：alice 还在保存队列里")
+        let sink = SyncModelSink(model: stage)
+        XCTAssertTrue(sink.persistPending())
+        XCTAssertEqual(stage.curationStore.load(), stage.curation, "落盘并确认")
+        XCTAssertTrue(stage.curationStore.save(Curation(favorites: ["bob"])), "模拟快照换回")
+        sink.reloadAfterRollback()
+        XCTAssertEqual(stage.curation.favorites, ["bob"], "内存按换回的文件重读")
+        stage.curationSaver.flush()
+        XCTAssertEqual(stage.curationStore.load().favorites, ["bob"], "保存队列与磁盘一致")
+    }
+}
