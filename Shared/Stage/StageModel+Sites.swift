@@ -72,9 +72,20 @@ extension StageModel {
         return out
     }
 
-    /// 启动时把偏好文件的房间键一次落成带前缀格式；全部成功才记版本，失败的下次启动再试（原文件不动）。
-    static func migrateSiteKeys(_ settings: SettingsStore) {
-        guard settings.siteKeyVersion < SiteKeyMigration.version else { return }
+    /// 站点键迁移能不能现在跑：还没迁移过、没有未清理的同步加入快照（`pending` 要先换回或删除，
+    /// `committed` / `incomplete` 要先删除，都由同步启动恢复处理）、本机写入未被提交锁或待修复拒绝。
+    nonisolated static func shouldMigrateSiteKeys(version: Int, journal: SyncJoinJournalStatus, localWriteAllowed: Bool) -> Bool {
+        version < SiteKeyMigration.version && journal == .none && localWriteAllowed
+    }
+
+    /// 启动时（同步关着，或没有残留快照）与同步启动恢复结束后各调一次：条件不满足就推迟、不记版本。
+    static func migrateSiteKeysIfAllowed(_ settings: SettingsStore, journal: SyncJoinJournalStatus, localWriteAllowed: Bool) {
+        guard shouldMigrateSiteKeys(version: settings.siteKeyVersion, journal: journal, localWriteAllowed: localWriteAllowed) else { return }
+        migrateSiteKeys(settings)
+    }
+
+    /// 把偏好文件的房间键一次落成带前缀格式；全部成功才记版本，失败的下次再试（原文件不动）。
+    private static func migrateSiteKeys(_ settings: SettingsStore) {
         let report = SiteKeyMigration.run(
             curation: CurationStore.defaultURL(), taste: TasteStore.defaultURL(), ledger: WatchLedgerStore.defaultURL()
         )

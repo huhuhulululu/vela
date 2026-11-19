@@ -376,6 +376,7 @@ App 引用 Core，Core 不引用 App。`PlayerController` 与 `StageModel` 的�
 - 请求头：`PlayerController.play(…headers:)` 把房间站点的头交给中继（`PlaylistRelay.localURL(…headers:)`，每个源各自记一份，默认 `PlaylistRelay.defaultHeaders` 即原来写死的 cb 头）与 `AVURLAsset`（分片由 AVPlayer 直连上游）。
 - 收藏：cb 收藏照旧查 `chatvideocontext`；非 cb 收藏只查适配器（Cam4 只看目录索引），查不到是「未查询」，不计入补查冷却；上次开播只查 cb；收藏来源只列当前站点模式里的收藏；手动添加接受 `c4:名字`。
 - 筛除（PR #12 合入后）：`FeedStore.canDelist` / `delist` 与各路保护集合一律按站点键比较，同名的 Chaturbate 与 Cam4 房间互不误筛；是否可筛由 `StageModel.delistState` 定：cb 沿用 `StreamTicket.delistedShow`，Cam4 只认目录明确标的私密，「这页没找到」推断出的离线与 unknown 都不筛、只跳过。
+- 同步（与 5.11 的交互，sync.md 第 23 节第 19 条）：`SyncKeys.roomKey(localName:)` 经 `RoomKey` 归一化，合法站点 {cb, c4}；`SyncProjection.curation` 按站点写回 ref（cb 去前缀、c4 带前缀），不认识的站点只留在文档里。启动站点键迁移在有残留加入快照时推迟到 `SyncHub` 启动恢复之后（`StageModel.shouldMigrateSiteKeys`），待修复或提交中不写；`siteMode`、`siteKeyVersion` 只在本机，不进同步。
 - 地区屏蔽：观看地区取设备地区（`StageModel.viewerRegions`），不按代理出口判断；Cam4 房间的 `blockedRegions` 命中时不进目录（`Cam4Adapter.fetchDirectory` 出口丢弃，索引仍记着它），收藏状态显示「当前地区不可观看」，手动直达时起播判 geo 并跳过。
 - 界面：筛选面板顶部站点三段选择（Chaturbate / Cam4 / 混合，`chooseSite`，记住，切换等同切来源）；非 cb 房间在信息行（macOS `RoomCaption`、iOS `PhoneCaption`）显示站点名；Cam4 单站模式下地区、标签、新开播筛选使目录为空时说明「Cam4 不支持按地区、标签或新开播筛选」；搜索框回车 `c4:名字` 直达 Cam4，裸名在 Cam4 模式按 c4。
 - 固定测试流：iOS `--perf-site c4` 让三间测试房间成为 Cam4 房间（`c4:perf_stream…`），走 Cam4 的身份、请求头与中继登记，仍用回环测试流；`PerfStream.isTestRoom` 统一判定，预取、续期、换档不为测试房间发请求。

@@ -33,9 +33,12 @@ public struct SyncProjection: Equatable, Sendable {
     public func isFavorite(_ key: String) -> Bool { favorites.contains { $0.key == key } }
     public func isBlocked(_ key: String) -> Bool { blocked.contains { $0.key == key } }
 
-    /// 本机 `Curation`：只取 `cb:` 键，去前缀写回（本机多站点改造之前的过渡口径，第 6.3 节）。
+    /// 本机 `Curation`：取合法站点（cb、c4）的键，按 sites.md 的 ref 写回（cb 去前缀用显示名，c4 带前缀）；
+    /// 不认识的站点只留在文档里（第 6.3 节）。
     public var curation: Curation {
-        func local(_ list: [Entry]) -> [String] { list.filter { SyncKeys.isProjected($0.key) }.map(\.display) }
+        func local(_ list: [Entry]) -> [String] {
+            list.filter { SyncKeys.isProjected($0.key) }.map { SyncKeys.localRef(roomKey: $0.key, display: $0.display) }
+        }
         return Curation(favorites: local(favorites), blocked: local(blocked))
     }
 

@@ -195,7 +195,10 @@ final class StageModel: ObservableObject {
     ) {
         self.settings = settings
         self.http = http
-        Self.migrateSiteKeys(settings)
+        // 同步加入快照要先由同步启动恢复处理（换回或删除），有残留时这里推迟迁移，恢复结束后再补（`SyncHub.start` 之后）。
+        // 同步实验开关关着时不接线、不会处理快照，按无快照对待。
+        let journal: SyncJoinJournalStatus = settings.experimentSync ? SyncHub.journal(settings: settings).status : .none
+        Self.migrateSiteKeysIfAllowed(settings, journal: journal, localWriteAllowed: true)
         let tasteStore = TasteStore(url: TasteStore.defaultURL(), legacyURL: PreferenceStore.defaultURL())
         self.tasteStore = tasteStore
         let curationStore = CurationStore(url: CurationStore.defaultURL())

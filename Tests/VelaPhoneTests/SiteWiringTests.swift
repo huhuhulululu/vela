@@ -137,6 +137,40 @@ final class SiteWiringTests: XCTestCase {
         XCTAssertNil(stage.delistState(StreamTicket(success: true, url: nil, status: .unknown), forRef: "c4:alice"))
     }
 
+    // MARK: 站点键迁移与同步加入快照的先后
+
+    func testSiteKeyMigrationWaitsForJoinSnapshotRepair() {
+        let v = SiteKeyMigration.version
+        XCTAssertTrue(StageModel.shouldMigrateSiteKeys(version: 0, journal: .none, localWriteAllowed: true))
+        XCTAssertFalse(StageModel.shouldMigrateSiteKeys(version: v, journal: .none, localWriteAllowed: true), "已迁移不再跑")
+        for status in [SyncJoinJournalStatus.pending, .committed, .incomplete] {
+            XCTAssertFalse(StageModel.shouldMigrateSiteKeys(version: 0, journal: status, localWriteAllowed: true),
+                           "快照还在（\(status)）：先等启动恢复处理")
+        }
+        XCTAssertFalse(StageModel.shouldMigrateSiteKeys(version: 0, journal: .none, localWriteAllowed: false), "提交锁或待修复时不写偏好文件")
+    }
+
+    func testDeferredMigrationRecordsNoVersion() {
+        let store = defaults()
+        let settings = SettingsStore(defaults: store)
+        StageModel.migrateSiteKeysIfAllowed(settings, journal: .pending, localWriteAllowed: true)
+        XCTAssertEqual(settings.siteKeyVersion, 0, "推迟时不记版本")
+        StageModel.migrateSiteKeysIfAllowed(settings, journal: .none, localWriteAllowed: true)
+        XCTAssertEqual(settings.siteKeyVersion, SiteKeyMigration.version)
+    }
+
+    func testSyncProjectionKeepsCam4Entries() {
+        let stage = TestPrefs.stage(settings: SettingsStore(defaults: defaults()))
+        stage.commit(Curation(favorites: ["Sample_One", "c4:sample_one"], blocked: ["c4:sample_two"]), nil)
+        // 开启同步时由本机数据盖章出文档，之后合并与启动都由文档重建本机视图。
+        let doc = SyncMigration.stampCreator(SyncLocalData(curation: stage.curation), clock: SyncClock(dev: 7), pt: 1_000).replica.doc
+        stage.applySyncProjection(doc)
+        XCTAssertTrue(stage.curation.isFavorite("c4:sample_one"), "投影不抹掉本机 Cam4 收藏")
+        XCTAssertTrue(stage.curation.isFavorite("Sample_One"))
+        XCTAssertTrue(stage.curation.isBlocked("c4:sample_two"))
+        XCTAssertFalse(stage.curation.isBlocked("sample_two"), "同名 cb 房间不受影响")
+    }
+
     // MARK: 直达输入
 
     func testDirectRoomFollowsPrefixThenSiteMode() {

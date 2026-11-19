@@ -306,6 +306,10 @@ App（`android/app/src/main/kotlin/vela/app/`）：`infra/Endpoints.kt`、`playb
 
 注意：本计划合入后，苹果端导出的收藏是 raw 格式（`cb:alice`），安卓导入前要先支持 raw，否则会把带前缀的名字判为非法。
 
+同步（S6 接入时）：`roomKey` 用站点归一化（与本文第 2 节同一套），合法站点 {`cb`, `c4`}，投影写回带前缀的本机名字；见 `docs/plans/sync.md` 第 6.3 节、第 23 节第 19 条。
+
+迁移与同步的先后（本文第 4 节补充）：有残留的同步加入快照时，启动不做站点键迁移、不记 `siteKeyVersion`，等同步启动恢复处理完快照后再补；加入提交中或待修复时不写偏好文件。
+
 ## 10 公开方案调研
 
 - yt-dlp `cam4.py`、StreaMonitor `cam4.py`：只读学习 Cam4 接口形状（访客目录与 HLS 地址），不复制代码。
