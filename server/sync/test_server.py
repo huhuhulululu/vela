@@ -806,6 +806,23 @@ class ProtocolTest(unittest.TestCase):
         status, hdr, data = self.call("GET", "/v2/blob/" + other)
         self.assert_json(status, hdr, data, 404)
 
+    def test_deeply_nested_body_is_400_and_500_logs_only_class(self):
+        blob = "ab" * 32
+        body = b"[" * 200000 + b"]" * 200000
+        status, _, _ = self.call("PUT", "/v2/blob/" + blob, body=body[: app.MAX_BODY])
+        self.assertEqual(status, 400)
+        # 500 只记异常类名，不带请求内容。
+        captured = []
+        self.srv.record_log = captured.append
+        orig = app.perform_get
+        app.perform_get = lambda *a: (_ for _ in ()).throw(KeyError("secret-request-detail"))
+        try:
+            status, _, _ = self.call("GET", "/v2/blob/" + blob)
+        finally:
+            app.perform_get = orig
+        self.assertEqual(status, 500)
+        self.assertFalse(any("secret-request-detail" in line for line in captured), captured)
+
     def test_missing_row_base_nonzero_404(self):
         blob = "68" * 32
         sk, _pub = new_key()

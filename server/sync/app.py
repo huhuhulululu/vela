@@ -804,7 +804,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._reply(400, {})
         except BadRequest:
             self._reply(400, {})
-        except Exception:
+        except (ValueError, RecursionError):
+            # 畸形输入（例如嵌套过深的 JSON、越界的数字）是客户端错误，不是服务端故障。
+            self._reply(400, {})
+        except Exception as exc:
+            # 只记异常类名，不带请求内容与异常消息。
+            try:
+                sys.stderr.write("sync server: 500 %s\n" % type(exc).__name__)
+            except Exception:
+                pass
             self._reply(500, {})
 
     def _process(self):
