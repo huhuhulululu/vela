@@ -16,6 +16,9 @@ enum PerfEntry {
     static let pipOnAllLanes = CommandLine.arguments.contains("--perf-pip-all-lanes")
     /// `--perf-pip-start <秒>`：启动后这么多秒在前台手动调一次画中画（等于点了控制栏的画中画按钮），日志里看 `pip started` 或失败码。
     static let pipStartArgument = "--perf-pip-start"
+    /// `--perf-open-sync`：启动 3 秒后打开口味面板并展开「跨设备同步」（模拟器上验打开同步入口不崩）。
+    static let openSyncArgument = "--perf-open-sync"
+    static let openSync = CommandLine.arguments.contains(openSyncArgument)
     /// 长标识串：进二进制的日志文本，供安全门在 Release 产物里查找（短字符串可能被内联而漏检）。
     static let marker = "vela-perf-entry-armed-8c41d7e2b9a0"
 
@@ -25,6 +28,12 @@ enum PerfEntry {
     static func applyLaunchArguments(
         to stage: StageModel, arguments: [String] = ProcessInfo.processInfo.arguments
     ) -> Bool {
+        if arguments.contains(openSyncArgument) {
+            Task { @MainActor [weak stage] in
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                stage?.showTaste = true
+            }
+        }
         guard arguments.contains(autoplayArgument) else { return false }
         stage.ageConfirmed = true
         stage.muted = true
@@ -63,6 +72,7 @@ enum PerfEntry {
 enum PerfEntry {
     static let noPipSolo = false
     static let pipOnAllLanes = false
+    static let openSync = false
     /// Release 与 Debug：没有入口，恒为假。
     @MainActor @discardableResult
     static func applyLaunchArguments(to stage: StageModel, arguments: [String] = []) -> Bool { false }

@@ -54,13 +54,14 @@ struct PhoneChrome: View {
                     }
                 PhonePill(title: "口味", active: model.taste.paused) { model.showTaste = true }
                     .sheet(isPresented: $model.showTaste, onDismiss: { model.noteActivity() }) {
-                        VStack(alignment: .leading, spacing: 0) {
-                            TasteView(model: model, width: nil)
-                            // iOS 没有设置页：同步入口放在口味面板底部，默认收起。
-                            PhoneSyncSection(hub: model.sync)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .phoneSheet()
+                        TasteView(model: model, width: nil)
+                            .frame(maxWidth: .infinity)
+                            // iOS 没有设置页：同步入口放在口味面板底部，默认收起（与 main 的「诊断」合并时放在它上方）。
+                            .safeAreaInset(edge: .bottom, spacing: 0) {
+                                PhoneSyncSection(hub: model.sync, expanded: PerfEntry.openSync)
+                                    .background(Theme.ink)
+                            }
+                            .phoneSheet()
                     }
                 if let pip = model.platform.pipCoordinator {
                     PhonePiPPill(pip: pip) { model.platform.setPictureInPictureAutoEnter($0, stage: model) }
@@ -310,7 +311,12 @@ extension View {
 /// 口味面板底部的同步入口：默认收起，展开后是共用的 `SyncPanel`。
 struct PhoneSyncSection: View {
     @ObservedObject var hub: SyncHub
-    @State private var expanded = false
+    @State private var expanded: Bool
+
+    init(hub: SyncHub, expanded: Bool = false) {
+        self.hub = hub
+        _expanded = State(initialValue: expanded)
+    }
 
     var body: some View {
         DisclosureGroup(isExpanded: $expanded) {
