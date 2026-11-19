@@ -65,6 +65,7 @@ class MainActivity : ComponentActivity() {
         this.stage = stage
         this.session = session
         this.wiring = wiring
+        stage.onQuit = { finish() }
         stage.bindLifecycleHooks(
             ensurePlayback = { session.ensureLane() },
             onMuteChanged = { muted -> session.onMuteChanged(muted) },

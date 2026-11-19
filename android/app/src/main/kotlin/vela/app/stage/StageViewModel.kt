@@ -224,6 +224,9 @@ class StageViewModel(
     /** 非空时静音变化交给音频焦点，不再自己写设置。 */
     internal var onMuteChanged: ((Boolean) -> Unit)? = null
 
+    /** 年龄确认页退出。正式入口用来结束 Activity。 */
+    internal var onQuit: (() -> Unit)? = null
+
     /** 播放器已经 release，[close] 不能再 stop。 */
     internal var playerReleased: Boolean = false
 
@@ -311,6 +314,7 @@ class StageViewModel(
             StageIntent.Quit -> {
                 quitRequested = true
                 publish()
+                onQuit?.invoke()
             }
             is StageIntent.SelectSource -> selectSource(intent.source)
             is StageIntent.SetSearchText -> {
