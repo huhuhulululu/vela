@@ -50,7 +50,7 @@ class PlaybackLane(
     private val sleeper: Sleeper = HandlerSleeper(),
     private val isRenewing: (String) -> Boolean = { source -> hub.isRenewing(source) },
 ) : LanePlayerListener {
-    val laneLabel: String = if (id == LaneID.PRIMARY) "primary" else "secondary"
+    val laneLabel: String = id.label
 
     var refreshRequested: ((String, Boolean) -> Unit)? = null
     var noAudioDetected: ((String) -> Unit)? = null

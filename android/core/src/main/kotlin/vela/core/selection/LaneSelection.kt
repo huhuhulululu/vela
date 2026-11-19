@@ -242,6 +242,8 @@ object LaneSelection {
                 primary = step(primary, delta, afterRooms, skipping(secondary.username))
             LaneID.SECONDARY ->
                 secondary = step(secondary, delta, afterRooms, skipping(primary.username))
+            // 快照仍只有两路。第三路的选房不在契约包；这里不改游标，避免把两窗结果写错。
+            LaneID.TERTIARY -> Unit
         }
         return outcome(before, primary, secondary, placed = Reason.MOVE)
     }
