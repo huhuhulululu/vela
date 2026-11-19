@@ -23,7 +23,7 @@ internal suspend fun StageViewModel.loadHotTagsIfStale() {
     } catch (cancelled: kotlinx.coroutines.CancellationException) {
         throw cancelled
     } catch (error: Exception) {
-        Log.w(LOG, "hot tags failed", error)
+        Log.w(LOG, "hot tags failed ${error.javaClass.simpleName}")
         hotTags = hotTags.recordingFailure(now())
     }
     hotTagsLoading = false
