@@ -410,6 +410,8 @@ App 引用 Core，Core 不引用 App。`PlayerController` 与 `StageModel` 的�
 
 ## 9. 构建与测试
 
+- 包体积（「越轻越好」，实跑门 `app_size_mb` ≤ 基线 + 0.3 MB）：macOS 目标 `Vela` 的 Release 与 Perf 配置用 `SWIFT_OPTIMIZATION_LEVEL = -Osize`，并以 `-Xlinker -exported_symbol -Xlinker _main` 只导出入口，使 `Sources/VelaCore` 里未被 App 用到的 `public` 代码能被死代码剥离；iOS 目标未改（`VelaPhoneTests` 以宿主 App 为 `BUNDLE_LOADER`，需要导出符号）。
+
 - 逻辑测试（仓库根目录）：`swift test`（`Tests/VelaCoreTests/` 测 `VelaCore`；`Tests/VelaRelayTests/` 测 `VelaRelay`：真实回环端口 + `URLProtocol` 假上游，覆盖多源并发、按源作废、受控 403 只续该源、按源停音频刷新、`stopListener` 后旧地址失效、重启时旧回调清不掉新端口、`allowStart` 关闭不起监听）。
 - 构建应用（与 CI 一致）：
 

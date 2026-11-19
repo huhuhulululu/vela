@@ -13,7 +13,7 @@ protocol SyncKeyStore: SyncKeychain {
 extension SyncKeychainStore: SyncKeyStore {}
 
 /// 加入时用户要确认的一切（docs/plans/sync.md 第 12.4 节第 5 步）。持有 `K`，只在内存里。
-struct SyncJoinTicket {
+final class SyncJoinTicket {
     let code: SyncCode
     let keys: SyncKeyMaterial
     let state: SyncState
@@ -22,6 +22,18 @@ struct SyncJoinTicket {
     let remoteEpoch: String
     let remote: SyncDocument
     let preview: SyncJoinPreview
+
+    init(code: SyncCode, keys: SyncKeyMaterial, state: SyncState, remoteVer: UInt64, remoteHash: String, remoteEpoch: String,
+         remote: SyncDocument, preview: SyncJoinPreview) {
+        self.code = code
+        self.keys = keys
+        self.state = state
+        self.remoteVer = remoteVer
+        self.remoteHash = remoteHash
+        self.remoteEpoch = remoteEpoch
+        self.remote = remote
+        self.preview = preview
+    }
 
     var host: String { code.host }
     var fingerprint: String { keys.fingerprint }
