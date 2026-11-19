@@ -90,7 +90,9 @@ class LifecycleWiring(
         }
         for (action in actions) apply(action)
         if (next == PhoneScenePhase.ACTIVE) {
-            // 冷启动没有 EpochResume。进前台、允许出声之前走和恢复同一套焦点与拔耳机保护。
+            // 冷启动没有 EpochResume。只在会话还没初始化时套用保存的静音偏好并登记拔耳机。
+            // 没挂起过的 INACTIVE→ACTIVE 也会走到这里；会话已在时不能再 applyStored，
+            // 否则会按保存的出声重新申请焦点，把失焦后的运行时静音冲掉。
             if (actions.none { it == PhoneLifecycleAction.EpochResume }) {
                 session.prepareAudio()
             }
@@ -267,10 +269,9 @@ class AppPlaybackSession(
     }
 
     override fun prepareAudio() {
-        if (!audioStarted) {
-            audio.start()
-            audioStarted = true
-        }
+        if (audioStarted) return
+        audio.start()
+        audioStarted = true
         audio.applyStored(stage.settings.muted)
     }
 
