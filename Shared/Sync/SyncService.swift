@@ -22,9 +22,12 @@ final class SyncJoinTicket {
     let remoteEpoch: String
     let remote: SyncDocument
     let preview: SyncJoinPreview
+    /// 迁移说明（不合规名字、超额将被取消的「不想看」），确认页列出。
+    let report: SyncMigrationReport
 
     init(code: SyncCode, keys: SyncKeyMaterial, state: SyncState, remoteVer: UInt64, remoteHash: String, remoteEpoch: String,
-         remote: SyncDocument, preview: SyncJoinPreview) {
+         remote: SyncDocument, preview: SyncJoinPreview, report: SyncMigrationReport) {
+        self.report = report
         self.code = code
         self.keys = keys
         self.state = state
@@ -105,6 +108,18 @@ final class SyncService: @unchecked Sendable {
     /// 周期单飞：一个周期从 GET 到最后一次落盘结束前，第二个周期（例如退出前补推）只能排队。
     /// `gate` 在等网络时会放开给本地操作，所以不能用它代替。
     private let flight = DispatchSemaphore(value: 1)
+    /// 刚开启（创建、加入、恢复）时超过 50 个、要在本机取消的本机专用「不想看」（第 6.6 节），界面层取走一次。
+    private var localOnlyDrops: [String] = []
+
+    func takeLocalOnlyDrops() -> [String] {
+        defer { localOnlyDrops = [] }
+        return localOnlyDrops
+    }
+
+    private func noteReport(_ report: SyncMigrationReport) {
+        localOnlyDrops = report.droppedLocalOnlyVetoes
+    }
+
     /// 文档变化（本地操作或合并）：在任意线程调用，接收方自己回主线程重建投影。
     var onDocumentChanged: ((SyncDocument) -> Void)?
 
@@ -148,6 +163,7 @@ final class SyncService: @unchecked Sendable {
             }
             if action == .resumeCreating {
                 state = SyncLifecycle.completeCreate(state, local: local(), pt: env.wallClock()).state
+                noteReport(SyncMigration.stampCreator(local(), clock: state.clock, pt: env.wallClock()).report)
                 guard env.stateStore.save(state) else { return .failed(.storageFailed) }
             }
             activate(state, keys: keys)
@@ -221,6 +237,7 @@ final class SyncService: @unchecked Sendable {
         let completed = SyncLifecycle.completeCreate(state, local: local, pt: env.wallClock())
         state = completed.state
         guard env.stateStore.save(state) else { return .failed("本机保存失败") }
+        noteReport(completed.report)
         activate(state, keys: keys)
         let first = await runCycle() ?? .transient
         if case .halted(.gone) = first {
@@ -275,9 +292,9 @@ final class SyncService: @unchecked Sendable {
             case .plaintext(let bytes):
                 switch SyncDocument.decode(bytes) {
                 case .valid(let doc):
-                    let preview = SyncMigration.stampJoin(local, remote: doc, clock: state.clock, pt: env.wallClock()).preview
+                    let stamped = SyncMigration.stampJoin(local, remote: doc, clock: state.clock, pt: env.wallClock())
                     return .success(SyncJoinTicket(code: code, keys: keys, state: state, remoteVer: ver, remoteHash: codec.digest(data),
-                                                   remoteEpoch: epoch, remote: doc, preview: preview))
+                                                   remoteEpoch: epoch, remote: doc, preview: stamped.preview, report: stamped.report))
                 case .newerSchema: return .failure(.message("其他设备的 App 更新，请更新本机 App"))
                 case .invalid: return .failure(.message("云端数据不合法"))
                 }
@@ -301,6 +318,7 @@ final class SyncService: @unchecked Sendable {
     private func finishJoin(_ state: SyncState, keys: SyncKeyMaterial, remote: SyncDocument, local: SyncLocalData) async -> SyncCycleResult? {
         let joined = SyncLifecycle.completeJoin(state, local: local, remote: remote, pt: env.wallClock())
         guard env.stateStore.save(joined) else { return .storageFailed }
+        noteReport(SyncMigration.stampJoin(local, remote: remote, clock: state.clock, pt: env.wallClock()).report)
         activate(joined, keys: keys)
         onDocumentChanged?(joined.doc)
         return await runCycle()
@@ -312,8 +330,10 @@ final class SyncService: @unchecked Sendable {
               state.blobID == keys.blobID else { return .storageFailed }
         guard env.keyStore.write(SyncKeychainEntry(key: code.key, dev: state.clock.dev, blobID: keys.blobID)) == .ok else { return .storageFailed }
         state.phase = .creating
-        state = SyncLifecycle.completeCreate(state, local: local, pt: env.wallClock()).state
+        let completed = SyncLifecycle.completeCreate(state, local: local, pt: env.wallClock())
+        state = completed.state
         guard env.stateStore.save(state) else { return .storageFailed }
+        noteReport(SyncMigration.stampCreator(local, clock: state.clock, pt: env.wallClock()).report)
         activate(state, keys: keys)
         return await runCycle()
     }

@@ -149,6 +149,8 @@ final class SyncHub: ObservableObject {
     /// 开启或恢复之后：投影覆盖本机收藏与「不想看」（第 11.1 节），刷新状态。
     private func activated() {
         set(\.phase, .active)
+        // 创建、加入、中断恢复统一在这里落实本机专用「不想看」的 50 个额度（第 6.6 节）。
+        model?.dropLocalOnlyVetoes(service.takeLocalOnlyDrops())
         if let doc = service.state?.doc { documentChanged(doc) }
         refreshStatus()
     }
@@ -281,8 +283,7 @@ final class SyncHub: ObservableObject {
         defer { busy = false }
         let result = await service.create(origin: origin, local: model.syncLocalData())
         switch result {
-        case .created(let code, _, let report, let first):
-            model.dropLocalOnlyVetoes(report.droppedLocalOnlyVetoes)
+        case .created(let code, _, _, let first):
             savedCode = code
             activated()
             scheduler.record(first, now: nowMillis)

@@ -137,7 +137,7 @@ struct SyncPanel: View {
     private var join: AnyView {
         switch hub.joinStage {
         case .preview(let ticket):
-            return section("加入已有的同步", ["服务器：\(ticket.host)    指纹：\(ticket.fingerprint)"] + SyncStatusText.joinLines(ticket.preview, host: ticket.host), actions: [
+            return section("加入已有的同步", ["服务器：\(ticket.host)    指纹：\(ticket.fingerprint)"] + SyncStatusText.joinLines(ticket.preview, host: ticket.host) + Self.reportLines(ticket.report), actions: [
                 Action(title: hub.busy ? "正在加入…" : "确认加入", color: Theme.champagne, enabled: !hub.busy, run: finishJoin { await hub.confirmJoin() }),
                 Action(title: "取消", color: Theme.textSecondary) { leaveJoin() },
             ])
