@@ -380,8 +380,18 @@ final class SkipNonPublicTests: XCTestCase {
         return stage
     }
 
+    /// 按接口实测确认的状态落房（unknown 不传 `delist`，与 `StreamTicket.delistedShow` 一致）。
     private func land(_ stage: StageModel, _ failure: StreamFailure?, _ name: String = "b") {
-        stage.noteUnplayable(failure, username: name, token: stage.primary.playGeneration, lane: stage.primary)
+        let confirmed: ShowState?
+        switch failure {
+        case .privateShow: confirmed = .privateShow
+        case .group: confirmed = .group
+        case .hidden: confirmed = .hidden
+        case .password: confirmed = .password
+        case .offline: confirmed = .offline
+        default: confirmed = nil
+        }
+        stage.noteUnplayable(failure, delist: confirmed, username: name, token: stage.primary.playGeneration, lane: stage.primary)
     }
 
     func testPrivateRoomIsSkippedImmediatelyAndDelisted() {
@@ -451,6 +461,16 @@ final class SkipNonPublicTests: XCTestCase {
         land(stage, .unavailable)
         XCTAssertEqual(stage.feed.rooms.count, 3)
         XCTAssertEqual(stage.primary.playbackNote, "暂时无法播放")
+        stage.primary.skipTask?.cancel()
+    }
+
+    func testUnknownStatusKeepsNoticeThenSkipsWithoutDelisting() {
+        let stage = makeStage()
+        stage.noteUnplayable(.offline, delist: nil, username: "b", token: stage.primary.playGeneration, lane: stage.primary)
+        XCTAssertEqual(stage.feed.currentUsername, "b")
+        XCTAssertEqual(stage.feed.rooms.map(\.username), ["a", "b", "c"])
+        XCTAssertEqual(stage.primary.playbackNote, "已离线")
+        XCTAssertNotNil(stage.primary.skipTask, "照旧停 1.6 秒再跳")
         stage.primary.skipTask?.cancel()
     }
 }

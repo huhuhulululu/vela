@@ -62,14 +62,28 @@ final class FeedDelistTests: XCTestCase {
         XCTAssertEqual(feed.rooms.map(\.username), ["a", "b", "c"])
     }
 
-    func testStreamFailureDelistMapping() {
-        XCTAssertEqual(StreamFailure.privateShow.delistedShow, .privateShow)
-        XCTAssertEqual(StreamFailure.group.delistedShow, .group)
-        XCTAssertEqual(StreamFailure.hidden.delistedShow, .hidden)
-        XCTAssertEqual(StreamFailure.password.delistedShow, .password)
-        XCTAssertEqual(StreamFailure.offline.delistedShow, .offline)
-        XCTAssertNil(StreamFailure.away.delistedShow)
-        XCTAssertNil(StreamFailure.geo.delistedShow)
-        XCTAssertNil(StreamFailure.unavailable.delistedShow)
+    private func ticket(_ status: ShowState, success: Bool = false, url: URL? = nil) -> StreamTicket {
+        StreamTicket(success: success, url: url, status: status)
+    }
+
+    func testTicketDelistsOnlyConfirmedStatuses() {
+        XCTAssertEqual(ticket(.privateShow).delistedShow, .privateShow)
+        XCTAssertEqual(ticket(.group).delistedShow, .group)
+        XCTAssertEqual(ticket(.hidden).delistedShow, .hidden)
+        XCTAssertEqual(ticket(.password).delistedShow, .password)
+        XCTAssertEqual(ticket(.offline).delistedShow, .offline)
+    }
+
+    // 接口失败（退避、success:false 缺 room_status）时 status 是 unknown：提示仍是「已离线」，但不能据此筛除。
+    func testUnknownTicketIsNotDelistedButKeepsOfflineNotice() {
+        let unknown = ticket(.unknown)
+        XCTAssertNil(unknown.delistedShow)
+        XCTAssertEqual(unknown.failure, .offline)
+    }
+
+    func testAwayGeoAndPlayableTicketsAreNotDelisted() {
+        XCTAssertNil(ticket(.away).delistedShow)
+        XCTAssertNil(ticket(.publicShow).delistedShow)
+        XCTAssertNil(ticket(.publicShow, success: true, url: URL(string: "https://x.test/a.m3u8")).delistedShow)
     }
 }

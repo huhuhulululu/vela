@@ -252,7 +252,7 @@ extension StageModel {
         Self.playbackLog.info("start-source \(origin, privacy: .public)")
         guard ticket.isPlayable, let master = ticket.url else {
             stopLane(lane)
-            noteUnplayable(ticket.failure, username: username, token: token, lane: lane)
+            noteUnplayable(ticket.failure, delist: ticket.delistedShow, username: username, token: token, lane: lane)
             return nil
         }
         let playable = await selectRendition(master: master, cap: cap)
@@ -263,8 +263,8 @@ extension StageModel {
 
     /// 解析后不可播放：暂时离开时停在房间并按 `AwayRetry` 最多自动重试一次；
     /// 列表里标着公开、实测已私密 / 离线等的房间（「仅公开」下）不显示提示，立即跳走并从列表筛掉；其余原因说明后安排跳过。
-    func noteUnplayable(_ failure: StreamFailure?, username: String, token: Int, lane: PlaybackLane) {
-        if let state = failure?.delistedShow, feed.canDelist(username) {
+    func noteUnplayable(_ failure: StreamFailure?, delist: ShowState? = nil, username: String, token: Int, lane: PlaybackLane) {
+        if let state = delist, feed.canDelist(username) {
             lane.dwell.markFailed()
             lane.playbackNote = Copy.failure(failure)
             autoSkip(on: lane)
@@ -463,7 +463,7 @@ extension StageModel {
         guard let ticket = try? await resolve(next) else { return }
         guard token == lane.playGeneration, !Task.isCancelled, lifecycleAllows(.beforeRequest, life) else { return }
         // 实测已私密 / 离线等：从列表筛掉，用户就划不到它（任一路在播的房间不动）。
-        if let state = ticket.failure?.delistedShow {
+        if let state = ticket.delistedShow {
             feed.delist(next, as: state, protecting: inUseNames())
             return
         }
