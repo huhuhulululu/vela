@@ -89,6 +89,8 @@ private fun ChallengeWeb(url: String, modifier: Modifier = Modifier) {
             factory = { context ->
                 WebView(context).apply {
                     settings.javaScriptEnabled = true
+                    settings.allowFileAccess = false
+                    settings.allowContentAccess = false
                     applyFirstPartyCookiesOnly(this)
                     webViewClient = OriginWebViewClient(siteRoot = url)
                     webChromeClient = object : WebChromeClient() {
