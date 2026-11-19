@@ -143,9 +143,6 @@ final class SyncHub: ObservableObject {
             activated()
             trigger(.launch)
         case .attention(let action): set(\.phase, .attention(SyncStatusText.startup(action) ?? "同步需要处理，请关闭后重新开启。"))
-        case .reconfirmJoin(let ticket):
-            set(\.phase, .off)
-            joinStage = .preview(ticket)
         case .failed(let flow): set(\.phase, .attention(Self.flowText(flow)))
         case .stopped(let text): set(\.phase, .attention(text))
         }
@@ -336,20 +333,24 @@ final class SyncHub: ObservableObject {
         }
     }
 
+    /// 确认加入：一次性提交（第 12.4 节）。提交途中点取消会作废这张票，云端写完也不落本机。
     func confirmJoin() async {
-        guard let model, case .preview(let ticket) = joinStage, !busy else { return }
+        guard let model, let sink, case .preview(let ticket) = joinStage, !busy else { return }
         busy = true
         defer { busy = false }
-        let result = await service.confirmJoin(ticket, local: model.syncLocalData())
-        joinStage = .idle
-        if service.isActive {
+        let result = await service.commitJoin(ticket, local: model.syncLocalData(), sink: sink)
+        switch result {
+        case .joined:
+            joinStage = .idle
             activated()
-            if let result {
-                scheduler.record(result, now: nowMillis)
-                set(\.failure, SyncStatusText.cycle(result))
-            }
-        } else {
-            set(\.notice, "加入失败：本机保存失败，未做任何更改。")
+        case .cancelled:
+            joinStage = .idle
+        case .reconfirm(let fresh):
+            joinStage = .preview(fresh)
+            set(\.notice, "云端或本机数据有变化，请再确认一次。")
+        case .failed(let text):
+            joinStage = .idle
+            set(\.notice, text)
         }
     }
 
@@ -360,17 +361,19 @@ final class SyncHub: ObservableObject {
         defer { busy = false }
         let result = await service.createWithCode(code, local: model.syncLocalData())
         joinStage = .idle
-        if service.isActive {
+        switch result {
+        case .created(_, _, _, let first):
             activated()
-            if let result { scheduler.record(result, now: nowMillis) }
+            scheduler.record(first, now: nowMillis)
+            set(\.failure, SyncStatusText.cycle(first))
+        case .failed(let text):
+            set(\.notice, text)
         }
     }
 
+    /// 取消加入：作废当前票据（确认前什么都没写；提交途中则不落本机），回到未加入。
     func cancelJoin() {
-        if let sink {
-            let result = service.cancelJoin(sink: sink)
-            if result != .done { set(\.notice, Self.flowText(result)) }
-        }
+        if case .preview(let ticket) = joinStage { ticket.cancel() }
         joinStage = .idle
     }
 

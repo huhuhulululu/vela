@@ -30,6 +30,13 @@ public struct SyncPutRequest: Equatable, Sendable {
     public let next: UInt64
     public let envelope: String
     public let epoch: String?
+
+    public init(base: UInt64, next: UInt64, envelope: String, epoch: String?) {
+        self.base = base
+        self.next = next
+        self.envelope = envelope
+        self.epoch = epoch
+    }
     /// 创建（`base = 0`）时请求体带 `pub`。
     public var includesPub: Bool { base == 0 }
 }

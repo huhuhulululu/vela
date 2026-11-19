@@ -2,7 +2,7 @@ import Foundation
 
 /// 同步状态的阶段（第 12.1 节）。
 public enum SyncPhase: String, Codable, Equatable, Sendable {
-    case creating, joining, active, disabling, clearing
+    case creating, active, disabling, clearing
 }
 
 /// 停止同步、需要用户「关闭再重开」的情况（第 11.4 节）。存在期间协调器不发任何请求。
@@ -29,25 +29,6 @@ public struct SyncInflight: Codable, Equatable, Sendable {
     public var sentGen: UInt64
 }
 
-/// 用户已确认的加入计划（第 12.4 节第 6 步）。
-public struct SyncJoinPlan: Codable, Equatable, Sendable {
-    public var origin: String
-    public var blobID: String
-    public var epoch: String
-    public var ver: UInt64
-    public var envelopeHash: String
-    public var preview: SyncJoinPreview
-
-    public init(origin: String, blobID: String, epoch: String, ver: UInt64, envelopeHash: String, preview: SyncJoinPreview) {
-        self.origin = origin
-        self.blobID = blobID
-        self.epoch = epoch
-        self.ver = ver
-        self.envelopeHash = envelopeHash
-        self.preview = preview
-    }
-}
-
 /// `sync-state.json`：同步开启期间的唯一事实来源（第 11.1 节）。不含 `K`。
 public struct SyncState: Codable, Equatable, Sendable {
     public var phase: SyncPhase
@@ -62,7 +43,6 @@ public struct SyncState: Codable, Equatable, Sendable {
     public var lastSeenVer: UInt64 = 0
     public var lastSeenHash: String?
     public var inflight: SyncInflight?
-    public var joinPlan: SyncJoinPlan?
     /// 迁移盖章已做过（同一次开启只做一次）。
     public var migrated = false
     /// 合并结果墓碑删完仍超过 `P`：停止推送，直到用户删减（第 6.7 节第 3 步）。
@@ -91,7 +71,7 @@ public struct SyncState: Codable, Equatable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case phase, origin, blobID, epoch, doc, clock, maxSentL, gen, pushedGen, lastSeenVer, lastSeenHash
-        case inflight, joinPlan, migrated, oversize, halt, decryptFailures, lastSuccessAt, lastFailure
+        case inflight, migrated, oversize, halt, decryptFailures, lastSuccessAt, lastFailure
     }
 
     public init(from decoder: Decoder) throws {
@@ -113,7 +93,6 @@ public struct SyncState: Codable, Equatable, Sendable {
         lastSeenVer = try c.decode(UInt64.self, forKey: .lastSeenVer)
         lastSeenHash = try c.decodeIfPresent(String.self, forKey: .lastSeenHash)
         inflight = try c.decodeIfPresent(SyncInflight.self, forKey: .inflight)
-        joinPlan = try c.decodeIfPresent(SyncJoinPlan.self, forKey: .joinPlan)
         migrated = try c.decode(Bool.self, forKey: .migrated)
         oversize = try c.decode(Bool.self, forKey: .oversize)
         halt = try c.decodeIfPresent(SyncHalt.self, forKey: .halt)
@@ -136,7 +115,6 @@ public struct SyncState: Codable, Equatable, Sendable {
         try c.encode(lastSeenVer, forKey: .lastSeenVer)
         try c.encodeIfPresent(lastSeenHash, forKey: .lastSeenHash)
         try c.encodeIfPresent(inflight, forKey: .inflight)
-        try c.encodeIfPresent(joinPlan, forKey: .joinPlan)
         try c.encode(migrated, forKey: .migrated)
         try c.encode(oversize, forKey: .oversize)
         try c.encodeIfPresent(halt, forKey: .halt)

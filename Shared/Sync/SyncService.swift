@@ -12,47 +12,6 @@ protocol SyncKeyStore: SyncKeychain {
 
 extension SyncKeychainStore: SyncKeyStore {}
 
-/// 加入时用户要确认的一切（docs/plans/sync.md 第 12.4 节第 5 步）。持有 `K`，只在内存里。
-final class SyncJoinTicket {
-    let code: SyncCode
-    let keys: SyncKeyMaterial
-    let state: SyncState
-    let remoteVer: UInt64
-    let remoteHash: String
-    let remoteEpoch: String
-    let remote: SyncDocument
-    let preview: SyncJoinPreview
-    /// 迁移说明（不合规名字、超额将被取消的「不想看」），确认页列出。
-    let report: SyncMigrationReport
-
-    init(code: SyncCode, keys: SyncKeyMaterial, state: SyncState, remoteVer: UInt64, remoteHash: String, remoteEpoch: String,
-         remote: SyncDocument, preview: SyncJoinPreview, report: SyncMigrationReport) {
-        self.report = report
-        self.code = code
-        self.keys = keys
-        self.state = state
-        self.remoteVer = remoteVer
-        self.remoteHash = remoteHash
-        self.remoteEpoch = remoteEpoch
-        self.remote = remote
-        self.preview = preview
-    }
-
-    var host: String { code.host }
-    var fingerprint: String { keys.fingerprint }
-}
-
-enum SyncJoinPrepared {
-    case invalidCode
-    /// 404：这个同步码没有对应的已有空间；可「仍用此码创建」。
-    case notFound(SyncCode)
-    /// 410：空间已被清除；状态已删除，不加入。
-    case gone
-    case preview(SyncJoinTicket)
-    /// 核对、解封、校验或网络失败：状态已删除，不保存 `K`。
-    case failed(String)
-}
-
 enum SyncStartResult: Equatable {
     case notEnabled
     case active
@@ -62,8 +21,6 @@ enum SyncStartResult: Equatable {
     case unsupported
     /// 需要用户处理的启动状态（第 12.1 节）：说明文字由界面按动作给出。
     case attention(SyncStartupAction)
-    /// 加入恢复时远端变了且计数不同：重新确认。
-    case reconfirmJoin(SyncJoinTicket)
     case failed(SyncFlowResult)
     /// 停止同步、需要用户「关闭再重开」或重新输入同步码的情况（第 11.4 节）；附界面文案。
     case stopped(String)
@@ -74,7 +31,6 @@ enum SyncStartResult: Equatable {
         case (.attention(let x), .attention(let y)): return x == y
         case (.failed(let x), .failed(let y)): return x == y
         case (.stopped(let x), .stopped(let y)): return x == y
-        case (.reconfirmJoin(let x), .reconfirmJoin(let y)): return x.remoteHash == y.remoteHash && x.preview == y.preview
         default: return false
         }
     }
@@ -116,7 +72,7 @@ final class SyncService: @unchecked Sendable {
         return localOnlyDrops
     }
 
-    private func noteReport(_ report: SyncMigrationReport) {
+    func noteReport(_ report: SyncMigrationReport) {
         localOnlyDrops = report.droppedLocalOnlyVetoes
     }
 
@@ -168,9 +124,6 @@ final class SyncService: @unchecked Sendable {
             }
             activate(state, keys: keys)
             return .active
-        case .resumeJoining:
-            guard case .present(let state) = read, let plan = state.joinPlan, let keys = entryKeys else { break }
-            return await resumeJoin(state, plan: plan, keys: keys, local: local)
         default:
             break
         }
@@ -178,12 +131,12 @@ final class SyncService: @unchecked Sendable {
         let recovered = await SyncLifecycle.recover(store: env.stateStore, keychain: env.keyStore, sink: sink, transport: transport)
         if let result = recovered.result, result != .done { return .failed(result) }
         switch recovered.action {
-        case .discardCreating, .finishDisabling, .finishClearing, .finishClearingLocally: return .notEnabled
+        case .orphanEntry, .discardCreating, .finishDisabling, .finishClearing, .finishClearingLocally: return .notEnabled
         default: return .attention(recovered.action)
         }
     }
 
-    private func activate(_ state: SyncState, keys: SyncKeyMaterial) {
+    func activate(_ state: SyncState, keys: SyncKeyMaterial) {
         let codec = SyncCryptoCodec(keys: keys, sizeLimit: env.sizeLimit)
         let transport = GatedTransport(env.makeTransport(state.origin, keys), gate: gate)
         let c = SyncCoordinator(state: state, store: env.stateStore, transport: transport, codec: codec, wallClock: env.wallClock, sizeLimit: env.sizeLimit)
@@ -221,7 +174,13 @@ final class SyncService: @unchecked Sendable {
 
     func create(origin: String, local: SyncLocalData) async -> SyncCreateResult {
         guard SyncCode.isCanonicalOrigin(origin) else { return .failed("服务器地址无效") }
-        guard let k = try? env.random(32), let dev = try? randomDevice(), let keys = try? SyncCrypto.derive(k),
+        guard let k = try? env.random(32) else { return .failed("系统随机源不可用") }
+        return await create(key: k, origin: origin, local: local)
+    }
+
+    /// 用给定的 `K` 创建（新生成的，或加入时 404 后「仍用此码创建」）。
+    func create(key k: [UInt8], origin: String, local: SyncLocalData) async -> SyncCreateResult {
+        guard let dev = try? randomDevice(), let keys = try? SyncCrypto.derive(k),
               let code = SyncCrypto.formatCode(key: k, origin: origin) else { return .failed("系统随机源不可用") }
         var state = SyncState(phase: .creating, origin: origin, blobID: keys.blobID, clock: SyncClock(dev: dev))
         guard env.stateStore.save(state) else { return .failed("本机保存失败") }
@@ -250,135 +209,13 @@ final class SyncService: @unchecked Sendable {
         return .created(code: code, fingerprint: keys.fingerprint, report: completed.report, firstCycle: first)
     }
 
-    private func randomDevice() throws -> UInt32 {
+    func randomDevice() throws -> UInt32 {
         for _ in 0..<8 {
             let b = try env.random(4)
             let dev = UInt32(b[0]) << 24 | UInt32(b[1]) << 16 | UInt32(b[2]) << 8 | UInt32(b[3])
             if dev != 0 { return dev }
         }
         throw SyncCryptoError.randomUnavailable
-    }
-
-    // MARK: 加入（第 12.4 节）
-
-    func prepareJoin(_ text: String, local: SyncLocalData) async -> SyncJoinPrepared {
-        guard let code = SyncCrypto.parseCode(text), let keys = try? SyncCrypto.derive(code.key), let dev = try? randomDevice() else { return .invalidCode }
-        let state = SyncState(phase: .joining, origin: code.origin, blobID: keys.blobID, clock: SyncClock(dev: dev))
-        guard env.stateStore.save(state) else { return .failed("本机保存失败") }
-        let transport = env.makeTransport(code.origin, keys)
-        switch await fetchRemote(transport, keys: keys, state: state, local: local, code: code) {
-        case .success(let ticket): return .preview(ticket)
-        case .failure(let failure):
-            if case .notFound = failure { return .notFound(code) }
-            _ = env.stateStore.delete()
-            if case .gone = failure { return .gone }
-            if case .message(let text) = failure { return .failed(text) }
-            return .failed("网络不可用，稍后再试")
-        }
-    }
-
-    enum FetchFailure: Error { case notFound, gone(deletedAt: UInt64), message(String), network }
-
-    private func fetchRemote(_ transport: SyncTransport, keys: SyncKeyMaterial, state: SyncState, local: SyncLocalData, code: SyncCode) async -> Result<SyncJoinTicket, FetchFailure> {
-        switch await transport.get() {
-        case .notFound: return .failure(.notFound)
-        case .gone(let deletedAt): return .failure(.gone(deletedAt: deletedAt))
-        case .blob(let ver, let pub, let data, let epoch, _):
-            guard pub == keys.publicKeyText else { return .failure(.message(SyncStatusText.halt(.pubMismatch))) }
-            let codec = SyncCryptoCodec(keys: keys, sizeLimit: env.sizeLimit)
-            switch codec.open(data, ver: ver) {
-            case .unsupported: return .failure(.message("其他设备的 App 更新，请更新本机 App"))
-            case .failed: return .failure(.message("无法解密云端数据"))
-            case .plaintext(let bytes):
-                switch SyncDocument.decode(bytes) {
-                case .valid(let doc):
-                    let stamped = SyncMigration.stampJoin(local, remote: doc, clock: state.clock, pt: env.wallClock())
-                    return .success(SyncJoinTicket(code: code, keys: keys, state: state, remoteVer: ver, remoteHash: codec.digest(data),
-                                                   remoteEpoch: epoch, remote: doc, preview: stamped.preview, report: stamped.report))
-                case .newerSchema: return .failure(.message("其他设备的 App 更新，请更新本机 App"))
-                case .invalid: return .failure(.message("云端数据不合法"))
-                }
-            }
-        default:
-            return .failure(.network)
-        }
-    }
-
-    /// 用户确认后：写钥匙串 → 落盘 `joinPlan` → 盖章并合并 → `phase = active` → 立即推送。
-    func confirmJoin(_ ticket: SyncJoinTicket, local: SyncLocalData) async -> SyncCycleResult? {
-        let entry = SyncKeychainEntry(key: ticket.code.key, dev: ticket.state.clock.dev, blobID: ticket.keys.blobID)
-        guard env.keyStore.write(entry) == .ok else { return .storageFailed }
-        var state = ticket.state
-        state.joinPlan = SyncJoinPlan(origin: ticket.code.origin, blobID: ticket.keys.blobID, epoch: ticket.remoteEpoch,
-                                      ver: ticket.remoteVer, envelopeHash: ticket.remoteHash, preview: ticket.preview)
-        guard env.stateStore.save(state) else { return .storageFailed }
-        return await finishJoin(state, keys: ticket.keys, remote: ticket.remote, local: local)
-    }
-
-    private func finishJoin(_ state: SyncState, keys: SyncKeyMaterial, remote: SyncDocument, local: SyncLocalData) async -> SyncCycleResult? {
-        let joined = SyncLifecycle.completeJoin(state, local: local, remote: remote, pt: env.wallClock())
-        guard env.stateStore.save(joined) else { return .storageFailed }
-        noteReport(SyncMigration.stampJoin(local, remote: remote, clock: state.clock, pt: env.wallClock()).report)
-        activate(joined, keys: keys)
-        onDocumentChanged?(joined.doc)
-        return await runCycle()
-    }
-
-    /// 404 时「仍用此码创建」：写钥匙串条目，`phase` 改为 `creating`，转入创建第 4 步。
-    func createWithCode(_ code: SyncCode, local: SyncLocalData) async -> SyncCycleResult? {
-        guard case .present(var state) = env.stateStore.load(), state.phase == .joining, let keys = try? SyncCrypto.derive(code.key),
-              state.blobID == keys.blobID else { return .storageFailed }
-        guard env.keyStore.write(SyncKeychainEntry(key: code.key, dev: state.clock.dev, blobID: keys.blobID)) == .ok else { return .storageFailed }
-        state.phase = .creating
-        let completed = SyncLifecycle.completeCreate(state, local: local, pt: env.wallClock())
-        state = completed.state
-        guard env.stateStore.save(state) else { return .storageFailed }
-        noteReport(SyncMigration.stampCreator(local, clock: state.clock, pt: env.wallClock()).report)
-        activate(state, keys: keys)
-        return await runCycle()
-    }
-
-    /// 加入流程中途取消（首次预览，或启动恢复时的重新确认）：只删 `joining` 状态与对应的钥匙串条目。
-    /// 不跑投影屏障：加入完成之前本机文件才是事实来源，`joining` 状态里的文档是空的，拿它投影会覆盖本机数据。
-    func cancelJoin(sink: SyncLocalSink) -> SyncFlowResult {
-        guard case .present(let s) = env.stateStore.load(), s.phase == .joining else { return .done }
-        return abandonJoin(s)
-    }
-
-    private func abandonJoin(_ s: SyncState) -> SyncFlowResult {
-        if case .present(let entry) = env.keyStore.readEntry(), entry.blobID == s.blobID {
-            guard env.keyStore.delete() else { return .storageFailed }
-        }
-        return env.stateStore.delete() ? .done : .storageFailed
-    }
-
-    /// 启动时 `joining` 且有 `joinPlan`：重新 GET 并重算计数（第 12.4 节第 7 步）。
-    private func resumeJoin(_ state: SyncState, plan: SyncJoinPlan, keys: SyncKeyMaterial, local: () -> SyncLocalData) async -> SyncStartResult {
-        guard case .present(let entry) = env.keyStore.readEntry(),
-              let parsed = SyncCrypto.formatCode(key: entry.key, origin: state.origin).flatMap(SyncCrypto.parseCode) else { return .attention(.mismatch) }
-        let data = local()
-        switch await fetchRemote(env.makeTransport(state.origin, keys), keys: keys, state: state, local: data, code: parsed) {
-        case .success(let ticket):
-            // 先按已落盘的计划核对 epoch 与版本水位（第 11.4 节），再决定继续还是重新确认。
-            if ticket.remoteEpoch != plan.epoch { return .stopped(SyncStatusText.halt(.epochChanged)) }
-            if ticket.remoteVer < plan.ver || (ticket.remoteVer == plan.ver && ticket.remoteHash != plan.envelopeHash) {
-                return .stopped(SyncStatusText.halt(.rollback))
-            }
-            switch SyncLifecycle.joinRecovery(plan: plan, remoteVer: ticket.remoteVer, remoteHash: ticket.remoteHash, recomputed: ticket.preview) {
-            case .proceed:
-                let first = await finishJoin(state, keys: keys, remote: ticket.remote, local: data)
-                // 激活前落盘失败：协调器没建起来，joining 状态原样保留，下次启动再恢复。
-                guard isActive else { return .failed(first == .storageFailed ? .storageFailed : .localSaveFailed) }
-                return .active
-            case .reconfirm: return .reconfirmJoin(ticket)
-            case .abort: return .attention(.resumeJoining)
-            }
-        // 只有网络暂时故障才稍后再试；410、被占用、解不开、空间不见了都要用户关闭再重开或重新输入同步码。
-        case .failure(.network): return .unavailable
-        case .failure(.gone(let deletedAt)): return .stopped(SyncStatusText.halt(.gone(deletedAt: deletedAt)))
-        case .failure(.notFound): return .stopped(SyncStatusText.halt(.missing))
-        case .failure(.message(let text)): return .stopped(text)
-        }
     }
 
     // MARK: 关闭与清除（第 12.6 节）
@@ -404,8 +241,6 @@ final class SyncService: @unchecked Sendable {
             // 只有钥匙串条目（「同步状态丢失」时的关闭）：删条目即可。
             return env.keyStore.delete() ? .done : .storageFailed
         }
-        // 加入尚未完成：本机文件才是事实来源，按取消加入处理，不跑屏障。
-        if current.phase == .joining { return abandonJoin(current) }
         let result = SyncLifecycle.disable(current, store: env.stateStore, keychain: env.keyStore, sink: sink)
         // 屏障失败：同步状态与钥匙串都没动，恢复原样。
         if result == .localSaveFailed, let live { activate(live.state, keys: live.keys) }

@@ -42,11 +42,9 @@ enum SyncStatusText {
 
     static func startup(_ action: SyncStartupAction) -> String? {
         switch action {
-        case .stateLost: return "同步状态丢失。可以用同一同步码重新加入，或关闭同步。"
         case .keyLost: return "同步密钥丢失，请重新输入同步码。"
         case .mismatch: return "同步状态与钥匙串不一致，同步已停止。请关闭同步后重新开启。"
         case .stateCorrupted: return "暂停：同步状态损坏。请关闭同步后重新开启。"
-        case .discardJoining, .resumeJoining: return "加入没有完成，请重新粘贴同步码。"
         default: return nil
         }
     }

@@ -104,8 +104,8 @@ final class SyncLiveServerTests: XCTestCase {
                 return XCTFail("加入预览失败")
             }
             XCTAssertEqual(ticket.preview.n, 1)
-            let joined = await b.service.confirmJoin(ticket, local: SyncLocalData(curation: Curation(favorites: ["bob"])))
-            XCTAssertEqual(joined, .pushed)
+            let joined = await b.service.commitJoin(ticket, local: SyncLocalData(curation: Curation(favorites: ["bob"])), sink: b.sink)
+            XCTAssertEqual(joined, .joined)
 
             step("A 拉取")
             let pulled = await a.service.runCycle()

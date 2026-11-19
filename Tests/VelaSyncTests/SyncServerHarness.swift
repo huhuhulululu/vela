@@ -125,8 +125,15 @@ final class MemoryStateStore: SyncStateStore {
 
 final class MemoryKeyStore: SyncKeyStore {
     var entry: SyncKeychainEntry?
+    var failWrite = false
+    private(set) var writes = 0
     func readEntry() -> SyncKeychainLookup { entry.map { .present($0) } ?? .none }
-    func write(_ entry: SyncKeychainEntry) -> SyncKeychainWrite { self.entry = entry; return .ok }
+    func write(_ entry: SyncKeychainEntry) -> SyncKeychainWrite {
+        writes += 1
+        guard !failWrite else { return .failed }
+        self.entry = entry
+        return .ok
+    }
     func read() -> SyncKeychainRead { entry.map { .present(blobID: $0.blobID) } ?? .none }
     func delete() -> Bool { entry = nil; return true }
 }
@@ -136,10 +143,22 @@ final class MemorySink: SyncLocalSink {
     var taste = Taste()
     var settings: [String: Bool] = [:]
     private(set) var saveCount = 0
+    /// 第几次保存失败（只这一次；nil 表示不失败）。
+    var failOnSave: Int?
     func cancelPendingSaves() {}
     func currentTaste() -> Taste { taste }
-    func saveCuration(_ c: Curation) -> Bool { saveCount += 1; curation = c; return true }
-    func saveTaste(_ t: Taste) -> Bool { saveCount += 1; taste = t; return true }
+    func saveCuration(_ c: Curation) -> Bool {
+        saveCount += 1
+        if saveCount == failOnSave { return false }
+        curation = c
+        return true
+    }
+    func saveTaste(_ t: Taste) -> Bool {
+        saveCount += 1
+        if saveCount == failOnSave { return false }
+        taste = t
+        return true
+    }
     func applySettings(_ s: [String: Bool]) { settings.merge(s) { $1 } }
 }
 /// 不经网络的服务端替身：按顺序返回脚本里的响应，记录请求，可在请求里插入等待。
@@ -168,7 +187,13 @@ final class ScriptedTransport: SyncTransport, @unchecked Sendable {
     }
 
     func get() async -> SyncServerResponse { await next(\.gets, "GET") }
-    func put(_ request: SyncPutRequest) async -> SyncServerResponse { await next(\.puts, "PUT \(request.base)") }
+    /// PUT 返回之前调用一次（模拟提交途中用户取消或退出）。
+    var onPut: (() -> Void)?
+    func put(_ request: SyncPutRequest) async -> SyncServerResponse {
+        let r = await next(\.puts, "PUT \(request.base)")
+        onPut?()
+        return r
+    }
     func delete(base: UInt64, epoch: String?) async -> SyncServerResponse { await next(\.deletes, "DELETE \(base)") }
 }
 

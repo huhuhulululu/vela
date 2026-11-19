@@ -15,7 +15,8 @@ final class SyncLocalOnlyQuotaTests: XCTestCase {
         let service = ServiceFixture.service(t)
         guard case .preview(let ticket) = await service.prepareJoin(ServiceFixture.code, local: local) else { return XCTFail() }
         XCTAssertEqual(ticket.report.droppedLocalOnlyVetoes.count, 10, "确认页要能写出将被取消的数量")
-        _ = await service.confirmJoin(ticket, local: local)
+        t.puts = [.stored(ver: 4, epoch: ServiceFixture.epoch, now: 1_800_000_000_000)]
+        _ = await service.commitJoin(ticket, local: local, sink: MemorySink())
         XCTAssertEqual(service.takeLocalOnlyDrops().count, 10)
         XCTAssertEqual(service.takeLocalOnlyDrops(), [], "只交一次")
     }

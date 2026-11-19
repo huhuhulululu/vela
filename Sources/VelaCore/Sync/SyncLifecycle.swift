@@ -30,16 +30,12 @@ public protocol SyncLocalSink: AnyObject {
 /// 启动时组合状态的处理（第 12.1 节表格）。
 public enum SyncStartupAction: Equatable, Sendable {
     case notEnabled
-    /// 无状态、有条目：「同步状态丢失」，提供「用同一同步码重新加入」或「关闭」。
-    case stateLost
+    /// 无状态、有条目：加入或创建在写状态之前中断（加入是一次性事务，第 12.4 节）。删除条目，未开启。
+    case orphanEntry
     /// `creating` 无条目：删除状态，未开启。
     case discardCreating
     /// `creating` 有条目且一致：从创建第 5 步继续。
     case resumeCreating
-    /// `joining` 无条目：删除状态，未开启，提示重新粘贴。
-    case discardJoining
-    /// `joining` 有条目且一致：按第 12.4 节「恢复」继续。
-    case resumeJoining
     /// `active` 无条目：「同步密钥丢失，请重新输入同步码」。
     case keyLost
     case normal
@@ -78,7 +74,7 @@ public enum SyncLifecycle {
         if case .present(let id) = keychain { entry = id } else { entry = nil }
         let s: SyncState
         switch state {
-        case .none: return entry == nil ? .notEnabled : .stateLost
+        case .none: return entry == nil ? .notEnabled : .orphanEntry
         case .corrupted: return .stateCorrupted
         case .present(let loaded): s = loaded
         }
@@ -87,7 +83,6 @@ public enum SyncLifecycle {
         let has = entry != nil
         switch s.phase {
         case .creating: return has ? .resumeCreating : .discardCreating
-        case .joining: return has ? .resumeJoining : .discardJoining
         case .active: return has ? .normal : .keyLost
         case .clearing: return has ? .finishClearing : .finishClearingLocally
         case .disabling: return .finishDisabling
@@ -170,13 +165,11 @@ public enum SyncLifecycle {
     ) async -> (action: SyncStartupAction, result: SyncFlowResult?) {
         let read = store.load()
         let action = startupAction(state: read, keychain: keychain.read())
+        if action == .orphanEntry { return (action, keychain.delete() ? .done : .storageFailed) }
         guard case .present(let state) = read else { return (action, nil) }
         switch action {
-        case .discardCreating, .discardJoining:
+        case .discardCreating:
             return (action, store.delete() ? .done : .storageFailed)
-        case .resumeJoining where state.joinPlan == nil:
-            // 确认前崩溃：删除钥匙串条目与状态，提示重新粘贴（第 12.4 节第 7 步）。
-            return (action, finishDisable(store: store, keychain: keychain))
         case .finishDisabling:
             guard barrier(state.doc, sink: sink) else { return (action, .localSaveFailed) }
             return (action, finishDisable(store: store, keychain: keychain))
@@ -192,44 +185,6 @@ public enum SyncLifecycle {
         default:
             return (action, nil)
         }
-    }
-
-    // MARK: 加入恢复（第 12.4 节第 7 步）
-
-    public enum JoinRecovery: Equatable, Sendable {
-        /// 远端未变，或变了但计数完全相同：直接执行盖章与合并。
-        case proceed
-        /// 计数不同：重新展示确认页；确认后用新计数覆盖 `joinPlan`，取消则本机关闭。
-        case reconfirm(SyncJoinPreview)
-        /// `joinPlan` 不存在：删除钥匙串条目与状态，提示重新粘贴。
-        case abort
-    }
-
-    public static func joinRecovery(plan: SyncJoinPlan?, remoteVer: UInt64, remoteHash: String, recomputed: SyncJoinPreview) -> JoinRecovery {
-        guard let plan else { return .abort }
-        if plan.ver == remoteVer, plan.envelopeHash == remoteHash { return .proceed }
-        return plan.preview == recomputed ? .proceed : .reconfirm(recomputed)
-    }
-
-    /// 确认后的盖章与合并：迁移标记防止重复盖章，结束时 `phase = active`、清空 `joinPlan`。
-    public static func completeJoin(_ state: SyncState, local: SyncLocalData, remote: SyncDocument, pt: UInt64) -> SyncState {
-        var next = state
-        if !state.migrated {
-            let stamped = SyncMigration.stampJoin(local, remote: remote, clock: state.clock, pt: pt)
-            next.replica = stamped.replica
-            next.oversize = !stamped.fits
-            next.migrated = true
-            next.gen += 1
-        }
-        // 加入预览时已验证过的 epoch、版本与信封哈希就是水位（第 11.2 节第 2 步），清掉 joinPlan 之前先落进状态。
-        if let plan = state.joinPlan {
-            next.epoch = plan.epoch
-            next.lastSeenVer = max(next.lastSeenVer, plan.ver)
-            next.lastSeenHash = plan.envelopeHash
-        }
-        next.phase = .active
-        next.joinPlan = nil
-        return next
     }
 
     /// 创建第 4 步：全部盖章，执行 `E` 与体积检查，`phase = active`。

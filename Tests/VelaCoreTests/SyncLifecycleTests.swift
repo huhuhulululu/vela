@@ -26,11 +26,9 @@ final class SyncLifecycleTests: XCTestCase {
         let present = SyncKeychainRead.present(blobID: blob)
         let cases: [(SyncStateRead, SyncKeychainRead, SyncStartupAction)] = [
             (.none, .none, .notEnabled),
-            (.none, present, .stateLost),
+            (.none, present, .orphanEntry),
             (.present(state(.creating)), .none, .discardCreating),
             (.present(state(.creating)), present, .resumeCreating),
-            (.present(state(.joining)), .none, .discardJoining),
-            (.present(state(.joining)), present, .resumeJoining),
             (.present(state(.active)), .none, .keyLost),
             (.present(state(.active)), .invalidated, .keyLost),
             (.present(state(.active)), present, .normal),
@@ -40,7 +38,6 @@ final class SyncLifecycleTests: XCTestCase {
             (.present(state(.clearing)), .none, .finishClearingLocally),
             (.present(state(.active)), .present(blobID: other), .mismatch),
             (.present(state(.creating)), .present(blobID: other), .mismatch),
-            (.present(state(.joining)), .present(blobID: other), .mismatch),
             (.present(state(.clearing)), .present(blobID: other), .mismatch),
             (.present(state(.active)), .unavailable, .skip),
             (.none, .unavailable, .skip),
@@ -59,31 +56,22 @@ final class SyncLifecycleTests: XCTestCase {
         return (r.action, r.result, store, keychain)
     }
 
-    func testRecoverDiscardsUnfinishedCreateAndJoin() async {
-        for phase in [SyncPhase.creating, .joining] {
-            let (action, result, store, _) = await recover(state(phase), .none)
-            XCTAssertEqual(result, .done, "\(action)")
-            XCTAssertNil(store.stored)
-        }
+    func testRecoverDiscardsUnfinishedCreate() async {
+        let (action, result, store, _) = await recover(state(.creating), .none)
+        XCTAssertEqual(result, .done, "\(action)")
+        XCTAssertNil(store.stored)
     }
 
-    func testRecoverJoiningWithoutPlanDeletesEntryAndState() async {
-        let (action, result, store, keychain) = await recover(state(.joining), .present(blobID: blob))
-        XCTAssertEqual(action, .resumeJoining)
+    /// 加入是一次性事务：只剩钥匙串条目没有状态，说明提交在写状态之前中断，删掉条目即未加入（第 12.1、12.4 节）。
+    func testRecoverDeletesOrphanEntry() async {
+        let (action, result, store, keychain) = await recover(nil, .present(blobID: blob))
+        XCTAssertEqual(action, .orphanEntry)
         XCTAssertEqual(result, .done)
         XCTAssertNil(store.stored)
         XCTAssertEqual(keychain.entry, .none)
     }
 
-    func testRecoverJoiningWithPlanIsLeftToFlow() async {
-        var s = state(.joining)
-        s.joinPlan = SyncJoinPlan(origin: s.origin, blobID: blob, epoch: "e", ver: 3, envelopeHash: "h", preview: SyncJoinPreview(n: 1))
-        let (action, result, store, keychain) = await recover(s, .present(blobID: blob))
-        XCTAssertEqual(action, .resumeJoining)
-        XCTAssertNil(result)
-        XCTAssertNotNil(store.stored)
-        XCTAssertEqual(keychain.entry, .present(blobID: blob))
-    }
+
 
     func testRecoverLeavesUserChoicesAlone() async {
         for (s, k) in [(state(.active), SyncKeychainRead.none), (state(.active), .present(blobID: other)), (state(.creating), .present(blobID: blob)), (state(.active), .unavailable)] {
@@ -92,10 +80,6 @@ final class SyncLifecycleTests: XCTestCase {
             XCTAssertEqual(store.stored, s)
             XCTAssertEqual(keychain.entry, k)
         }
-        let (action, result, _, keychain) = await recover(nil, .present(blobID: blob))
-        XCTAssertEqual(action, .stateLost)
-        XCTAssertNil(result)
-        XCTAssertEqual(keychain.entry, .present(blobID: blob), "需用户确认，不自动删条目")
     }
 
     func testRecoverFinishDisablingRunsBarrierFirst() async {
@@ -226,40 +210,7 @@ final class SyncLifecycleTests: XCTestCase {
 
     // MARK: 加入（第 12.4 节）
 
-    func testJoinRecoveryThreeBranches() {
-        let plan = SyncJoinPlan(origin: "https://sync.example.org", blobID: blob, epoch: "e", ver: 7, envelopeHash: "h7", preview: SyncJoinPreview(n: 3, m: 1))
-        XCTAssertEqual(SyncLifecycle.joinRecovery(plan: plan, remoteVer: 7, remoteHash: "h7", recomputed: SyncJoinPreview(n: 3, m: 1)), .proceed)
-        XCTAssertEqual(SyncLifecycle.joinRecovery(plan: plan, remoteVer: 8, remoteHash: "h8", recomputed: SyncJoinPreview(n: 3, m: 1)), .proceed, "远端变了但计数相同")
-        XCTAssertEqual(SyncLifecycle.joinRecovery(plan: plan, remoteVer: 8, remoteHash: "h8", recomputed: SyncJoinPreview(n: 2, m: 1, z: 1)), .reconfirm(SyncJoinPreview(n: 2, m: 1, z: 1)))
-        XCTAssertEqual(SyncLifecycle.joinRecovery(plan: nil, remoteVer: 7, remoteHash: "h7", recomputed: SyncJoinPreview()), .abort)
-    }
 
-    func testCompleteJoinStampsOnceAndActivates() {
-        var remote = SyncDocument()
-        remote.rooms["cb:shared"] = SyncRoom(f: F.reg(10, "+", dev: 9))
-        let local = SyncLocalData(curation: Curation(favorites: ["mine", "shared"]))
-        var s = state(.joining)
-        s.joinPlan = SyncJoinPlan(origin: s.origin, blobID: blob, epoch: "e", ver: 1, envelopeHash: "h", preview: SyncJoinPreview(n: 1))
-        let joined = SyncLifecycle.completeJoin(s, local: local, remote: remote, pt: 100)
-        XCTAssertEqual(joined.phase, .active)
-        XCTAssertNil(joined.joinPlan)
-        XCTAssertTrue(joined.migrated)
-        XCTAssertEqual(Set(SyncProjection(joined.doc).curation.favorites), ["mine", "shared"])
-        XCTAssertGreaterThan(joined.gen, joined.pushedGen, "立即推送")
-        var replay = joined
-        replay.phase = .joining
-        XCTAssertEqual(SyncLifecycle.completeJoin(replay, local: local, remote: remote, pt: 200).doc, joined.doc, "迁移标记防止重复盖章")
-    }
-
-    /// 审计 high：加入完成时把已验证的 epoch、版本与信封哈希写进水位，之后 404、epoch 变化、回滚都能识别。
-    func testCompleteJoinKeepsVerifiedEpochAndWatermark() {
-        var s = state(.joining)
-        s.joinPlan = SyncJoinPlan(origin: s.origin, blobID: blob, epoch: "e1", ver: 7, envelopeHash: "h7", preview: SyncJoinPreview())
-        let joined = SyncLifecycle.completeJoin(s, local: SyncLocalData(), remote: SyncDocument(), pt: 100)
-        XCTAssertEqual(joined.epoch, "e1")
-        XCTAssertEqual(joined.lastSeenVer, 7)
-        XCTAssertEqual(joined.lastSeenHash, "h7")
-    }
 
     func testCompleteCreateStampsAll() {
         let local = SyncLocalData(curation: Curation(favorites: ["alice", "x"]), vetoedKeys: ["g:m"])

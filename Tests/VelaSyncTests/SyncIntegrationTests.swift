@@ -45,8 +45,8 @@ final class SyncIntegrationTests: XCTestCase {
         XCTAssertEqual(ticket.fingerprint, SyncCode.fingerprint(blobID: a.service.state!.blobID))
         // alice 远端已是收藏，不盖章；carol 新上传；dave 新屏蔽。
         XCTAssertEqual(ticket.preview, SyncJoinPreview(n: 1, m: 1, v: 0, x: 0, y: 0, z: 0))
-        let pushed = await b.service.confirmJoin(ticket, local: b.local(favorites: ["carol", "alice"], blocked: ["dave"]))
-        XCTAssertEqual(pushed, .pushed)
+        let pushed = await b.service.commitJoin(ticket, local: b.local(favorites: ["carol", "alice"], blocked: ["dave"]), sink: b.sink)
+        XCTAssertEqual(pushed, .joined)
         XCTAssertEqual(b.service.state?.phase, .active)
 
         a.tick(10)
@@ -61,7 +61,7 @@ final class SyncIntegrationTests: XCTestCase {
         let a = device(), b = device()
         let code = try await createdCode(a)
         guard case .preview(let ticket) = await b.service.prepareJoin(code, local: b.local()) else { return XCTFail() }
-        _ = await b.service.confirmJoin(ticket, local: b.local())
+        _ = await b.service.commitJoin(ticket, local: b.local(), sink: b.sink)
 
         a.tick(1000)
         XCTAssertNotNil(a.service.perform(.block("mallory")))
@@ -81,7 +81,7 @@ final class SyncIntegrationTests: XCTestCase {
         let a = device(), b = device()
         let code = try await createdCode(a)
         guard case .preview(let ticket) = await b.service.prepareJoin(code, local: b.local()) else { return XCTFail() }
-        _ = await b.service.confirmJoin(ticket, local: b.local())
+        _ = await b.service.commitJoin(ticket, local: b.local(), sink: b.sink)
         _ = await a.service.runCycle()
 
         a.tick(500)
@@ -139,7 +139,7 @@ final class SyncIntegrationTests: XCTestCase {
         let a = device(), b = device()
         let code = try await createdCode(a)
         guard case .preview(let ticket) = await b.service.prepareJoin(code, local: b.local()) else { return XCTFail() }
-        _ = await b.service.confirmJoin(ticket, local: b.local())
+        _ = await b.service.commitJoin(ticket, local: b.local(), sink: b.sink)
         _ = await a.service.runCycle()
 
         let r8 = await a.service.clear(sink: a.sink)
@@ -168,8 +168,8 @@ final class SyncIntegrationTests: XCTestCase {
         let k = [UInt8](repeating: 3, count: 32)
         let code = SyncCrypto.formatCode(key: k, origin: Self.origin)!
         guard case .notFound(let parsed) = await c.service.prepareJoin(code, local: c.local(favorites: ["zed"])) else { return XCTFail() }
-        let r9 = await c.service.createWithCode(parsed, local: c.local(favorites: ["zed"]))
-        XCTAssertEqual(r9, .created)
+        guard case .created(_, _, _, let first) = await c.service.createWithCode(parsed, local: c.local(favorites: ["zed"])) else { return XCTFail() }
+        XCTAssertEqual(first, .created)
         XCTAssertEqual(c.service.currentCode(), code)
     }
 
