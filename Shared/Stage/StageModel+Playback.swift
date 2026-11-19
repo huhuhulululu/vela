@@ -252,7 +252,7 @@ extension StageModel {
         Self.playbackLog.info("start-source \(origin, privacy: .public)")
         guard ticket.isPlayable, let master = ticket.url else {
             stopLane(lane)
-            noteUnplayable(ticket.failure, username: username, token: token, lane: lane)
+            noteUnplayable(ticket.failure, delist: ticket.delistedShow, username: username, token: token, lane: lane)
             return nil
         }
         let picked = await fetchRendition(master: master, cap: cap, for: username)
@@ -268,8 +268,19 @@ extension StageModel {
         return PlayTarget(master: master, playable: playable)
     }
 
-    /// 解析后不可播放：暂时离开时停在房间并按 `AwayRetry` 最多自动重试一次，其余原因说明后安排跳过。
-    private func noteUnplayable(_ failure: StreamFailure?, username: String, token: Int, lane: PlaybackLane) {
+    /// 解析后不可播放：暂时离开时停在房间并按 `AwayRetry` 最多自动重试一次；
+    /// 列表里标着公开、实测已私密 / 离线等的房间（「仅公开」下）不显示提示，立即跳走并从列表筛掉；其余原因说明后安排跳过。
+    func noteUnplayable(_ failure: StreamFailure?, delist: ShowState? = nil, username: String, token: Int, lane: PlaybackLane) {
+        if let state = delist, feed.canDelist(username) {
+            lane.dwell.markFailed()
+            lane.playbackNote = Copy.failure(failure)
+            autoSkip(on: lane)
+            // 没跳成（列表尽头、连续跳过到上限）就留在这间并保留原因，不筛；跳成了才把它从列表拿掉。
+            guard name(of: lane)?.lowercased() != username.lowercased() else { return }
+            AssignIf.changed(from: lane.playbackNote, to: nil as String?) { lane.playbackNote = $0 }
+            feed.delist(username, as: state, protecting: inUseNames())
+            return
+        }
         guard failure == .away else {
             lane.playbackNote = Copy.failure(failure)
             scheduleSkip(token: token, on: lane)
@@ -282,6 +293,11 @@ extension StageModel {
         if case .retryLater(let after) = decision {
             scheduleAwayRetry(username, token: token, after: after, on: lane)
         }
+    }
+
+    /// 各路此刻占着的房间（小写）：筛除时不能动它们，多路「各路房间两两不同」才不被破坏。
+    private func inUseNames() -> Set<String> {
+        Set(lanes.compactMap { name(of: $0)?.lowercased() })
     }
 
     /// 一次性延迟任务：到点仍在同一房间、代次没变、允许播放才重新起播；切房、暂停或有新起播时作废。
@@ -462,8 +478,14 @@ extension StageModel {
         if PerfStream.isTestRoom(next) { return }
         #endif
         guard lifecycleAllows(.beforeRequest, life), !Task.isCancelled else { return }
-        guard let ticket = try? await resolve(next), ticket.isPlayable, let master = ticket.url else { return }
+        guard let ticket = try? await resolve(next) else { return }
         guard token == lane.playGeneration, !Task.isCancelled, lifecycleAllows(.beforeRequest, life) else { return }
+        // 实测已私密 / 离线等：从列表筛掉，用户就划不到它（任一路在播的房间不动）。
+        if let state = ticket.delistedShow {
+            feed.delist(next, as: state, protecting: inUseNames())
+            return
+        }
+        guard ticket.isPlayable, let master = ticket.url else { return }
         let playable = await selectRendition(master: master, cap: cap, for: next)
         guard token == lane.playGeneration, !Task.isCancelled, !playable.isUnselected, lifecycleAllows(.beforeCommit, life) else { return }
         prepared.set(playable, cap: cap, for: next, now: Date())
