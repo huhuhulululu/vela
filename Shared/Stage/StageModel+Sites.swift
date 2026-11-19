@@ -39,6 +39,14 @@ extension StageModel {
         return try await adapter.resolveStream(room)
     }
 
+    /// 不可播时能否据此把房间从列表筛掉：只认接口实测确认的非公开状态（`StreamTicket.delistedShow`）。
+    /// Cam4 只有目录明确标了私密才算确认；它的「离线」是重取那一页没找到推断出来的（可能只是换了页），不筛只跳过。
+    func delistState(_ ticket: StreamTicket, forRef ref: String) -> ShowState? {
+        guard let state = ticket.delistedShow else { return nil }
+        guard RoomKey.site(ofRef: ref) != .chaturbate else { return state }
+        return state == .privateShow ? state : nil
+    }
+
     /// 搜索框回车直达：带站点前缀按前缀；裸名在 Cam4 模式按 c4，其余按 cb。名字不合法返回 nil。
     func directRoom(_ text: String) -> Room? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)

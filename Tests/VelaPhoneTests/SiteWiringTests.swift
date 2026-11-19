@@ -124,6 +124,19 @@ final class SiteWiringTests: XCTestCase {
         XCTAssertNil(stage.masterFailure(forRef: "alice", status: 504), "cb 仍交给中继，行为不变")
     }
 
+    // MARK: 筛除只认实测确认的状态
+
+    func testDelistStateNeedsConfirmedNonPublicStatusPerSite() {
+        let stage = TestPrefs.stage(settings: SettingsStore(defaults: defaults()))
+        let offline = StreamTicket(success: true, url: nil, status: .offline)
+        let secret = StreamTicket(success: true, url: nil, status: .privateShow)
+        XCTAssertEqual(stage.delistState(offline, forRef: "alice"), .offline, "cb 的离线是接口实测")
+        XCTAssertEqual(stage.delistState(secret, forRef: "alice"), .privateShow)
+        XCTAssertNil(stage.delistState(offline, forRef: "c4:alice"), "Cam4 的离线是「这页没找到」推断出来的，不筛只跳过")
+        XCTAssertEqual(stage.delistState(secret, forRef: "c4:alice"), .privateShow, "Cam4 目录明确标了私密")
+        XCTAssertNil(stage.delistState(StreamTicket(success: true, url: nil, status: .unknown), forRef: "c4:alice"))
+    }
+
     // MARK: 直达输入
 
     func testDirectRoomFollowsPrefixThenSiteMode() {

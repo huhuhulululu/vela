@@ -158,19 +158,20 @@ public struct FeedStore: Equatable, Sendable {
 
     /// 「仅公开」下，列表里标着公开的房间才可能因实测状态而筛除（直达、收藏等本就非公开的不动）。
     public func canDelist(_ username: String) -> Bool {
-        let key = username.lowercased()
-        return query.publicOnly && catalog.contains { $0.username.lowercased() == key && $0.show == .publicShow }
+        let key = RoomKey.normalizeRef(username)
+        return query.publicOnly && catalog.contains { $0.identity == key && $0.show == .publicShow }
     }
 
     /// 实测发现列表里的公开房间已是私密 / 离线等：改写目录里的状态，让「仅公开」过滤把它筛掉，
     /// 直到下一次目录刷新带回公开。当前房间与 `protecting`（各路在播的房间）不动。返回是否真的筛掉。
+    /// 比较一律用站点键（ref 归一化）：同名的 Chaturbate 与 Cam4 房间互不影响。
     @discardableResult
     public mutating func delist(_ username: String, as state: ShowState, protecting: Set<String> = []) -> Bool {
-        let key = username.lowercased()
+        let key = RoomKey.normalizeRef(username)
         guard canDelist(username), state != .publicShow, state != .away,
-              currentUsername?.lowercased() != key,
-              !protecting.contains(where: { $0.lowercased() == key }),
-              let at = catalog.firstIndex(where: { $0.username.lowercased() == key })
+              currentUsername.map(RoomKey.normalizeRef) != key,
+              !protecting.contains(where: { RoomKey.normalizeRef($0) == key }),
+              let at = catalog.firstIndex(where: { $0.identity == key })
         else { return false }
         catalog[at].show = state
         return true

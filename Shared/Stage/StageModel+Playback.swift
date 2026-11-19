@@ -252,7 +252,7 @@ extension StageModel {
         Self.playbackLog.info("start-source \(origin, privacy: .public)")
         guard ticket.isPlayable, let master = ticket.url else {
             stopLane(lane)
-            noteUnplayable(ticket.failure, delist: ticket.delistedShow, username: username, token: token, lane: lane)
+            noteUnplayable(ticket.failure, delist: delistState(ticket, forRef: username), username: username, token: token, lane: lane)
             return nil
         }
         let picked = await fetchRendition(master: master, cap: cap, for: username)
@@ -276,7 +276,7 @@ extension StageModel {
             lane.playbackNote = Copy.failure(failure)
             autoSkip(on: lane)
             // 没跳成（列表尽头、连续跳过到上限）就留在这间并保留原因，不筛；跳成了才把它从列表拿掉。
-            guard name(of: lane)?.lowercased() != username.lowercased() else { return }
+            guard name(of: lane).map(RoomKey.normalizeRef) != RoomKey.normalizeRef(username) else { return }
             AssignIf.changed(from: lane.playbackNote, to: nil as String?) { lane.playbackNote = $0 }
             feed.delist(username, as: state, protecting: inUseNames())
             return
@@ -295,9 +295,9 @@ extension StageModel {
         }
     }
 
-    /// 各路此刻占着的房间（小写）：筛除时不能动它们，多路「各路房间两两不同」才不被破坏。
+    /// 各路此刻占着的房间（站点键，小写 ref）：筛除时不能动它们，多路「各路房间两两不同」才不被破坏。
     private func inUseNames() -> Set<String> {
-        Set(lanes.compactMap { name(of: $0)?.lowercased() })
+        Set(lanes.compactMap { name(of: $0).map(RoomKey.normalizeRef) })
     }
 
     /// 一次性延迟任务：到点仍在同一房间、代次没变、允许播放才重新起播；切房、暂停或有新起播时作废。
@@ -481,7 +481,7 @@ extension StageModel {
         guard let ticket = try? await resolve(next) else { return }
         guard token == lane.playGeneration, !Task.isCancelled, lifecycleAllows(.beforeRequest, life) else { return }
         // 实测已私密 / 离线等：从列表筛掉，用户就划不到它（任一路在播的房间不动）。
-        if let state = ticket.delistedShow {
+        if let state = delistState(ticket, forRef: next) {
             feed.delist(next, as: state, protecting: inUseNames())
             return
         }
