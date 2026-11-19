@@ -292,8 +292,11 @@ struct SyncCodeCard: View {
     }
 }
 
-/// 复制同步码时标记敏感（第 4.3 节）：iOS 限本机且 120 秒过期；macOS 同时写 `org.nspasteboard.ConcealedType`。
+/// 复制同步码时标记敏感（第 4.3 节）：iOS 限本机且 120 秒过期；macOS 同时写 `org.nspasteboard.ConcealedType`，
+/// 并在 120 秒后若剪贴板仍是这次写入（changeCount 未变）就清空。一次性延时，不是常驻定时器。
 enum SyncPasteboard {
+    static let expirySeconds: TimeInterval = 120
+
     static func copySensitive(_ text: String) {
         #if os(macOS)
         let board = NSPasteboard.general
@@ -301,9 +304,13 @@ enum SyncPasteboard {
         board.declareTypes([.string, NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")], owner: nil)
         board.setString(text, forType: .string)
         board.setString("", forType: NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType"))
+        let stamp = board.changeCount
+        DispatchQueue.main.asyncAfter(deadline: .now() + SyncPasteboard.expirySeconds) {
+            if board.changeCount == stamp { board.clearContents() }
+        }
         #else
         UIPasteboard.general.setItems([[UTType.plainText.identifier: text]],
-                                      options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(120)])
+                                      options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(SyncPasteboard.expirySeconds)])
         #endif
     }
 }

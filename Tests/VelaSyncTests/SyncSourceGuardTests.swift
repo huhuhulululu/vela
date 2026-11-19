@@ -20,4 +20,11 @@ final class SyncSourceGuardTests: XCTestCase {
         let text = try XCTUnwrap(plist["NSFaceIDUsageDescription"] as? String)
         XCTAssertFalse(text.isEmpty)
     }
+
+    /// 安全审查 L7：macOS 复制同步码 120 秒后，若剪贴板没被别的内容替换（changeCount 未变）就清空，与 iOS 的过期一致。
+    func testMacPasteboardIsClearedAfter120Seconds() throws {
+        let source = try text("Shared/Stage/SyncPanel.swift")
+        XCTAssertTrue(source.contains("SyncPasteboard.expirySeconds"))
+        XCTAssertTrue(source.contains("board.changeCount == stamp"))
+    }
 }
