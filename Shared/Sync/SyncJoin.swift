@@ -160,12 +160,20 @@ extension SyncService {
     /// 用户确认后提交（第 12.4 节）。先上提交锁：从这里到结束，本机收藏、屏蔽、口味与同步设置的写操作一律被拒
     /// （`localWriteAllowed` 为 false），所以 `local` 在上锁之后才取，网络往返期间不可能有新的本机改动被覆盖。
     /// 锁在任何结局下都释放；App 退出时锁随进程消失，没写「已开启」就按未加入处理。
-    func commitJoin(_ original: SyncJoinTicket, local takeLocal: () -> SyncLocalData, sink: SyncJoinSink) async -> SyncJoinCommit {
+    func commitJoin(_ original: SyncJoinTicket, local takeLocal: () -> SyncLocalData, sink: SyncJoinSink, holdLockAfterJoin: Bool = false) async -> SyncJoinCommit {
         if original.isCancelled { return .cancelled }
         guard !isActive else { return .failed("这台设备已开启同步，请先关闭") }
         guard case .none = env.stateStore.load(), !env.journal.exists else { return .failed("本机还有未清理的同步状态，请先关闭同步") }
         guard beginCommit() else { return .failed("正在加入同步…") }
-        defer { endCommit() }
+        let result = await commitLocked(original, local: takeLocal, sink: sink)
+        // 加入成功且调用方要求保持：锁留到调用方在主线程完成激活后 `releaseJoinCommit`（H8），否则这段空隙里的
+        // 本机写操作会被当成纯本机修改，随后被激活时重建的投影覆盖。其余结局照旧在返回前释放。
+        if !(holdLockAfterJoin && result == .joined) { endCommit() }
+        return result
+    }
+
+    /// 持提交锁时的提交主体（见 `commitJoin`）。
+    private func commitLocked(_ original: SyncJoinTicket, local takeLocal: () -> SyncLocalData, sink: SyncJoinSink) async -> SyncJoinCommit {
         let local = takeLocal()
         var t = original
         // 上锁之后的本机数据重算：与确认页的计数不同就回到确认页。
@@ -306,6 +314,9 @@ extension SyncService {
     }
 
     private func endCommit() { commitLock.withLock { committing = false } }
+
+    /// 释放提交锁（调用方要求保持时，在主线程完成激活之后调用；重复调用无害）。
+    func releaseJoinCommit() { endCommit() }
 
     /// 404 时「仍用此码创建」：等同于用这个 `K` 开启同步（第 12.3 节）。
     func createWithCode(_ code: SyncCode, local: SyncLocalData) async -> SyncCreateResult {

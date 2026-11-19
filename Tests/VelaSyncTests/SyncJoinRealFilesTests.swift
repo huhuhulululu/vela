@@ -378,6 +378,52 @@ final class SyncJoinRealFilesTests: XCTestCase {
         XCTAssertNil(r.keys.entry, "孤儿条目被清理")
     }
 
+    // MARK: H7 标记写不成时完好状态照常读出
+
+    /// 损坏标记写不成（磁盘满、配额）而状态文件是完好的：不得报「状态损坏」（否则用户按提示关闭会删掉未读的状态与 K），
+    /// 要照常读出；之后的关闭走正常流程。
+    func testH7_markerWriteFailureStillReadsValidState() async throws {
+        let r = try rig()
+        var state = SyncState(phase: .active, origin: ServiceFixture.origin, blobID: ServiceFixture.keys.blobID, clock: SyncClock(dev: 7))
+        state.epoch = ServiceFixture.epoch
+        XCTAssertTrue(SyncStateFileStore(url: r.stateURL).save(state))
+        r.keys.entry = SyncKeychainEntry(key: ServiceFixture.key, dev: 7, blobID: ServiceFixture.keys.blobID)
+        r.configureBacking = { $0.writeMarker = { _ in false } }
+        r.restart()
+        guard case .present(let read) = r.backing.load() else { return XCTFail("完好状态必须读出") }
+        XCTAssertEqual(read.phase, .active)
+        let started = await r.service.start(local: { r.sink.local }, sink: r.sink)
+        XCTAssertEqual(started, .active, "标记写不成不影响读完好的状态")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: r.stateURL.path))
+        XCTAssertNotNil(r.keys.entry)
+        // 关闭：状态确被读出，走正常关闭流程（屏障 → disabling → 删 K → 删状态）。
+        XCTAssertEqual(r.service.disable(sink: r.sink), .done)
+        XCTAssertNil(r.keys.entry)
+    }
+
+    // MARK: H8 提交锁保持到激活之后
+
+    /// 加入成功后，调用方要求保持提交锁时：返回 `.joined` 后锁仍在（激活界面之前本机写操作照样被拒），释放后才放行。
+    func testH8_commitLockCanBeHeldUntilCallerActivates() async throws {
+        let r = try rig()
+        guard let t = await r.ticket() else { return XCTFail() }
+        let result = await r.service.commitJoin(t, local: { r.sink.local }, sink: r.sink, holdLockAfterJoin: true)
+        XCTAssertEqual(result, .joined)
+        XCTAssertTrue(r.service.isCommittingJoin, "激活之前锁仍在")
+        XCTAssertFalse(r.service.localWriteAllowed)
+        r.service.releaseJoinCommit()
+        XCTAssertTrue(r.service.localWriteAllowed)
+    }
+
+    /// 失败与取消照旧在返回前释放锁，即使调用方要求保持。
+    func testH8_failureReleasesLockEvenWhenHoldRequested() async throws {
+        let r = try rig()
+        guard let t = await r.ticket() else { return XCTFail() }
+        r.store.failSave = true
+        guard case .failed = await r.service.commitJoin(t, local: { r.sink.local }, sink: r.sink, holdLockAfterJoin: true) else { return XCTFail() }
+        XCTAssertFalse(r.service.isCommittingJoin)
+    }
+
     // MARK: H6 半份快照
 
     /// 启动时遇到没有完整性标记的快照目录（构建到一半）：直接删除，不换回。

@@ -28,11 +28,21 @@ final class SyncBackupExcludedStore: SyncStateStore {
     func load() -> SyncStateRead {
         guard stateFileExists else { return markedCorrupt ? .corrupted : .none }
         // 读之前先把标记落盘：底层若判坏会立刻改名隔离，那之后才写标记就可能来不及（磁盘满、进程被杀）。
-        guard markedCorrupt || writeMarker(corruptMarker) else { return .corrupted }
+        // 标记写不成（H7）：不改名、只读解码。完好的照常读出；读不出才报损坏，坏文件留在原处，下次仍是损坏。
+        guard markedCorrupt || writeMarker(corruptMarker) else { return readOnlyDecode() }
         let read = inner.load()
         // 读成功（或文件恰好不见了）：标记是预写的，删掉；删不掉也无妨，下次读到好文件会再删。
         if read != .corrupted { try? fm.removeItem(at: corruptMarker) }
         return read
+    }
+
+    /// 不经底层（不改名隔离）直接解码状态文件。大小上限与底层一致（文档 `P` 的两倍加余量）。
+    private func readOnlyDecode() -> SyncStateRead {
+        guard let size = (try? fm.attributesOfItem(atPath: inner.url.path))?[.size] as? NSNumber,
+              size.intValue <= SyncLimits.plaintextBytes * 2 + 64_000,
+              let data = fm.contents(atPath: inner.url.path),
+              let state = try? JSONDecoder().decode(SyncState.self, from: data) else { return .corrupted }
+        return .present(state)
     }
 
     func save(_ state: SyncState) -> Bool {
