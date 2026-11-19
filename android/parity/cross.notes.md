@@ -35,3 +35,7 @@
 ## 中继 skip
 
 `RelayFeedTests`、`RelayWaitTests`、`RelaySourceTableTests` 和 `PlaybackFlowFixTests` 的 6 条采纳，C2 已逐条写进 `skip-hls.tsv`，理由含 `replaced-by:`。`RelayMultiSourceTests` 9 条在全局 `skip.tsv`，`replaced-by` 指向 `LaneDataSourceTest` 的同名方法。`testParseReadsDiscontinuityAndLastURI` 在 L0b。本包没有改这些表。P2 的 `LaneDataSource` 不在本包依赖里，表里的替代测试名保持 C2 / 00 已写的那样。
+
+## 仅公开下落房
+
+`AuditFixTests.swift` 整文件归 cross。其中 SkipNonPublic 九条由 `vela.app.stage.AuditFixTests` 同名方法覆盖：确认过的非公开状态立即跳过并筛除，尽头和连续跳过上限不筛，away / unknown / 仅公开关闭保持原提示。其余用例仍是 iOS 多窗或同步接线，写在 `skip-cross.tsv`。

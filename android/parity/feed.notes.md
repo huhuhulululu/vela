@@ -18,3 +18,7 @@
 - `FeedCacheTests` 的随机操作只用同一个种子断言「缓存等于全量过滤」。Kotlin `Random` 不是 Swift 的 SplitMix64，序列不必逐位相同。
 - `testCachedIndexIsMuchFasterThanFullFilter` 在计时前先把两条路径各跑 50 次，避开 JVM 第一次测量吃掉 JIT。断言仍是缓存耗时的 2 倍小于全量过滤。
 - JSON 用 kotlinx.serialization，`ignoreUnknownKeys = true`，对齐 `JSONDecoder` 忽略未知字段。缺 `rooms` 算格式失败。
+
+## 仅公开下筛除
+
+`FeedStore.canDelist` / `delist` 与 `StreamTicket.delistedShow` 对齐 Swift：只改写目录里标着公开的房间，当前房间和保护名单不动，away 与公开状态不筛。刷新用 `replace` 整表换回。`FeedDelistTests` 与 Swift 同名。

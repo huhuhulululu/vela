@@ -41,3 +41,7 @@
 `EndpointBackoffTests` 里两条 `StreamDecoder.fetch` 仍是 L0a 的 `deferred:C9`，没有挪走。`StreamFetchTests` 用同样的方法名先把行为锁住，类名不是 `EndpointBackoffTests`，不消化那两条 deferred。C9 仍应在原类名下跑一遍，或写进 `split-cross.tsv`。
 
 地区受限的收藏夹、缓存、在线房间断言复用已经合入的 `ChatContext.decode`、`FavoriteStatus.Restricted`、`FavoritesBoard`、`FavoriteCache`、`FavoriteResolver`，本包不改这些类型。
+
+## 实测状态
+
+`StreamTicket.delistedShow` 只在 private / group / hidden / password / offline 时有值。unknown、away、公开无地址都不筛。归属仍在 `FeedDelistTests`（组 feed），因为筛除断言和票面断言写在同一文件。

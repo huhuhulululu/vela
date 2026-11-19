@@ -2,6 +2,7 @@ package vela.core.feed
 
 import vela.core.base.model.Room
 import vela.core.base.model.RoomQuery
+import vela.core.base.model.ShowState
 import vela.core.base.model.dedupeRooms
 import vela.core.base.model.lowerRoot
 import vela.core.base.site.CatalogPage
@@ -141,6 +142,34 @@ class FeedStore(
         val landed = FeedPaging.landingIndex(index, delta, list.map { it.username }, skipping)
         updateCurrent(list[landed].username)
         return current
+    }
+
+    /**
+     * 「仅公开」下，列表里标着公开的房间才可能因实测状态而筛除。
+     * 直达、收藏等本就非公开的不动。
+     */
+    fun canDelist(username: String): Boolean {
+        if (!query.publicOnly) return false
+        val key = username.lowerRoot()
+        return catalog.any { it.username.lowerRoot() == key && it.show == ShowState.publicShow }
+    }
+
+    /**
+     * 实测发现列表里的公开房间已是私密或离线等：改写目录里的状态，让「仅公开」把它滤掉，
+     * 直到下一次目录刷新带回公开。当前房间和 [protecting]（各路正在播的房间）不动。
+     * 返回是否真的筛掉。
+     */
+    fun delist(username: String, state: ShowState, protecting: Set<String> = emptySet()): Boolean {
+        val key = username.lowerRoot()
+        if (!canDelist(username) || state == ShowState.publicShow || state == ShowState.away) return false
+        if (currentUsername?.lowerRoot() == key) return false
+        if (protecting.any { it.lowerRoot() == key }) return false
+        val at = catalog.indexOfFirst { it.username.lowerRoot() == key }
+        if (at < 0) return false
+        val next = catalog.toMutableList()
+        next[at] = next[at].withShow(state)
+        updateCatalog(next)
+        return true
     }
 
     fun focus(username: String): Boolean {

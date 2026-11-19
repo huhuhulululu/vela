@@ -40,6 +40,21 @@ data class StreamTicket(
     val isPlayable: Boolean
         get() = success && url != null && status.isPlayable
 
+    /**
+     * 接口实测确认的非公开状态。只有 private / group / hidden / password / offline 才算。
+     * 接口失败带来的 unknown、暂时离开、公开但没地址都不是，不能据此把房间从列表筛掉。
+     */
+    val delistedShow: ShowState?
+        get() = when (status) {
+            ShowState.privateShow,
+            ShowState.group,
+            ShowState.hidden,
+            ShowState.password,
+            ShowState.offline,
+            -> status
+            ShowState.publicShow, ShowState.away, ShowState.unknown -> null
+        }
+
     val failure: StreamFailure?
         get() {
             if (isPlayable) return null
