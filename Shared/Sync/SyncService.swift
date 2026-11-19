@@ -276,8 +276,10 @@ final class SyncService: @unchecked Sendable {
         let live = detach()
         let current = live?.state ?? { if case .present(let s) = env.stateStore.load() { return s } else { return nil } }()
         guard let current else {
-            // 只有钥匙串条目（「同步状态丢失」或「状态损坏」时的关闭）：删条目，再删状态存储（清掉损坏标记，H4）。
-            return env.keyStore.delete() && env.stateStore.delete() ? .done : .storageFailed
+            // 只有钥匙串条目（「同步状态丢失」或「状态损坏」时的关闭）：先删状态存储（清掉损坏标记），最后删条目（H4）。
+            // 标记删不掉就不动 K，界面仍是损坏、可再关一次；K 删不掉时标记已清，下次启动按孤儿条目清理。
+            guard env.stateStore.delete() else { return .storageFailed }
+            return env.keyStore.delete() ? .done : .storageFailed
         }
         let result = SyncLifecycle.disable(current, store: env.stateStore, keychain: env.keyStore, sink: sink)
         // 屏障失败：同步状态与钥匙串都没动，恢复原样。

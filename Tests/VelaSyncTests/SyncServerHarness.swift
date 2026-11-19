@@ -138,7 +138,12 @@ final class MemoryKeyStore: SyncKeyStore {
         return .ok
     }
     func read() -> SyncKeychainRead { entry.map { .present(blobID: $0.blobID) } ?? .none }
-    func delete() -> Bool { entry = nil; return true }
+    var failDelete = false
+    func delete() -> Bool {
+        guard !failDelete else { return false }
+        entry = nil
+        return true
+    }
 }
 
 final class MemorySink: SyncJoinSink {

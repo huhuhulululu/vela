@@ -91,6 +91,9 @@ final class SyncJoinRealFilesTests: XCTestCase {
         var store: HookedStore
         var journal: FileJoinJournal
         var service: SyncService
+        /// 当前这次「启动」的状态文件存储（带损坏标记）；`configureBacking` 在每次重启时对它生效。
+        var backing: SyncBackupExcludedStore!
+        var configureBacking: ((SyncBackupExcludedStore) -> Void)?
 
         var stateURL: URL { dir.appendingPathComponent("sync-state.json") }
         var snapshotDir: URL { dir.appendingPathComponent("sync-join-snapshot") }
@@ -106,7 +109,9 @@ final class SyncJoinRealFilesTests: XCTestCase {
 
         /// 模拟 App 重启：重新造状态存储、快照与服务（文件都还在）。
         func restart() {
-            store = HookedStore(SyncBackupExcludedStore(SyncStateFileStore(url: stateURL)))
+            backing = SyncBackupExcludedStore(SyncStateFileStore(url: stateURL))
+            configureBacking?(backing)
+            store = HookedStore(backing)
             let settings = self.settings
             journal = FileJoinJournal(dir: snapshotDir, files: [sink.curationStore.url, sink.tasteStore.url],
                                       settingKeys: ["publicOnly", "infoAlwaysOn"],
@@ -282,6 +287,95 @@ final class SyncJoinRealFilesTests: XCTestCase {
         r.restart()
         let got6 = await r.service.start(local: { r.sink.local }, sink: r.sink)
         XCTAssertEqual(got6, .notEnabled)
+    }
+
+    /// 损坏标记写不成（磁盘满）：原文件不能被改名隔离掉，之后连续启动仍认出损坏、K 仍在。
+    func testH4a_markerWriteFailureKeepsCorruptFileAndKey() async throws {
+        let r = try rig()
+        try Data("{not json".utf8).write(to: r.stateURL)
+        r.keys.entry = SyncKeychainEntry(key: ServiceFixture.key, dev: 7, blobID: ServiceFixture.keys.blobID)
+        r.configureBacking = { $0.writeMarker = { _ in false } }
+        r.restart()
+        let first = await r.service.start(local: { r.sink.local }, sink: r.sink)
+        XCTAssertEqual(first, .attention(.stateCorrupted))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: r.stateURL.path), "标记没写成：坏文件留在原处")
+        for launch in 2...3 {
+            r.restart()
+            let again = await r.service.start(local: { r.sink.local }, sink: r.sink)
+            XCTAssertEqual(again, .attention(.stateCorrupted), "第 \(launch) 次启动")
+            XCTAssertNotNil(r.keys.entry, "第 \(launch) 次启动后 K 仍在")
+        }
+        r.configureBacking = nil
+        for launch in 4...5 {
+            r.restart()
+            let again = await r.service.start(local: { r.sink.local }, sink: r.sink)
+            XCTAssertEqual(again, .attention(.stateCorrupted), "磁盘恢复后第 \(launch) 次启动")
+            XCTAssertNotNil(r.keys.entry)
+        }
+    }
+
+    /// 改名隔离之后进程立刻退出：标记必须已经先落盘（写标记时坏文件还在原处），之后连续启动 K 仍在。
+    func testH4a_markerPersistedBeforeQuarantineSurvivesExit() async throws {
+        let r = try rig()
+        try Data("{not json".utf8).write(to: r.stateURL)
+        r.keys.entry = SyncKeychainEntry(key: ServiceFixture.key, dev: 7, blobID: ServiceFixture.keys.blobID)
+        let stateURL = r.stateURL
+        var fileWhenMarked: [Bool] = []
+        r.configureBacking = { store in
+            store.writeMarker = { url in
+                fileWhenMarked.append(FileManager.default.fileExists(atPath: stateURL.path))
+                return FileManager.default.createFile(atPath: url.path, contents: Data())
+            }
+        }
+        r.restart()
+        _ = r.backing.load()
+        XCTAssertEqual(fileWhenMarked.first, true, "标记先于改名持久化：之后任何时刻退出，磁盘上都已有标记")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: stateURL.path), "前提：坏文件已改名隔离")
+        // 模拟此刻进程退出：不再调用这个实例的任何方法，直接重启。
+        r.configureBacking = nil
+        for launch in 2...3 {
+            r.restart()
+            let again = await r.service.start(local: { r.sink.local }, sink: r.sink)
+            XCTAssertEqual(again, .attention(.stateCorrupted), "第 \(launch) 次启动")
+            XCTAssertNotNil(r.keys.entry, "第 \(launch) 次启动后 K 仍在")
+        }
+    }
+
+    /// 状态损坏时关闭：先清状态与损坏标记，最后删 K。标记删不掉就不删 K（不留「有标记无 K」的卡死状态）。
+    func testH4b_disableClearsMarkerBeforeDeletingKey() async throws {
+        let r = try rig()
+        try Data("{not json".utf8).write(to: r.stateURL)
+        r.keys.entry = SyncKeychainEntry(key: ServiceFixture.key, dev: 7, blobID: ServiceFixture.keys.blobID)
+        let first = await r.service.start(local: { r.sink.local }, sink: r.sink)
+        XCTAssertEqual(first, .attention(.stateCorrupted))
+        chmod(r.dir, 0o500)
+        XCTAssertEqual(r.service.disable(sink: r.sink), .storageFailed)
+        XCTAssertNotNil(r.keys.entry, "标记没删掉：K 必须还在，之后可以重试关闭")
+        chmod(r.dir, 0o700)
+        r.restart()
+        let again = await r.service.start(local: { r.sink.local }, sink: r.sink)
+        XCTAssertEqual(again, .attention(.stateCorrupted))
+        XCTAssertEqual(r.service.disable(sink: r.sink), .done)
+        XCTAssertNil(r.keys.entry)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: r.backing.corruptMarker.path))
+        r.restart()
+        let after = await r.service.start(local: { r.sink.local }, sink: r.sink)
+        XCTAssertEqual(after, .notEnabled)
+    }
+
+    /// K 删不掉（标记已清）：下次启动「无状态、有条目」走孤儿条目清理，不会卡死在损坏。
+    func testH4b_keyDeleteFailureFallsBackToOrphanCleanup() async throws {
+        let r = try rig()
+        try Data("{not json".utf8).write(to: r.stateURL)
+        r.keys.entry = SyncKeychainEntry(key: ServiceFixture.key, dev: 7, blobID: ServiceFixture.keys.blobID)
+        _ = await r.service.start(local: { r.sink.local }, sink: r.sink)
+        r.keys.failDelete = true
+        XCTAssertEqual(r.service.disable(sink: r.sink), .storageFailed)
+        r.keys.failDelete = false
+        r.restart()
+        let again = await r.service.start(local: { r.sink.local }, sink: r.sink)
+        XCTAssertEqual(again, .notEnabled, "标记已清：不再是损坏")
+        XCTAssertNil(r.keys.entry, "孤儿条目被清理")
     }
 
     // MARK: H6 半份快照
