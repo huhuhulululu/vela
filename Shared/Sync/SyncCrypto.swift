@@ -15,7 +15,7 @@ enum SyncCryptoError: Error, Equatable {
 }
 
 /// 由主密钥 `K` 派生出的一个空间的全部材料（docs/plans/sync.md 第 4.1 节，写死）。
-struct SyncKeys: Equatable {
+struct SyncKeyMaterial: Equatable {
     let blobID: String
     let encKey: [UInt8]
     let signCounter: Int
@@ -47,7 +47,7 @@ enum SyncCrypto {
     }
 
     /// 派生 blobID、encKey 与签名私钥。`hkdf` 可注入，只为覆盖计数器重试路径（自然样本找不到 `c > 0`）。
-    static func derive(_ k: [UInt8], hkdf: HKDFFunction = SyncCrypto.hkdf) throws -> SyncKeys {
+    static func derive(_ k: [UInt8], hkdf: HKDFFunction = SyncCrypto.hkdf) throws -> SyncKeyMaterial {
         guard k.count == 32 else { throw SyncCryptoError.invalidKey }
         let blobID = SyncEncoding.hex(hkdf(k, idInfo))
         let encKey = hkdf(k, encInfo)
@@ -55,7 +55,7 @@ enum SyncCrypto {
             let t = hkdf(k, signInfo + [UInt8(c)])
             guard isValidScalar(t) else { continue }
             let pub = try publicKey(d32: t)
-            return SyncKeys(blobID: blobID, encKey: encKey, signCounter: c, d32: t, publicKey: pub)
+            return SyncKeyMaterial(blobID: blobID, encKey: encKey, signCounter: c, d32: t, publicKey: pub)
         }
         throw SyncCryptoError.noValidScalar
     }

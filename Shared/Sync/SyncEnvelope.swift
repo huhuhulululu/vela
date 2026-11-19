@@ -48,11 +48,11 @@ enum SyncEnvelope {
 
 /// 协调器用的加密封装：CryptoKit AES-256-GCM + DEFLATE 载荷，nonce 每次封装由系统 CSPRNG 新生成。
 final class SyncCryptoCodec: SyncEnvelopeCodec {
-    let keys: SyncKeys
+    let keys: SyncKeyMaterial
     let sizeLimit: Int
     private let random: (Int) throws -> [UInt8]
 
-    init(keys: SyncKeys, sizeLimit: Int = SyncLimits.plaintextBytes, random: @escaping (Int) throws -> [UInt8] = SyncCrypto.random) {
+    init(keys: SyncKeyMaterial, sizeLimit: Int = SyncLimits.plaintextBytes, random: @escaping (Int) throws -> [UInt8] = SyncCrypto.random) {
         self.keys = keys
         self.sizeLimit = sizeLimit
         self.random = random
