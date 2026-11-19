@@ -148,6 +148,8 @@ class StageViewModel(
     internal var toastUndoName: String? = null
     internal var favoriteSuggest: FavoriteSuggest? = null
     internal var favoritesChecking: Boolean = false
+    /** 收藏查询批次。旧批次收尾时不能把新批次的「查询中」清掉。 */
+    internal var favoriteCheckEpoch: Int = 0
     internal var favoriteDraftError: String? = null
     internal var infoAlwaysOn: Boolean = false
     internal var startupNotices: List<String> = emptyList()
