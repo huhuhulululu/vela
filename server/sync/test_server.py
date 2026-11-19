@@ -1598,6 +1598,11 @@ class AuditFixTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             app.p256_public_key(b"\x04" + pub[1:64])
 
+    def test_ipv4_mapped_address_shares_the_ipv4_bucket(self):
+        mapped = app.parse_ip("::ffff:203.0.113.7")
+        self.assertEqual(app.ip_bucket(mapped), app.ip_bucket(app.parse_ip("203.0.113.7")))
+        self.assertEqual(app.ip_log_prefix(mapped), "203.0.113.0/24")
+
     def test_access_log_memory_is_bounded(self):
         srv = self.make()
         devnull = open(os.devnull, "w")

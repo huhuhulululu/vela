@@ -223,7 +223,9 @@ def parse_ip(value):
         return None
     if getattr(ip, "scope_id", None):
         return None
-    return ip
+    # IPv4 映射的 IPv6（::ffff:a.b.c.d）归一成 IPv4，与原地址同桶，免得绕开每 IP 限额。
+    mapped = getattr(ip, "ipv4_mapped", None)
+    return mapped if mapped is not None else ip
 
 
 def ip_bucket(ip):
