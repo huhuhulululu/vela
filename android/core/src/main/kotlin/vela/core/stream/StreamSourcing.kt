@@ -22,6 +22,9 @@ enum class StreamOrigin(val rawValue: String) {
 
     /** 侧车网页里的 `get_edge_hls_url_ajax`。 */
     sidecar("sidecar"),
+
+    /** Cam4 目录页带来的 `hlsPreviewUrl`。 */
+    cam4Directory("c4-directory"),
 }
 
 /** 解析结果与来源。 */

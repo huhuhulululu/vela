@@ -16,6 +16,9 @@ enum class SiteEndpoint {
 
     /** GET /api/biocontext/<用户名>/ */
     bioContext,
+
+    /** GET Cam4 /directoryCams */
+    cam4Directory,
 }
 
 /** 响应正文的形态判断。 */
