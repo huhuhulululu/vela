@@ -74,18 +74,18 @@ internal object WebNetworkGate {
         if (!installing.compareAndSet(false, true)) return
         val task = Runnable {
             try {
-                if (!WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) {
+                if (WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) {
+                    val port = tunnel().port
+                    val config = ProxyConfig.Builder()
+                        .addProxyRule("http://127.0.0.1:$port")
+                        .build()
+                    ProxyController.getInstance().setProxyOverride(config, CALLBACKS) {
+                        enforcing = true
+                        deliverPending()
+                    }
+                } else {
                     unavailable = true
                     installing.set(false)
-                    deliverPending()
-                    return@Runnable
-                }
-                val port = tunnel().port
-                val config = ProxyConfig.Builder()
-                    .addProxyRule("http://127.0.0.1:$port")
-                    .build()
-                ProxyController.getInstance().setProxyOverride(config, CALLBACKS) {
-                    enforcing = true
                     deliverPending()
                 }
             } catch (_: Throwable) {

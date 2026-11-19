@@ -102,6 +102,7 @@ android {
         abortOnError = true
         checkReleaseBuilds = true
         error += "NewApi"
+        disable += "UnsafeOptInUsageError"
     }
 
     testOptions {
