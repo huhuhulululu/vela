@@ -5,6 +5,8 @@ import kotlinx.serialization.json.Json
 import vela.core.base.model.Prefs
 import vela.core.base.model.Room
 import vela.core.base.model.trimSwiftWhitespace
+import vela.core.sites.RoomKey
+import vela.core.sites.SiteKeys
 
 /** 收藏夹导出与导入：一个 JSON 文件，只含用户名。 */
 object FavoriteExchange {
@@ -17,8 +19,10 @@ object FavoriteExchange {
     }
 
     fun encode(names: List<String>): ByteArray =
-        json.encodeToString(File.serializer(), File(app = "Vela", version = 1, favorites = names))
-            .toByteArray(Charsets.UTF_8)
+        json.encodeToString(
+            File.serializer(),
+            File(app = "Vela", version = 1, favorites = names.map(SiteKeys::disk)),
+        ).toByteArray(Charsets.UTF_8)
 
     /** 接受 `{"app","version","favorites"}`，也接受直接的字符串数组。 */
     fun decode(data: ByteArray): Imported {
@@ -36,8 +40,12 @@ object FavoriteExchange {
         val names = ArrayList<String>()
         var rejected = 0
         for (item in raw) {
-            val name = item.trimSwiftWhitespace()
-            if (Room.isValidUsername(name)) names.add(name) else rejected += 1
+            val memory = SiteKeys.memory(item.trimSwiftWhitespace())
+            if (RoomKey.parsing(memory) != null || Room.isValidUsername(memory)) {
+                names.add(memory)
+            } else {
+                rejected += 1
+            }
         }
         return Imported(names, rejected)
     }

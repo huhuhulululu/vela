@@ -10,7 +10,6 @@ import vela.core.base.model.Gender
 import vela.core.base.model.Room
 import vela.core.base.model.ShowState
 import vela.core.base.model.dedupeRooms
-import vela.core.base.model.lowerRoot
 import vela.core.base.model.secureImageURL
 import vela.core.base.model.timeIntervalSince1970
 import vela.core.base.model.toIntExactOrNull
@@ -133,14 +132,14 @@ object PageMerge {
         current: String?,
         order: (List<Room>) -> List<Room>,
     ): PageMergeResult {
-        val seen = existing.mapTo(HashSet()) { it.username.lowerRoot() }
+        val seen = existing.mapTo(HashSet()) { it.identity }
         val fresh = ArrayList<Room>()
         for (room in incoming) {
-            if (seen.add(room.username.lowerRoot())) fresh.add(room)
+            if (seen.add(room.identity)) fresh.add(room)
         }
         if (fresh.isEmpty()) return PageMergeResult(existing, 0)
         val combined = existing + fresh
-        val at = if (current == null) -1 else combined.indexOfFirst { it.username == current }
+        val at = if (current == null) -1 else combined.indexOfFirst { it.ref == current }
         if (at < 0) return PageMergeResult(order(combined), fresh.size)
         val head = combined.subList(0, at + 1).toList()
         val tail = combined.subList(at + 1, combined.size).toList()

@@ -3,7 +3,6 @@ package vela.core.curation
 import java.time.Instant
 import vela.core.base.model.FeedSource
 import vela.core.base.model.Room
-import vela.core.base.model.lowerRoot
 import vela.core.base.site.CatalogPage
 
 /**
@@ -35,7 +34,7 @@ object LoadCommit {
         if (replacing) reasons.clear()
         if (source == FeedSource.guess) {
             for (room in arranged.rooms) {
-                reasons[room.username.lowerRoot()] = reason(room)
+                reasons[room.identity] = reason(room)
             }
         }
         return true

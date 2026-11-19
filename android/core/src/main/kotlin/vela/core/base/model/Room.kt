@@ -4,9 +4,12 @@ import java.net.URI
 import java.net.URISyntaxException
 import java.text.DecimalFormat
 import java.text.DecimalFormatSymbols
+import java.time.Instant
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.round
+import vela.core.sites.RoomKey
+import vela.core.sites.SiteID
 
 internal fun displayableAge(age: Int?): Int? = if (age != null && age in 18..80) age else null
 
@@ -34,10 +37,34 @@ data class Room private constructor(
     val thumbnailURL: URI?,
     val age: Int?,
     val secondsOnline: Int?,
+    val site: SiteID,
+    /** 目录直接带来的播放主列表（Cam4 `hlsPreviewUrl`）。cb 为 null。 */
+    val stream: URI?,
+    /** 缩略图过期时刻。cb 为 null。 */
+    val thumbnailExpires: Instant?,
+    /** 大写 ISO 3166-1 alpha-2。cb 为空。 */
+    val blockedRegions: Set<String>,
     private val normalized: Unit,
 ) {
+    /** 名字不合法时也有值：内部不校验。`c4` 的用户名部分统一小写。 */
+    val key: RoomKey
+
+    /** 小写 ref，集合与比较用。 */
+    val identity: String
+
+    /** 内存简写：`cb` 房间等于用户名，其他站点是 `c4:<名>`。 */
+    val ref: String
+        get() = key.ref
+
+    /** 内存简写。`cb` 房间等于 [username]，其他站点带前缀。 */
     val id: String
-        get() = username
+        get() = ref
+
+    init {
+        val resolved = makeKey(site, username)
+        key = resolved.first
+        identity = resolved.second
+    }
 
     /** 只改演出状态。目录筛除用它改写列表里的公开房间。 */
     fun withShow(state: ShowState): Room = copy(show = state)
@@ -56,6 +83,10 @@ data class Room private constructor(
         thumbnailURL: URI? = null,
         age: Int? = null,
         secondsOnline: Int? = null,
+        site: SiteID = SiteID.chaturbate,
+        stream: URI? = null,
+        thumbnailExpires: Instant? = null,
+        blockedRegions: Set<String> = emptySet(),
     ) : this(
         username,
         resolveDisplayName(username, displayName),
@@ -70,6 +101,10 @@ data class Room private constructor(
         thumbnailURL,
         displayableAge(age),
         secondsOnline,
+        site,
+        stream,
+        thumbnailExpires,
+        blockedRegions.toSet(),
         Unit,
     )
 
@@ -89,15 +124,30 @@ data class Room private constructor(
         }
 
         fun direct(username: String): Room? {
-            val name = username.trimSwiftWhitespace()
-            if (!isValidUsername(name)) return null
+            val key = RoomKey(SiteID.chaturbate, username) ?: return null
+            return direct(key)
+        }
+
+        fun direct(key: RoomKey): Room {
+            val thumb = if (key.site == SiteID.chaturbate) {
+                URI.create("https://thumb.live.mmcdn.com/riw/${key.name}.jpg")
+            } else {
+                null
+            }
             return Room(
-                username = name,
-                displayName = name,
+                username = key.name,
+                displayName = key.name,
                 subject = "",
                 show = ShowState.publicShow,
-                thumbnailURL = URI.create("https://thumb.live.mmcdn.com/riw/$name.jpg"),
+                thumbnailURL = thumb,
+                site = key.site,
             )
+        }
+
+        private fun makeKey(site: SiteID, username: String): Pair<RoomKey, String> {
+            val key = RoomKey(site, username)
+                ?: RoomKey.unchecked(site, if (site == SiteID.cam4) username.lowerRoot() else username)
+            return key to key.normalized
         }
     }
 }
@@ -133,7 +183,7 @@ fun dedupeRooms(rooms: List<Room>): List<Room> {
     val seen = HashSet<String>()
     val kept = ArrayList<Room>(rooms.size)
     for (room in rooms) {
-        if (seen.add(room.username.lowerRoot())) kept.add(room)
+        if (seen.add(room.identity)) kept.add(room)
     }
     return kept
 }

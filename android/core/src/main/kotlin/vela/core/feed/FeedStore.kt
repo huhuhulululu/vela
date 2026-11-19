@@ -4,8 +4,8 @@ import vela.core.base.model.Room
 import vela.core.base.model.RoomQuery
 import vela.core.base.model.ShowState
 import vela.core.base.model.dedupeRooms
-import vela.core.base.model.lowerRoot
 import vela.core.base.site.CatalogPage
+import vela.core.sites.RoomKey
 
 /**
  * 房间列表、当前位置、搜索打字预览与翻页。
@@ -57,7 +57,7 @@ class FeedStore(
             val list = rooms
             if (list.isEmpty()) return 0
             val name = currentUsername ?: return 0
-            val found = list.indexOfFirst { it.username == name }
+            val found = list.indexOfFirst { it.ref == name }
             return if (found >= 0) found else 0
         }
 
@@ -73,10 +73,10 @@ class FeedStore(
         updateCatalog(dedupeRooms(page.rooms))
         total = page.total
         reachedEnd = page.rooms.isEmpty() || page.nextOffset >= page.total
-        if (keep != null && rooms.any { it.username == keep }) {
+        if (keep != null && rooms.any { it.ref == keep }) {
             updateCurrent(keep)
         } else {
-            updateCurrent(rooms.firstOrNull()?.username)
+            updateCurrent(rooms.firstOrNull()?.ref)
         }
     }
 
@@ -85,8 +85,8 @@ class FeedStore(
      * 整页都是已有房间不算到底：游标仍在前进。同页内重复用户名会留下，不像 [replace] 那样去重。
      */
     fun append(page: CatalogPage, offset: Int? = null) {
-        val existing = catalog.mapTo(HashSet()) { it.username.lowerRoot() }
-        val fresh = page.rooms.filter { it.username.lowerRoot() !in existing }
+        val existing = catalog.mapTo(HashSet()) { it.identity }
+        val fresh = page.rooms.filter { it.identity !in existing }
         updateCatalog(catalog + fresh)
         total = maxOf(total, page.total)
         val stalled = offset != null && page.nextOffset <= offset
@@ -94,7 +94,7 @@ class FeedStore(
             reachedEnd = true
         }
         if (currentUsername == null) {
-            updateCurrent(rooms.firstOrNull()?.username)
+            updateCurrent(rooms.firstOrNull()?.ref)
         }
     }
 
@@ -103,7 +103,7 @@ class FeedStore(
         val folded = PageMerge.keepingCurrent(catalog, extra, currentUsername, order)
         if (folded.added <= 0) return 0
         updateCatalog(folded.rooms)
-        if (currentUsername == null) updateCurrent(rooms.firstOrNull()?.username)
+        if (currentUsername == null) updateCurrent(rooms.firstOrNull()?.ref)
         return folded.added
     }
 
@@ -126,8 +126,9 @@ class FeedStore(
             updateCurrent(null)
             return
         }
-        val match = rooms.firstOrNull { it.username.lowerRoot() == username.lowerRoot() } ?: return
-        updateCurrent(match.username)
+        val key = RoomKey.normalizeRef(username)
+        val match = rooms.firstOrNull { it.identity == key } ?: return
+        updateCurrent(match.ref)
     }
 
     fun step(delta: Int): Room? = step(delta, emptySet())
@@ -139,8 +140,8 @@ class FeedStore(
     fun step(delta: Int, skipping: Set<String>): Room? {
         val list = rooms
         if (list.isEmpty() || delta == 0) return current
-        val landed = FeedPaging.landingIndex(index, delta, list.map { it.username }, skipping)
-        updateCurrent(list[landed].username)
+        val landed = FeedPaging.landingIndex(index, delta, list.map { it.ref }, skipping)
+        updateCurrent(list[landed].ref)
         return current
     }
 
@@ -150,8 +151,8 @@ class FeedStore(
      */
     fun canDelist(username: String): Boolean {
         if (!query.publicOnly) return false
-        val key = username.lowerRoot()
-        return catalog.any { it.username.lowerRoot() == key && it.show == ShowState.publicShow }
+        val key = RoomKey.normalizeRef(username)
+        return catalog.any { it.identity == key && it.show == ShowState.publicShow }
     }
 
     /**
@@ -160,11 +161,11 @@ class FeedStore(
      * 返回是否真的筛掉。
      */
     fun delist(username: String, state: ShowState, protecting: Set<String> = emptySet()): Boolean {
-        val key = username.lowerRoot()
+        val key = RoomKey.normalizeRef(username)
         if (!canDelist(username) || state == ShowState.publicShow || state == ShowState.away) return false
-        if (currentUsername?.lowerRoot() == key) return false
-        if (protecting.any { it.lowerRoot() == key }) return false
-        val at = catalog.indexOfFirst { it.username.lowerRoot() == key }
+        if (currentUsername?.let(RoomKey::normalizeRef) == key) return false
+        if (protecting.any { RoomKey.normalizeRef(it) == key }) return false
+        val at = catalog.indexOfFirst { it.identity == key }
         if (at < 0) return false
         val next = catalog.toMutableList()
         next[at] = next[at].withShow(state)
@@ -173,19 +174,20 @@ class FeedStore(
     }
 
     fun focus(username: String): Boolean {
-        if (rooms.none { it.username.lowerRoot() == username.lowerRoot() }) return false
+        val key = RoomKey.normalizeRef(username)
+        if (rooms.none { it.identity == key }) return false
         select(username)
         return true
     }
 
     fun insertDirect(room: Room) {
-        val stripped = catalog.filter { it.username.lowerRoot() != room.username.lowerRoot() }
-        val at = currentUsername?.let { name -> stripped.indexOfFirst { it.username == name } } ?: -1
+        val stripped = catalog.filter { it.identity != room.identity }
+        val at = currentUsername?.let { name -> stripped.indexOfFirst { it.ref == name } } ?: -1
         val insertIndex = if (at >= 0) at + 1 else 0
         val next = stripped.toMutableList()
         next.add(insertIndex.coerceAtMost(next.size), room)
         updateCatalog(next)
-        updateCurrent(room.username)
+        updateCurrent(room.ref)
     }
 
     /** 把指定房间挪到当前房间之后紧接着的位置。只动当前之后的房间。 */
@@ -196,25 +198,25 @@ class FeedStore(
     /** 锚点及之前不动；锚点不在目录里则什么都不做。 */
     fun promoteAfter(anchor: String?, usernames: List<String>) {
         if (anchor == null) return
-        val at = catalog.indexOfFirst { it.username == anchor }
+        val at = catalog.indexOfFirst { it.ref == anchor }
         if (at < 0) return
         val tail = catalog.subList(at + 1, catalog.size)
         val taken = HashSet<String>()
         val moved = ArrayList<Room>()
-        for (name in usernames.map { it.lowerRoot() }) {
+        for (name in usernames.map(RoomKey::normalizeRef)) {
             if (name in taken) continue
-            val room = tail.firstOrNull { it.username.lowerRoot() == name } ?: continue
+            val room = tail.firstOrNull { it.identity == name } ?: continue
             taken.add(name)
             moved.add(room)
         }
         if (moved.isEmpty()) return
-        val rest = tail.filter { it.username.lowerRoot() !in taken }
+        val rest = tail.filter { it.identity !in taken }
         updateCatalog(catalog.subList(0, at + 1).toList() + moved + rest)
     }
 
     /** 对当前房间之后的部分整体重排；当前及之前的位置不动。没有当前房间时重排整个目录。 */
     fun reorderAfterCurrent(order: (List<Room>) -> List<Room>) {
-        val found = currentUsername?.let { name -> catalog.indexOfFirst { it.username == name } }
+        val found = currentUsername?.let { name -> catalog.indexOfFirst { it.ref == name } }
         val start = if (found != null && found >= 0) found + 1 else 0
         if (start >= catalog.size) return
         val head = catalog.subList(0, start).toList()
@@ -235,8 +237,8 @@ class FeedStore(
         refreshVisible()
         val list = rooms
         val name = currentUsername
-        if (name != null && list.any { it.username == name }) return
-        updateCurrent(list.firstOrNull()?.username)
+        if (name != null && list.any { it.ref == name }) return
+        updateCurrent(list.firstOrNull()?.ref)
     }
 
     /** 若当前房间被屏蔽，立刻换到它之后的下一个（没有则取之前的一个）。 */
@@ -257,13 +259,13 @@ class FeedStore(
         val list = rooms
         val name = currentUsername
         if (name != null) {
-            val at = list.indexOfFirst { it.username == name }
+            val at = list.indexOfFirst { it.ref == name }
             if (at >= 0 && !next.matches(list[at])) {
                 query = next
                 refreshVisible()
                 val forward = list.drop(at + 1).firstOrNull { next.matches(it) }
                 val backward = list.take(at).lastOrNull { next.matches(it) }
-                updateCurrent((forward ?: backward)?.username)
+                updateCurrent((forward ?: backward)?.ref)
                 return
             }
         }
@@ -282,8 +284,8 @@ class FeedStore(
                 refreshVisible()
             }
         }
-        if (!focus(room.username)) insertDirect(room)
-        return current?.username?.lowerRoot() == room.username.lowerRoot()
+        if (!focus(room.ref)) insertDirect(room)
+        return current?.identity == room.identity
     }
 
     fun shouldLoadMore(threshold: Int = 8, blankPages: Int = 0): Boolean =
@@ -298,7 +300,7 @@ class FeedStore(
         if (reachedEnd) return false
         if (list.isEmpty()) return blankPages < maxBlankPages
         val position = if (username != null) {
-            val found = list.indexOfFirst { it.username == username }
+            val found = list.indexOfFirst { it.ref == username }
             if (found >= 0) found else 0
         } else {
             0
@@ -312,7 +314,7 @@ class FeedStore(
         val start = index + 1
         if (start >= list.size) return emptyList()
         val end = minOf(list.size, start + ahead)
-        return list.subList(start, end).map { it.username }
+        return list.subList(start, end).map { it.ref }
     }
 
     /** 拷贝相等字段与可见列表。目录里的同页重复会保留，不重新去重。 */
@@ -371,7 +373,7 @@ class FeedStore(
         visible = if (keep == null) {
             catalog.filter { query.matches(it) }
         } else {
-            catalog.filter { query.matches(it) || it.username == keep }
+            catalog.filter { query.matches(it) || it.ref == keep }
         }
     }
 
