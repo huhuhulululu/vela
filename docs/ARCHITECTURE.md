@@ -354,6 +354,19 @@ App 引用 Core，Core 不引用 App。`PlayerController` 与 `StageModel` 的�
 - **画质**（ADR-006、ADR-008）：最终上限 = min(尺寸上限, 热上限)。1、2 路尺寸上限不限（两路都用最高档）；3 路按每格画面实际显示的像素高度选档（还没出画面按格子里 16:9 画面估算，iPhone 17 Pro 三格约 226 点 × 3 = 678 像素，对应 1.696M 档）。热状态 `.serious` 降一档、`.critical` 降两档，以尺寸上限为基准，最低 896k；回到 `.fair` 以下满 60 秒回升到尺寸上限。路数变化、旋转、画中画进出、格子与画面尺寸变化、解析期间上限变化、热状态变化时只对上限真变了的在播路原地换档。日志：`lane-start lane= cap=`（-1 为不封顶）、`thermal limit|recover`、`thermal-cap lane= cap=`、`thermal-retier`。
 - **失败分类**（H3）：播放失败经 `classifyFailure` 交 `PlaybackFailureClassifier`；焦点路受保护，只有非焦点路命中白名单码（`decoderTemporarilyUnavailable`）才 `degrade`（释放、显示「资源不足」、`degradedHold` 扣住，不计房间失败与重试预算）；焦点路缺解码器时按 T → S 让出一路非焦点路，自己照常按房间重试。恢复入口：用户重试、切房、回前台、焦点切到该路、减少路数（各重试一次），以及 60、120、240 秒的有限次自动重试（资源持续不足时停在降级，不无限循环）。损坏码流（`decodeFailed`、`decoderNotFound` 等）一律是房间失败，走原来的重试与跳过。
 
+### 5.11 跨设备同步（设计稿 `docs/plans/sync.md` v5；S1 核心 + S2 Apple 加密与接线）
+
+- 分层：`Sources/VelaCore/Sync/**`（S1，无加密：严格 JSON、HLC、合并与裁剪、投影、操作映射、迁移盖章、协调器状态机、启动检查与投影落盘屏障，加密与传输经协议注入）→ `Shared/Sync/**`（S2，SwiftPM 目标 `VelaSync`，只用 CryptoKit、Compression、Security、Foundation：HKDF 派生、P-256 私钥计数器重试与 X9.63 公钥、ECDSA `r‖s` 签名与验签、AES-256-GCM 信封、DEFLATE 载荷、钥匙串、URLSession 传输、`SyncService` 编排、`SyncScheduler` 触发与退避、`SyncStatusText` 文案）→ `Shared/Stage/StageModel+Sync.swift`（`SyncHub`，界面状态与接线）与 `SyncPanel.swift`（界面）。Xcode 里三层都编进同一个 App 模块；SwiftPM 下 `VelaSync` 依赖 `VelaCore`，非 Apple 平台整文件编译为空。
+- 开启期间同步文档是唯一事实来源：收藏、屏蔽、导入、「不想看」、`publicOnly` 与 `infoAlwaysOn` 的用户操作先经 `SyncHub.perform` 写寄存器，再由 `SyncProjection` 得到本机 `Curation` 与 `Taste` 的 `vetoed`；合并后与启动时由文档重建投影（同值不提交）。被拒绝的操作（同步数据已满、「不想看」额度 450 加本机专用 50）不改本机视图并提示。
+- 线程：协调器周期在协作线程池里跑，主线程的本地操作与它用 `SyncService` 的 gate（信号量）互斥，周期只在等网络时让出；屏障可能在后台线程执行，碰模型的部分经 `SyncModelSink` 回主线程。
+- 联网时机（第 11.3 节）：启动、iOS 回前台（`willEnterForeground`）、macOS 激活（距上次联系服务端超过 60 秒）、打开收藏或口味面板与同步设置页（同 60 秒门槛）、本地操作去抖 5 秒且两次 PUT 至少间隔 10 秒、iOS 进后台（`beginBackgroundTask`）与 macOS 退出（最多等 3 秒）在有未推送改动时、「立即同步」。没有任何常驻定时器、轮询或常驻连接；未开启时不发请求。失败 30 秒起翻倍到 1 小时，429 按 `Retry-After`，507 一小时。
+- 加入（`Shared/Sync/SyncJoin.swift`）是一次性事务：`prepareJoin` 只 GET 并在内存里算好合并结果与预览；`commitJoin` 先上提交锁（`isCommittingJoin`，期间 `rejectWhileJoining` 拒绝一切本机收藏、屏蔽、口味与同步设置写操作，舞台置灰，`SyncCommitGuard`），上锁后才取本机数据，PUT 成功（409 先查水位）后按待写数据落盘（`SyncJoinSink.persistPending`：保存队列 flush 后把内存值直接写盘并确认）→ 文件快照（`FileJoinJournal`，同目录 `sync-join-snapshot/`，先在 `sync-join-snapshot.tmp-*` 里完整构建、写完整性标记 `complete` 后整目录 rename 发布，0600，原子 rename 换回）→ 钥匙串 → 投影屏障 → 同步状态（「已开启」，最后写）→ 写已提交标记 `committed` → 删快照的顺序写本机；任一步失败或被取消就换回快照、删状态与条目、按文件重读内存（`reloadAfterRollback`，在提交锁内），回滚失败进入「需要修复」。快照状态 `SyncJoinJournalStatus`：`pending` 可换回，`committed` 与 `incomplete`（无完整性标记）只删不换回。启动时：`committed` / `incomplete` 只删；`pending` 有同步状态只删，否则换回。待修复期间（`joinRepairPending`：有 `pending` 快照、同步未开启）本机偏好写入（含停留记账改口味）一律被拒；需要修复页的「关闭同步」即重试恢复（`SyncHub.retryJoinRepair`）；关闭、清除、新建之前先处理残留快照（`settleJoinSnapshot`），处理不了就不继续。加入成功时提交锁保持到 `SyncHub.confirmJoin` 在主线程完成激活后才释放（`holdLockAfterJoin` / `releaseJoinCommit`）。回滚后的设置重读只同步内存、不写设置。离开加入页、退出、挂起都作废票据；检查阶段（等 GET）的取消经检查代次丢弃迟到结果；提交返回「回确认页」时，重算期间已取消就按取消处理，界面安装新票据前再核对代次与取消标志。
+- 状态损坏持久化（`SyncBackupExcludedStore`）：状态文件存在时，读之前先写 `sync-state.json.corrupt` 标记（先于底层的隔离改名落盘），读成功再删；标记写不成就不改名、只读解码（完好的照常读出，读不出才报损坏，坏文件留在原处）。标记在、状态文件不在即损坏：每次读都报损坏、保存一律拒绝，钥匙串里的 `K` 不会被当成孤儿删除，直到用户「关闭同步」。状态损坏时的关闭先删状态与标记、最后删 `K`（`K` 删不掉则下次启动按孤儿条目清理）。
+- 实验开关：`SettingsStore.experimentSync`（默认关）；关着时 `SyncHub` 不接线（不读钥匙串、不联网、不注册生命周期观察），设置里只显示「实验：跨设备同步」开关（macOS 设置窗口、iOS 口味面板底部）。同步已开启、磁盘上还有同步状态（含钥匙串暂时不可用而暂停，`SyncService.hasStoredState`）、启动恢复或开启 / 加入流程未结束、上次加入待修复时拒绝关闭开关并说明原因；启动任务排上即进入「启动中」（开关拒绝关闭），调用服务前再查摘线与取消，摘线时取消，各流程等待之后发现已摘线就不更新界面、不激活（服务里已挂上的协调器经 `SyncService.suspend` 摘掉，磁盘不动）。
+- 入口：macOS「设置…」窗口（`Settings` 场景，⌘,）；iOS 口味面板底部默认收起的「跨设备同步」。完整同步码只在「保存你的同步码」、需设备密码或生物识别的「查看同步码」与「加入」输入框出现，其余只显示短指纹；复制时 iOS 限本机且 120 秒过期，macOS 加 `org.nspasteboard.ConcealedType`。
+- 服务器地址：`Config/Sync.xcconfig`（入库，项目级基础配置）声明空的 `VELA_SYNC_BASE` 并 `#include?` 不入库的 `Config/Local.xcconfig`（模板 `Config/Local.xcconfig.template`）；两端 Info.plist 的 `VelaSyncBase` 取它。未配置时隐藏「开启」，仍可「加入」（同步码自带 origin）。
+- 服务端接口（`server/sync/app.py`，第 10.1 节）：`GET /v2/blob/{id}`、`PUT /v2/blob/{id}`、`POST /v2/blob/{id}/delete`，请求地址 = 同步码里的 origin；客户端不跟随重定向、不带 cookie、不用 URL 缓存，UA `Vela-Sync/2`，单请求超时 20 秒。
+
 ## 6. 本地存储
 
 目录 `~/Library/Application Support/Vela/`（`PreferenceStore.defaultURL`；取不到时退回临时目录）。
@@ -367,7 +380,8 @@ App 引用 Core，Core 不引用 App。`PlayerController` 与 `StageModel` 的�
 | `diagnostics.json`（仅 iOS） | MetricKit 每日诊断摘要与截断后的原始 JSON（`DiagnosticDigest`） | 最近 7 天，每份原始 JSON 最多 256 KB；目录已排除 iCloud 备份；不联网、不上传，只在用户点「分享」时经系统分享表由用户决定发送 |
 
 - 写入：`DeferredSaver` 合并为后台串行队列上的一次写，默认延迟 2 秒，原子写入（`.atomic`）；读写失败不抛出，读退回空值，写失败只记日志。退出时 `flushForTermination`（监听 `willTerminateNotification`）同步结算最后一个房间并落盘。
-- 不再使用钥匙串。旧版本遗留的钥匙串条目（service `com.vela.stage`，account `session` 与 `username`）与网页 sessionid cookie 在首次启动时清掉一次（`LegacyLoginCleanup`，标记键 `legacyLoginCleared`）。
+- 同步（开启时）：`sync-state.json`（与 `feed-curation.json` 同目录，`SyncStateFileStore` 原子写，每次保存后设 `isExcludedFromBackup`）存阶段、文档、HLC、水位、在途请求，不含 `K`（加入是一次性事务，不落中间状态）；钥匙串通用密码项 service `com.vela.sync`、account `space`，值为 `{K, dev, blobID}`，`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`、不可同步、不设访问组，macOS 用数据保护钥匙串（缺授权的构建视为不支持同步，不退化成明文）。授权：`App/Vela.entitlements`、`iOS/VelaPhone.entitlements` 只含 `keychain-access-groups = $(AppIdentifierPrefix)com.vela.sync`（与 `SyncKeychainStore.accessGroupSuffix` 一致，有测试），只有 `Config/Local.xcconfig` 设了 `VELA_TEAM_SIGNED = YES` 与 `DEVELOPMENT_TEAM` 时才经 `CODE_SIGN_ENTITLEMENTS` 带上并改为自动签名（macOS 需要 Xcode 账号或描述文件）；否则 macOS 仍是临时签名、不带授权。
+- 除同步外不使用钥匙串。旧版本遗留的钥匙串条目（service `com.vela.stage`，account `session` 与 `username`）与网页 sessionid cookie 在首次启动时清掉一次（`LegacyLoginCleanup`，标记键 `legacyLoginCleared`）。
 - UserDefaults（suite `com.vela.stage`）：`ageConfirmed`、`pinned`、`conditionalOpacity`、`clickThrough`、`restingOpacity`（默认 0.42）、`engagedOpacity`、`restSavesPower`、`publicOnly`、`fitFill`、`volume`（默认 0.85）、`muted`、`hintSeen`、`layoutRevision`、`gender`、`region`、`tag`、`source`（旧值 `following` 读取时忽略，退回猜你喜欢；旧值 `recommended` 映射为猜你喜欢）、`legacyLoginCleared`。旧版遗留的 `hdOnly`、`campaign` 不再读取，留在文件里无副作用。
 - WKWebView 站点数据存在系统默认数据存储里（确认访问留下的 cookie 在其中）。
 - 全站热门标签只在内存里：`HotTagCache` 缓存 6 小时。
@@ -377,6 +391,7 @@ App 引用 Core，Core 不引用 App。`PlayerController` 与 `StageModel` 的�
 
 - 中继只绑 `127.0.0.1`（常量 `RelayHost.name`，`requiredLocalEndpoint`，端口由系统分配），不监听其他网卡；路径里的 id 是每次起播新生成的 UUID。
 - 不保存任何账号凭据：没有登录，`URLSessionHTTPClient` 与中继的会话配置都关闭 cookie 存取。收藏夹导出文件只含用户名。
+- 同步（第 9、15 节）：服务端只见密文、签名与公钥；`K` 只在钥匙串与内存里，不进备份；同步码只在三个专用界面显示，日志与界面其他地方只出现短指纹；签名只用 CryptoKit 的随机 `k`，不自写签名实现。
 - 日志（`os.Logger`）只记事件名、状态码、错误域与码、码率等；不记地址、cookie、令牌。系统错误原文（`localizedDescription`）只以 private 进日志，不进界面，界面用 `PlaybackErrorCopy` 的中文文案。
 - 侧车 WKWebView：只在站点质询时代发流地址请求，离屏（y = -4200）挂在主窗口里保持真实布局尺寸；弹出确认页时 `suspend`，关闭后 `resumeIfNeeded`；闲置 600 秒销毁，下次用到重建；页面加载超时 18 秒。播放本身不经过 WebKit。
 - 用户名（直达房间、手动添加收藏、导入收藏）限 2 到 30 位，只允许字母、数字、下划线（`Room.isValidUsername`）；导入文件超过 1,000,000 字节拒绝。
@@ -397,6 +412,8 @@ App 引用 Core，Core 不引用 App。`PlayerController` 与 `StageModel` 的�
 - 老板键 ⌃⌥⌘V：隐藏应用并停止解码，再按恢复；用 Carbon 热键，不需要辅助功能权限；若在 Dock 或 ⌘Tab 再次显示，隐藏状态作废（手动暂停仍保持）。注册失败只记日志。
 
 ## 9. 构建与测试
+
+- 包体积（「越轻越好」，实跑门 `app_size_mb` ≤ 基线 + 0.3 MB）：macOS 目标 `Vela` 的 Release 与 Perf 配置用 `SWIFT_OPTIMIZATION_LEVEL = -Osize`，并以 `-Xlinker -exported_symbol -Xlinker _main` 只导出入口，使 `Sources/VelaCore` 里未被 App 用到的 `public` 代码能被死代码剥离；iOS 目标未改（`VelaPhoneTests` 以宿主 App 为 `BUNDLE_LOADER`，需要导出符号）。
 
 - 逻辑测试（仓库根目录）：`swift test`（`Tests/VelaCoreTests/` 测 `VelaCore`；`Tests/VelaRelayTests/` 测 `VelaRelay`：真实回环端口 + `URLProtocol` 假上游，覆盖多源并发、按源作废、受控 403 只续该源、按源停音频刷新、`stopListener` 后旧地址失效、重启时旧回调清不掉新端口、`allowStart` 关闭不起监听）。
 - 构建应用（与 CI 一致）：

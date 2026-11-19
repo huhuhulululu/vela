@@ -18,6 +18,7 @@ struct TasteView: View {
             setPaused: { model.setLearningPaused($0) },
             resetProfile: { model.resetTasteProfile() },
             clearAll: { model.clearAllPreferences() },
+            syncOn: model.sync.isOn,
             width: width
         )
         .task {
@@ -25,5 +26,6 @@ struct TasteView: View {
             guard model.tasteSummary.tagCount < Taste.coldStartTags else { return }
             await model.loadHotTagsIfStale()
         }
+        .syncCommitGuard(model.sync)
     }
 }

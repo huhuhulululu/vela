@@ -44,6 +44,8 @@ struct CurationPanel: View {
             await model.refreshFavoritesIfStale()
             await model.refreshLastBroadcastsIfStale()
         }
+        // 加入同步提交中：收藏面板置灰（模型层同样拒绝写入）。
+        .syncCommitGuard(model.sync)
     }
 
     private var board: FavoritesBoard {

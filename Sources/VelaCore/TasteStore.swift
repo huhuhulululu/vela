@@ -8,6 +8,7 @@ public final class TasteStore: @unchecked Sendable {
     public let legacyURL: URL?
     private let lock = NSLock()
     private var readOnly = false
+    private var firstOutcome: PreferenceLoadOutcome?
     /// 坏文件改名用的操作（测试注入失败用）。
     var moveItem: PreferenceQuarantine.Mover = PreferenceQuarantine.fileMover
 
@@ -20,11 +21,19 @@ public final class TasteStore: @unchecked Sendable {
         PreferenceStore.defaultURL().deletingLastPathComponent().appendingPathComponent("feed-taste.json")
     }
 
+    /// 第一次 `load` 的结果，之后一直保留（docs/plans/sync.md 第 14.1 节）；尚未读取时为 nil。
+    public var lastLoadOutcome: PreferenceLoadOutcome? {
+        lock.lock()
+        defer { lock.unlock() }
+        return firstOutcome
+    }
+
     public func load(now: Date = Date()) -> Taste {
         lock.lock()
         defer { lock.unlock() }
         let result = PreferenceQuarantine.read(Taste.self, from: url, limit: Preferences.maxFileBytes, now: now, move: moveItem)
         readOnly = false
+        if firstOutcome == nil { firstOutcome = result.outcome }
         switch result {
         case .loaded(let decoded): return decoded.capped(now: now)
         case .quarantined: return Taste()

@@ -20,6 +20,9 @@ enum PerfEntry {
     static let openDiagnostics = CommandLine.arguments.contains("--perf-open-diagnostics")
     /// `--perf-pip-start <秒>`：启动后这么多秒在前台手动调一次画中画（等于点了控制栏的画中画按钮），日志里看 `pip started` 或失败码。
     static let pipStartArgument = "--perf-pip-start"
+    /// `--perf-open-sync`：启动 3 秒后打开口味面板并展开「跨设备同步」（模拟器上验打开同步入口不崩）。
+    static let openSyncArgument = "--perf-open-sync"
+    static let openSync = CommandLine.arguments.contains(openSyncArgument)
     /// `--perf-empty-primary <秒>`：启动后这么多秒把焦点交给第三路并屏蔽主路的房间（三个测试房间时主路合法地变空），
     /// 再过 3 秒把副路向前划一下。用来实跑 PR #8 审计的「空主路被冒充」场景，日志看 `lane-rooms distinct=`。
     static let emptyPrimaryArgument = "--perf-empty-primary"
@@ -32,6 +35,12 @@ enum PerfEntry {
     static func applyLaunchArguments(
         to stage: StageModel, arguments: [String] = ProcessInfo.processInfo.arguments
     ) -> Bool {
+        if arguments.contains(openSyncArgument) {
+            Task { @MainActor [weak stage] in
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                stage?.showTaste = true
+            }
+        }
         guard arguments.contains(autoplayArgument) else { return false }
         stage.ageConfirmed = true
         stage.muted = true
@@ -97,6 +106,7 @@ enum PerfEntry {
 enum PerfEntry {
     static let noPipSolo = false
     static let pipOnAllLanes = false
+    static let openSync = false
     static let openDiagnostics = false
     /// Release 与 Debug：没有入口，恒为假。
     @MainActor @discardableResult
