@@ -12,6 +12,19 @@ public enum StreamFailure: Equatable, Sendable {
     case hidden
     case password
     case unavailable
+
+    /// 解析实测为这类状态时，列表里的该房间应按此状态筛掉（「仅公开」下不再出现）。
+    /// 暂时离开、地区受限、普通不可用不筛：前者会回来，后两者不是房间自身状态。
+    public var delistedShow: ShowState? {
+        switch self {
+        case .privateShow: return .privateShow
+        case .group: return .group
+        case .hidden: return .hidden
+        case .password: return .password
+        case .offline: return .offline
+        case .geo, .away, .unavailable: return nil
+        }
+    }
 }
 
 public struct StreamTicket: Equatable, Sendable {
