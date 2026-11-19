@@ -477,3 +477,29 @@ T18、T18b、T19 的实跑（2026-11-18，分支 `feat/ios-pr3`）。全程静�
 | 3 | 1.90% | 35.9 MB | 1.81 秒 | 0 | PASS |
 | 三轮中位数 | 1.90% | 35.9 MB | 1.81 秒 | 0 | 全部满足 |
 | idle | 0.0% | 30.6 MB | | 0 | PASS |
+
+
+## macOS 体积门与 Release -Osize（2026-11-19，站点抽象 `sites/core`）
+
+站点抽象（Phase A `b2daf71`）与接线（Phase B `60934ec`）让 macOS 的 PERF_PROBE Release 超出体积门：探针 `app_size_mb` 按 `du -sk` / 1024 保留一位小数，要求不超过 3.7 + 0.3，即 `.app` 不超过 4147 KB。
+
+| 构建（PERF_PROBE Release，arm64） | `.app` | 可执行文件 | 探针读数 |
+|---|---|---|---|
+| main `72d2350` | 3948 KB | 2,352,064 B | 3.9 |
+| Phase A `b2daf71` | 4148 KB | 2,558,880 B | 4.1（超门） |
+| Phase B `60934ec`，-O | 4184 KB | 2,593,616 B | 4.1（超门） |
+| Phase B + macOS Release -Osize（现行） | 3944 KB | 2,350,784 B | 3.9 |
+
+先试过的不改全局设置的办法（每项量一次可执行文件字节数，都在 `60934ec` 之上）：冷路径函数 `@_optimize(size)`（Cam4 目录与适配器、混合目录合并、站点迁移、站点接线、上次开播、热门标签共 90 个函数）省 16,112 B，`.app` 到 4168 KB，仍超门；Cam4 目录改 JSONSerialization 手动取值再省 176 B；国家码表改紧凑字符串反而增大 16,528 B；`normalizeRef` 与选档函数禁止内联 0 B。构建设置 `DEAD_CODE_STRIPPING`、`STRIP_INSTALLED_PRODUCT`、`DEPLOYMENT_POSTPROCESSING` 在 Release 已开；资源目录只有图标（`Assets.car` 里为 lzfse 压缩的像素，约 1.55 MB，与 main 相同，没有多余资源）。关闭反射元数据未采用：`LifecycleWiring` 的日志用 `String(describing:)` 打印枚举名，实跑分析依赖这些日志。链接映射显示增长主要在 Cam4 目录解析、Cam4 适配器、混合目录合并、`LaneSelection`（键归一化）与站点接线，没有单个大块可去。
+
+G-mac 两组（`ssh localhost` 回环，`perf-probe.sh --build --fixed-stream --duration 60` 各 3 轮，idle 60 秒 1 轮，静音）：
+
+| 组 | cpu_avg 各轮 | cpu 中位数 | footprint 中位数 | RSS 中位数 | 起播各轮 | 起播中位数 | vtdecoder 中位数 | 体积读数 | idle |
+|---|---|---|---|---|---|---|---|---|---|
+| A：`60934ec`，-O | 1.93 / 1.95 / 1.71 | 1.93% | 35.6 MB | 70.1 MB | 7.15 / 4.72 / 1.79 秒 | 4.72 秒 | 1.21% | 4.1（FAIL） | cpu 0.0%、wakeups 0、流量 0 |
+| B：同代码 + -Osize | 1.56 / 1.73 / 1.70 | 1.70% | 35.9 MB | 83.1 MB | 1.72 / 2.01 / 1.83 秒 | 1.83 秒 | 1.17% | 3.9 | 同上 |
+| 现行（-Osize，复测） | 1.65 / 1.50 / 1.92 | 1.65% | 36.2 MB | 87.1 MB | 3.90 / 1.72 / 1.79 秒 | 1.79 秒 | 1.03% | 3.9 | 同上 |
+
+- B 的 CPU 中位数比 A 低约 12%（复测低约 15%），满足「不劣于 A 超过 5%」；三轮逐轮过门（复测第 1 轮是构建后冷启动，只有起播一项超限，与以往 G-mac 首轮相同，按三轮中位数判）。A 组前两轮起播偏慢（7.15、4.72 秒），原因未查明；B 组与复测都在 2 秒左右。
+- RSS 中位数 B 比 A 高约 13 MB，但 A 三轮本身在 62 到 83 MB 之间波动；门看的 footprint 两组相同（约 36 MB）。
+- iOS 不受影响：`VelaPhone` Release（`-sdk iphoneos`，不签名）仍是 -O，`.app` 3624 KB（读数 3.5），在门内；同代码 -Osize 为 3388 KB，暂不改。
