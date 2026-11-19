@@ -142,6 +142,7 @@ final class SyncHub: ObservableObject {
             set(\.phase, .off)
             joinStage = .preview(ticket)
         case .failed(let flow): set(\.phase, .attention(Self.flowText(flow)))
+        case .stopped(let text): set(\.phase, .attention(text))
         }
     }
 

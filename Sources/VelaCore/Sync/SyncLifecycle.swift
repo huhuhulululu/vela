@@ -214,6 +214,12 @@ public enum SyncLifecycle {
             next.migrated = true
             next.gen += 1
         }
+        // 加入预览时已验证过的 epoch、版本与信封哈希就是水位（第 11.2 节第 2 步），清掉 joinPlan 之前先落进状态。
+        if let plan = state.joinPlan {
+            next.epoch = plan.epoch
+            next.lastSeenVer = max(next.lastSeenVer, plan.ver)
+            next.lastSeenHash = plan.envelopeHash
+        }
         next.phase = .active
         next.joinPlan = nil
         return next

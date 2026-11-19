@@ -62,12 +62,15 @@ enum SyncStartResult: Equatable {
     /// 加入恢复时远端变了且计数不同：重新确认。
     case reconfirmJoin(SyncJoinTicket)
     case failed(SyncFlowResult)
+    /// 停止同步、需要用户「关闭再重开」或重新输入同步码的情况（第 11.4 节）；附界面文案。
+    case stopped(String)
 
     static func == (a: SyncStartResult, b: SyncStartResult) -> Bool {
         switch (a, b) {
         case (.notEnabled, .notEnabled), (.active, .active), (.unavailable, .unavailable), (.unsupported, .unsupported): return true
         case (.attention(let x), .attention(let y)): return x == y
         case (.failed(let x), .failed(let y)): return x == y
+        case (.stopped(let x), .stopped(let y)): return x == y
         case (.reconfirmJoin(let x), .reconfirmJoin(let y)): return x.remoteHash == y.remoteHash && x.preview == y.preview
         default: return false
         }
@@ -331,6 +334,11 @@ final class SyncService: @unchecked Sendable {
         let data = local()
         switch await fetchRemote(env.makeTransport(state.origin, keys), keys: keys, state: state, local: data, code: parsed) {
         case .success(let ticket):
+            // 先按已落盘的计划核对 epoch 与版本水位（第 11.4 节），再决定继续还是重新确认。
+            if ticket.remoteEpoch != plan.epoch { return .stopped(SyncStatusText.halt(.epochChanged)) }
+            if ticket.remoteVer < plan.ver || (ticket.remoteVer == plan.ver && ticket.remoteHash != plan.envelopeHash) {
+                return .stopped(SyncStatusText.halt(.rollback))
+            }
             switch SyncLifecycle.joinRecovery(plan: plan, remoteVer: ticket.remoteVer, remoteHash: ticket.remoteHash, recomputed: ticket.preview) {
             case .proceed:
                 _ = await finishJoin(state, keys: keys, remote: ticket.remote, local: data)

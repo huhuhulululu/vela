@@ -238,6 +238,16 @@ final class SyncLifecycleTests: XCTestCase {
         XCTAssertEqual(SyncLifecycle.completeJoin(replay, local: local, remote: remote, pt: 200).doc, joined.doc, "迁移标记防止重复盖章")
     }
 
+    /// 审计 high：加入完成时把已验证的 epoch、版本与信封哈希写进水位，之后 404、epoch 变化、回滚都能识别。
+    func testCompleteJoinKeepsVerifiedEpochAndWatermark() {
+        var s = state(.joining)
+        s.joinPlan = SyncJoinPlan(origin: s.origin, blobID: blob, epoch: "e1", ver: 7, envelopeHash: "h7", preview: SyncJoinPreview())
+        let joined = SyncLifecycle.completeJoin(s, local: SyncLocalData(), remote: SyncDocument(), pt: 100)
+        XCTAssertEqual(joined.epoch, "e1")
+        XCTAssertEqual(joined.lastSeenVer, 7)
+        XCTAssertEqual(joined.lastSeenHash, "h7")
+    }
+
     func testCompleteCreateStampsAll() {
         let local = SyncLocalData(curation: Curation(favorites: ["alice", "x"]), vetoedKeys: ["g:m"])
         let (created, report) = SyncLifecycle.completeCreate(state(.creating), local: local, pt: 100)
