@@ -210,6 +210,9 @@ class StageViewModel(
     /** 进后台时关掉。回前台的 [vela.core.lifecycle.PhoneLifecycleAction.EpochResume] 再打开。 */
     internal var playbackGateOpen: Boolean = true
 
+    /** 只有前台 ACTIVE 才计停留。播放通知不能在 INACTIVE 把计时重新打开。 */
+    internal var sceneAttentive: Boolean = true
+
     /** 单窗恒为真。隐藏的路回前台保持已释放。 */
     internal var primaryVisible: Boolean = true
 

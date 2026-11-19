@@ -154,7 +154,8 @@ internal fun StageViewModel.recordSettlement(
 internal fun StageViewModel.updateDwellActive() {
     val name = feed.currentUsername
     val playing = laneFace.playingUsername
-    val active = !laneFace.manuallyPaused &&
+    val active = sceneAttentive &&
+        !laneFace.manuallyPaused &&
         laneFace.playback != LanePlayback.Failed &&
         name != null &&
         playing != null &&

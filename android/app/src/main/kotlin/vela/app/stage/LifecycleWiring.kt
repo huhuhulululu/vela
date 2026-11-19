@@ -406,6 +406,7 @@ internal fun StageViewModel.reopenDwell() {
 }
 
 internal fun StageViewModel.syncSceneAttentive(attentive: Boolean) {
+    sceneAttentive = attentive
     if (!attentive) {
         dwell.setActive(false, now())
     } else {
