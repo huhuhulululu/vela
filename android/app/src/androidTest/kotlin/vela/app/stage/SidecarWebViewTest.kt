@@ -1,6 +1,8 @@
 package vela.app.stage
 
 import android.view.ViewGroup
+import android.webkit.CookieManager
+import android.webkit.WebView
 import android.widget.FrameLayout
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -16,10 +18,13 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -59,6 +64,79 @@ class SidecarWebViewTest {
         page = null
         scenario?.close()
         site.close()
+    }
+
+    @Test(timeout = 40_000)
+    fun testMainFrameNavigationStaysOnSiteHost() = runBlocking {
+        val evil = LoopbackSite()
+        try {
+            site.html = "<!DOCTYPE html><html><head><script>location.replace('http://localhost:" +
+                evil.port + "/pwn');</script></head><body>stay</body></html>"
+            val host = attachHost()
+            val web = WebSidecarPage(host.context, site.origin, host)
+            page = web
+            withTimeout(20_000) { web.load("${site.origin}/") }
+            delay(1_000)
+            assertEquals("主框架不该离开站点 hits=${evil.hitDump()}", 0, evil.hitCount("/pwn"))
+            val view = host.getChildAt(0) as WebView
+            val current = withContext(Dispatchers.Main) { view.url.orEmpty() }
+            assertFalse("主框架跑到了 $current", current.contains("localhost:${evil.port}"))
+        } finally {
+            evil.close()
+        }
+    }
+
+    @Test(timeout = 40_000)
+    fun testForeignSubresourceBlockedAndThirdPartyCookiesOff() = runBlocking {
+        val evil = LoopbackSite()
+        try {
+            site.html = "<!DOCTYPE html><html><body><img src=\"http://localhost:" + evil.port + "/pixel.gif\"></body></html>"
+            val host = attachHost()
+            val web = WebSidecarPage(host.context, site.origin, host)
+            page = web
+            withTimeout(20_000) { web.load("${site.origin}/") }
+            delay(1_000)
+            assertEquals("第三方子资源不该发出去 hits=${evil.hitDump()}", 0, evil.hitCount("/pixel.gif"))
+            val view = host.getChildAt(0) as WebView
+            val third = withContext(Dispatchers.Main) {
+                CookieManager.getInstance().acceptThirdPartyCookies(view)
+            }
+            assertFalse("第三方 Cookie 被打开了", third)
+        } finally {
+            evil.close()
+        }
+    }
+
+    @Test(timeout = 60_000)
+    fun testResolveAgainAfterIdleTeardown() = runBlocking {
+        val host = attachHost()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        val web = WebSidecarPage(host.context, site.origin, host)
+        page = web
+        var idle: (() -> Unit)? = null
+        val sidecar = SiteSidecar(
+            page = web,
+            entryUrl = "${site.origin}/auth/login/?next=/",
+            scope = scope,
+            scheduleIdle = { _, block ->
+                idle = block
+                IdleHandle { }
+            },
+        )
+        try {
+            val first = withTimeout(25_000) { sidecar.resolve("ann") }
+            assertTrue(first.isPlayable)
+            val teardown = idle ?: error("空闲拆除没有排上")
+            teardown()
+            val again = try {
+                withTimeout(25_000) { sidecar.resolve("ann") }
+            } catch (error: Throwable) {
+                throw AssertionError("空闲拆掉视图后无法再解析 error=$error", error)
+            }
+            assertTrue(again.isPlayable)
+        } finally {
+            scope.cancel()
+        }
     }
 
     @Test(timeout = 90_000)
@@ -137,7 +215,8 @@ class SidecarWebViewTest {
 internal class LoopbackSite : AutoCloseable {
     private val server = ServerSocket(0)
     private val hits = ConcurrentHashMap<String, AtomicInteger>()
-    val origin: String = "http://127.0.0.1:${server.localPort}"
+    val port: Int = server.localPort
+    val origin: String = "http://127.0.0.1:$port"
     val lastSlug = java.util.concurrent.atomic.AtomicReference("")
 
     @Volatile

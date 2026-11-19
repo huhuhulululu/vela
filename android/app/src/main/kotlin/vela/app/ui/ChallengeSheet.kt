@@ -3,6 +3,8 @@ package vela.app.ui
 import android.annotation.SuppressLint
 import android.webkit.WebChromeClient
 import android.webkit.WebView
+import vela.app.infra.OriginWebViewClient
+import vela.app.infra.applyFirstPartyCookiesOnly
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -87,6 +89,8 @@ private fun ChallengeWeb(url: String, modifier: Modifier = Modifier) {
             factory = { context ->
                 WebView(context).apply {
                     settings.javaScriptEnabled = true
+                    applyFirstPartyCookiesOnly(this)
+                    webViewClient = OriginWebViewClient(siteRoot = url)
                     webChromeClient = object : WebChromeClient() {
                         override fun onProgressChanged(view: WebView?, newProgress: Int) {
                             progress = newProgress / 100f

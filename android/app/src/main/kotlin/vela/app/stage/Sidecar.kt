@@ -232,6 +232,7 @@ internal class SidecarDeliverHub {
     }
 
     fun deliver(token: String, payload: String): Boolean {
+        if (!sidecarPayloadOk(payload)) return false
         val gate = slots.remove(token) ?: return false
         gate.complete(payload)
         return true
@@ -294,6 +295,14 @@ internal fun sidecarScript(body: String, arguments: Map<String, String>): String
         })();
         """.trimIndent()
 }
+
+internal fun sidecarPayloadOk(raw: String?): Boolean =
+    try {
+        sidecarPayload(raw)
+        true
+    } catch (_: Exception) {
+        false
+    }
 
 internal fun sidecarPayload(raw: String?): Pair<Int, ByteArray> {
     if (raw.isNullOrBlank()) throw SidecarError.Script

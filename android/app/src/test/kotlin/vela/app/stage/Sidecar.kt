@@ -122,18 +122,30 @@ class SidecarResolveTest {
     }
 
     @Test
+    fun testDeliverRejectsMalformedPayload() = runBlocking {
+        val hub = SidecarDeliverHub()
+        val (token, gate) = hub.open()
+        assertFalse(hub.deliver(token, "not-json"))
+        assertFalse(gate.isCompleted)
+        assertFalse(hub.deliver(token, """{"status":200}"""))
+        assertFalse(gate.isCompleted)
+        assertTrue(hub.deliver(token, """{"status":200,"body":"ok"}"""))
+        assertEquals("""{"status":200,"body":"ok"}""", gate.await())
+    }
+
+    @Test
     fun testDeliverHubRoutesByRequestAndIgnoresUnknown() = runBlocking {
         val hub = SidecarDeliverHub()
         val (first, firstGate) = hub.open()
         val (second, secondGate) = hub.open()
         assertTrue(first != second)
-        assertTrue(hub.deliver(second, "bee"))
+        assertTrue(hub.deliver(second, """{"status":200,"body":"bee"}"""))
         assertFalse(firstGate.isCompleted)
-        assertEquals("bee", secondGate.await())
-        assertFalse(hub.deliver(second, "again"))
-        assertFalse(hub.deliver("0", "forged"))
-        assertTrue(hub.deliver(first, "ay"))
-        assertEquals("ay", firstGate.await())
+        assertEquals("""{"status":200,"body":"bee"}""", secondGate.await())
+        assertFalse(hub.deliver(second, """{"status":200,"body":"again"}"""))
+        assertFalse(hub.deliver("0", """{"status":200,"body":"forged"}"""))
+        assertTrue(hub.deliver(first, """{"status":200,"body":"ay"}"""))
+        assertEquals("""{"status":200,"body":"ay"}""", firstGate.await())
     }
 
     @Test
