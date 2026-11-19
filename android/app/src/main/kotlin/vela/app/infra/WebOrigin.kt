@@ -60,12 +60,14 @@ internal fun blockedWebResponse(): WebResourceResponse =
 
 /**
  * 子资源（含重定向后的地址）不在来源里就直接挡掉，不再发到网络上。
- * 主框架导航留给 [shouldOverrideUrlLoading] 那一层。
+ * 主框架 GET 仍由 [shouldOverrideUrlLoading] 取消；POST 不会走那一层，所以这里也校验主框架。
+ * 页面完成时再核对实际地址，外站不能当成加载成功。
  */
 internal open class OriginWebViewClient(
     private val siteRoot: String,
     private val onFinished: (String?) -> Unit = {},
     private val onMainFrameError: () -> Unit = {},
+    private val onOriginRejected: () -> Unit = {},
 ) : WebViewClient() {
     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
         if (!request.isForMainFrame) return false
@@ -79,14 +81,24 @@ internal open class OriginWebViewClient(
     }
 
     override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
-        if (request == null || request.isForMainFrame) return null
+        if (request == null) return blockedWebResponse()
         val url = request.url?.toString() ?: return blockedWebResponse()
-        if (!WebOriginPolicy.allows(url, siteRoot)) return blockedWebResponse()
+        if (!WebOriginPolicy.allows(url, siteRoot)) {
+            if (request.isForMainFrame) view?.post { view.stopLoading() }
+            return blockedWebResponse()
+        }
         return null
     }
 
     override fun onPageFinished(view: WebView?, url: String?) {
-        onFinished(url)
+        val current = view?.url ?: url
+        if (current.isNullOrBlank() || current.equals("about:blank", ignoreCase = true)) return
+        if (!WebOriginPolicy.allows(current, siteRoot)) {
+            onOriginRejected()
+            onMainFrameError()
+            return
+        }
+        onFinished(current)
     }
 
     override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {

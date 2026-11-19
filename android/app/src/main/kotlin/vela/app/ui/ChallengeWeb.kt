@@ -48,9 +48,13 @@ internal class ChallengeNavigationClient : WebViewClient() {
     }
 
     override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
-        if (request == null || request.isForMainFrame) return null
+        // POST 导航不会进 shouldOverrideUrlLoading，主框架也要在这里挡。
+        if (request == null) return blockedWebResponse()
         val url = request.url?.toString() ?: return blockedWebResponse()
-        if (!challengeNavigationAllowed(url)) return blockedWebResponse()
+        if (!challengeNavigationAllowed(url)) {
+            if (request.isForMainFrame) view?.post { view.stopLoading() }
+            return blockedWebResponse()
+        }
         return null
     }
 }

@@ -381,6 +381,8 @@ class WebSidecarPage(
             withContext(Dispatchers.Main) {
                 if (destroyed) throw SidecarError.Unavailable
                 val view = ensureWebView()
+                // 上一页被拒后桥会被摘掉。新的加载前重新挂上，页面才能回传。
+                view.addJavascriptInterface(SidecarJsBridge(hub), BRIDGE)
                 val gate = CompletableDeferred<Unit>()
                 loadGate = gate
                 view.loadUrl(url)
@@ -395,6 +397,7 @@ class WebSidecarPage(
     override suspend fun evaluate(script: String): String = try {
         withContext(Dispatchers.Main) {
             val view = webView ?: throw SidecarError.Unavailable
+            if (!sidecarMayRunScript(view.url, root)) throw SidecarError.Unavailable
             val (token, gate) = hub.open()
             try {
                 withTimeout(EVAL_TIMEOUT_MS) {
@@ -471,6 +474,12 @@ class WebSidecarPage(
                 val gate = loadGate ?: return@OriginWebViewClient
                 if (!gate.isCompleted) gate.completeExceptionally(SidecarError.Unavailable)
             },
+            onOriginRejected = {
+                val current = webView ?: return@OriginWebViewClient
+                if (!sidecarMayRunScript(current.url, root)) {
+                    current.removeJavascriptInterface(BRIDGE)
+                }
+            },
         )
         addOffscreen(view)
         webView = view
@@ -521,6 +530,13 @@ private fun kotlinx.serialization.json.JsonElement?.asText(): String? {
 
 /** 侧车入口。根地址来自覆盖后的站点；默认是生产根，只有显式加载才会发出请求。 */
 internal fun sidecarEntryForRoot(root: String): String = WebSidecarPage.entryUrl(root)
+
+/** 执行脚本前要确认当前页仍在入口来源里。空地址和 about:blank 不算。 */
+internal fun sidecarMayRunScript(url: String?, root: String): Boolean {
+    if (url.isNullOrBlank()) return false
+    if (url.equals("about:blank", ignoreCase = true)) return false
+    return vela.app.infra.WebOriginPolicy.allows(url, root)
+}
 
 internal fun looksLikeChallengeText(data: ByteArray): Boolean = looksLikeChallenge(data)
 
