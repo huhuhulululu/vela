@@ -56,7 +56,10 @@ struct SyncPanel: View {
         switch hub.phase {
         case .loading: return lines(["正在读取同步状态…"])
         case .unsupported: return lines(["这个版本的 App 不支持同步（缺少钥匙串授权）。"])
-        case .unavailable: return lines(["设备解锁后才能读取同步密钥，稍后再试。"])
+        case .unavailable:
+            return section(nil, ["暂时无法读取同步密钥或连不上服务器，回到前台时会自动再试。"], actions: [
+                Action(title: "重试", color: Theme.champagne) { hub.syncNow() },
+            ])
         case .attention(let text):
             if mode == .joining { return join }
             return section(nil, [text], color: Theme.live, actions: [

@@ -45,6 +45,15 @@ struct SyncScheduler: Equatable {
         }
     }
 
+    /// 启动恢复因钥匙串暂不可用或网络暂时故障没完成时，哪些离散触发要重新跑一次（不轮询）。
+    static func retriesStartup(unavailable: Bool, on trigger: Trigger) -> Bool {
+        guard unavailable else { return false }
+        switch trigger {
+        case .foreground, .activate, .panel, .manual, .launch: return true
+        case .localEdit: return false
+        }
+    }
+
     /// 进后台或退出：有未推送的改动才尽力推一次。
     func allowsBackground(gen: UInt64, pushedGen: UInt64, now: UInt64) -> Bool {
         gen > pushedGen && now >= hardUntil

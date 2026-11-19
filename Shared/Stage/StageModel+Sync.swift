@@ -122,8 +122,13 @@ final class SyncHub: ObservableObject {
         #endif
     }
 
+    /// 启动恢复在跑：防止离散触发重复启动。
+    private var starting = false
+
     private func start() async {
-        guard let model, let sink else { return }
+        guard let model, let sink, !starting else { return }
+        starting = true
+        defer { starting = false }
         let local = model.syncLocalData()
         let result = await service.start(local: { local }, sink: sink)
         apply(result)
@@ -176,6 +181,10 @@ final class SyncHub: ObservableObject {
     // MARK: 触发（第 11.3 节）
 
     func trigger(_ trigger: SyncScheduler.Trigger) {
+        if SyncScheduler.retriesStartup(unavailable: phase == .unavailable, on: trigger), !starting {
+            Task { await start() }
+            return
+        }
         guard isOn, service.isActive, scheduler.allows(trigger, now: nowMillis) else { return }
         guard cycleTask == nil else {
             rerun = true

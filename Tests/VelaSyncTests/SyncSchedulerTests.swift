@@ -58,4 +58,14 @@ final class SyncSchedulerTests: XCTestCase {
         XCTAssertFalse(s.allowsBackground(gen: 3, pushedGen: 3, now: 0))
         XCTAssertTrue(s.allowsBackground(gen: 4, pushedGen: 3, now: 0))
     }
+
+    /// 审计 medium：启动时钥匙串暂不可用或恢复加入时断网，之后回前台、激活、打开面板、点重试都要重新跑启动恢复。
+    func testUnavailableStartupIsRetriedOnDiscreteTriggers() {
+        for t: SyncScheduler.Trigger in [.foreground, .activate, .panel, .manual] {
+            XCTAssertTrue(SyncScheduler.retriesStartup(unavailable: true, on: t), "\(t)")
+        }
+        XCTAssertFalse(SyncScheduler.retriesStartup(unavailable: true, on: .localEdit))
+        XCTAssertFalse(SyncScheduler.retriesStartup(unavailable: false, on: .foreground))
+        XCTAssertFalse(SyncScheduler.retriesStartup(unavailable: false, on: .foreground))
+    }
 }
