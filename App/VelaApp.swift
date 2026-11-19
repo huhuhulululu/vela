@@ -10,7 +10,6 @@ struct VelaApp: App {
     var body: some Scene {
         WindowGroup {
             StageRoot(model: model)
-                .syncCommitGuard(model.sync)
                 .frame(minWidth: 640, minHeight: 360)
         }
         .windowStyle(.hiddenTitleBar)

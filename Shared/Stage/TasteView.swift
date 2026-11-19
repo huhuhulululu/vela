@@ -26,5 +26,6 @@ struct TasteView: View {
             guard model.tasteSummary.tagCount < Taste.coldStartTags else { return }
             await model.loadHotTagsIfStale()
         }
+        .syncCommitGuard(model.sync)
     }
 }
