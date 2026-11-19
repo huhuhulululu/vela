@@ -131,7 +131,8 @@ public struct FeedStore: Equatable, Sendable {
             currentUsername = nil
             return
         }
-        guard let match = rooms.first(where: { $0.identity == RoomKey.normalizeRef(username) }) else {
+        let key = RoomKey.normalizeRef(username)
+        guard let match = rooms.first(where: { $0.identity == key }) else {
             return
         }
         currentUsername = match.ref
@@ -157,7 +158,8 @@ public struct FeedStore: Equatable, Sendable {
 
     @discardableResult
     public mutating func focus(_ username: String) -> Bool {
-        guard rooms.contains(where: { $0.identity == RoomKey.normalizeRef(username) }) else {
+        let key = RoomKey.normalizeRef(username)
+        guard rooms.contains(where: { $0.identity == key }) else {
             return false
         }
         select(username)

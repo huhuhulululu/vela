@@ -64,7 +64,7 @@ struct PhoneRoomPage: View {
         Self.carriesPictureInPicture(lane: lane.id, focus: model.focusLane) ? model.platform.pipCoordinator : nil
     }
 
-    private var videoReady: Bool { active && playback.readyUsername == room.username }
+    private var videoReady: Bool { active && playback.readyUsername == room.ref }
 
     private var pauseMark: some View {
         Image(systemName: "pause.fill")

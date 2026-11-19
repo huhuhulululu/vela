@@ -65,7 +65,7 @@ public enum ShowState: Equatable, Sendable {
 public struct Room: Identifiable, Equatable, Sendable {
     /// 内存简写：`cb` 房间等于 `username`，其他站点是 `c4:<名>`。
     public var id: String { ref }
-    public var username: String
+    public var username: String { didSet { cacheKey() } }
     public var displayName: String
     public var subject: String
     public var viewers: Int
@@ -78,7 +78,7 @@ public struct Room: Identifiable, Equatable, Sendable {
     public var thumbnailURL: URL?
     public var age: Int?
     public var secondsOnline: Int?
-    public var site: SiteID
+    public var site: SiteID { didSet { cacheKey() } }
     /// 目录直接带来的播放主列表（Cam4 `hlsPreviewUrl`）。cb 为 nil。
     public var stream: URL?
     /// 缩略图过期时刻。cb 为 nil。
@@ -123,18 +123,26 @@ public struct Room: Identifiable, Equatable, Sendable {
         self.stream = stream
         self.thumbnailExpires = thumbnailExpires
         self.blockedRegions = blockedRegions
+        (key, identity) = Self.makeKey(site: site, username: username)
     }
 
     /// 名字不合法时也有值：内部不校验，保证非可选。`c4` 的用户名部分统一小写。
-    public var key: RoomKey {
-        if let key = RoomKey(site: site, name: username) { return key }
-        let name = site == .cam4 ? username.lowercased() : username
-        return RoomKey(unchecked: site, name: name)
-    }
+    /// 构造与改名时算一次存下：列表过滤、去重、选房每次比较都读它，不能每次重新校验用户名。
+    public private(set) var key: RoomKey
+    /// 小写 ref，集合与比较用。
+    public private(set) var identity: String
 
     public var ref: String { key.ref }
-    /// 小写 ref，集合与比较用。
-    public var identity: String { key.normalized }
+
+    private mutating func cacheKey() {
+        (key, identity) = Self.makeKey(site: site, username: username)
+    }
+
+    private static func makeKey(site: SiteID, username: String) -> (RoomKey, String) {
+        let key = RoomKey(site: site, name: username)
+            ?? RoomKey(unchecked: site, name: site == .cam4 ? username.lowercased() : username)
+        return (key, key.normalized)
+    }
 
     public static func displayableAge(_ age: Int?) -> Int? {
         guard let age, (18...80).contains(age) else { return nil }

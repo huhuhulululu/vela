@@ -25,7 +25,7 @@ struct LanePager<Page: View>: View {
                     page(room, slot.offset == 0)
                         .frame(width: geo.size.width, height: height)
                         .offset(y: CGFloat(slot.offset) * height + drag)
-                        .id(room.username)
+                        .id(room.ref)
                 }
             }
             .frame(width: geo.size.width, height: height)

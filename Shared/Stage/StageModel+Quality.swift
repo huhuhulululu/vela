@@ -51,7 +51,7 @@ extension StageModel {
         let target = lane.quality.desired(now: now)
         guard target != lane.quality.tier else { return }
         let cap = min(target == .low ? PowerPolicy.peakBitrate(pixelHeight: pixelHeight, resting: true) : .infinity, laneCap(for: lane))
-        let playable = await selectRendition(master: master, cap: cap)
+        let playable = await selectRendition(master: master, cap: cap, for: username)
         // 取档期间切房、暂停、隐藏或指针状态变了：放弃本次，按最新状态重新排。
         let after = Date()
         lane.quality.observe(enabled: restSavesPower, engaged: resolvedPresence().engaged, now: after)

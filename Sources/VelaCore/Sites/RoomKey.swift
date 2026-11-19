@@ -102,6 +102,8 @@ public struct RoomKey: Hashable, Codable, Sendable, CustomStringConvertible {
     /// 认不出的形式退回 trim + lowercased，与旧 `Curation.key` 相同。
     public static func normalizeRef(_ any: String) -> String {
         let trimmed = any.trimmingCharacters(in: .whitespacesAndNewlines)
+        // 没有冒号：合法的 cb 名与认不出的形式结果都是 trim + lowercased，不必解析（选房与列表比较的热路径）。
+        guard trimmed.contains(":") else { return trimmed.lowercased() }
         if let key = RoomKey(parsing: trimmed) ?? RoomKey(parsing: trimmed.lowercased()) {
             return key.normalized
         }

@@ -281,7 +281,7 @@ extension StageModel {
         // 此时 `feed.current` 会回落到首间，必须看这一路自己的游标。
         if lane.id == .primary, lanes.count == 1 { return feed.current }
         guard let name = lane.username?.lowercased() else { return nil }
-        return feed.rooms.first { $0.username.lowercased() == name }
+        return feed.rooms.first { $0.identity == name }
     }
 
     /// 这一路此刻的用户名。主路与原来一样取 `feed.currentUsername`。
@@ -292,13 +292,13 @@ extension StageModel {
     /// 点下去这一刻的目标（默认主路；macOS 恒为主路）。这一路没有房间时为 nil。
     func target(_ id: LaneID = .primary) -> RoomTarget? {
         guard let lane = findLane(id), let current = room(of: lane) else { return nil }
-        return RoomTarget(laneID: id, username: current.username, generation: lane.playGeneration)
+        return RoomTarget(laneID: id, username: current.ref, generation: lane.playGeneration)
     }
 
     /// 目标那一路仍停在点下去时的房间、仍是同一次播放，才返回这一路；对不上就放弃。
     func matchedLane(_ target: RoomTarget?) -> PlaybackLane? {
         guard let target, let lane = findLane(target.laneID), let current = room(of: lane),
-              target.matches(laneID: lane.id, username: current.username, generation: lane.playGeneration)
+              target.matches(laneID: lane.id, username: current.ref, generation: lane.playGeneration)
         else { return nil }
         return lane
     }
@@ -311,7 +311,7 @@ extension StageModel {
 
     func laneSnapshot(of store: FeedStore) -> LaneSelection.Snapshot {
         LaneSelection.Snapshot(
-            rooms: store.rooms.map(\.username),
+            rooms: store.rooms.map(\.ref),
             primary: LaneCursor(
                 username: primaryName(in: store), direction: primary.skips.direction, previous: primary.previousRoom
             ),
@@ -325,9 +325,9 @@ extension StageModel {
     /// 主路此刻真正停的房间。单窗与原来一样取 `feed.current`（macOS 行为不变）；多路时主路可以合法地为空，
     /// `current` 会回退到列表首间，不能拿来冒充，所以取可见列表里的 `currentUsername`，不可见或为空就是 nil。
     private func primaryName(in store: FeedStore) -> String? {
-        guard lanes.count > 1 else { return store.current?.username }
+        guard lanes.count > 1 else { return store.current?.ref }
         guard let name = store.currentUsername?.lowercased() else { return nil }
-        return store.rooms.first { $0.username.lowercased() == name }?.username
+        return store.rooms.first { $0.identity == name }?.ref
     }
 
     private func cursor(of lane: PlaybackLane) -> LaneCursor {

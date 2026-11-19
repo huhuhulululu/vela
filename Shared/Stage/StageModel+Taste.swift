@@ -4,7 +4,7 @@ import Foundation
 extension StageModel {
     /// 这个房间的推荐理由；只在列表确实来自「猜你喜欢」时有。
     func reason(for room: Room) -> String? {
-        loadedSource == .guess && siteSearch == nil ? reasons[room.username.lowercased()] : nil
+        loadedSource == .guess && siteSearch == nil ? reasons[room.identity] : nil
     }
 
     /// 排序的附加信号：当前候选的标签稀有度、观看账本里的主播亲和度，屏蔽的主播为 0。
@@ -56,7 +56,7 @@ extension StageModel {
     /// 「不想看」集合变了：只改列表的可见性过滤（房间仍留在目录里，恢复后再排回来），不从目录删房间。
     private func syncHiddenFilter(previous: Taste) {
         guard previous.vetoedKeys != taste.vetoedKeys, source == .guess, loadedSource == .guess else { return }
-        let before = feed.current?.username
+        let before = feed.current?.ref
         // 当前房间因被过滤而换走：不记正向停留信号。
         for lane in lanes {
             if let room = room(of: lane), taste.isVetoed(room) { lane.dwell.discard() }
@@ -65,7 +65,7 @@ extension StageModel {
         let only = allowedNames(for: curation)
         let hidden = taste.vetoedKeys
         updateFeed { $0.setFilters(blocked: blocked, only: only, hidden: hidden) }
-        if feed.current?.username != before { requestPlay() }
+        if feed.current?.ref != before { requestPlay() }
         Task { await loadMoreIfNeeded() }
     }
 
@@ -76,7 +76,7 @@ extension StageModel {
         let favorites = curation.favoriteSet
         let current = taste
         for room in feed.rooms.dropFirst(feed.index) {
-            reasons[room.username.lowercased()] = Recommender.reason(for: room, taste: current, favorites: favorites, now: now)
+            reasons[room.identity] = Recommender.reason(for: room, taste: current, favorites: favorites, now: now)
         }
     }
 
@@ -132,6 +132,10 @@ extension StageModel {
         watchLedger = watchLedger.cleared()
         watchLedgerSaver.flush()
         watchLedgerStore.erase()
+        // 迁移时留下的旧格式备份里也有口味与观看记录，一并删掉。
+        SiteKeyMigration.removeBackups(
+            curation: CurationStore.defaultURL(), taste: tasteStore.url, ledger: watchLedgerStore.url
+        )
         favoriteSuggest = nil
         favoriteSuggestTask?.cancel()
         favoriteSuggestWakeTask?.cancel()

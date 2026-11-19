@@ -9,8 +9,8 @@ struct SwapBackdrop: View {
 
     /// 当前房间的缩略图：先用同房间的下载结果，其次用缓存；都没有时为 nil（显示柔和渐变，不显示上一间的图）。
     private var image: CGImage? {
-        if let loaded, loaded.username == room.username { return loaded.image }
-        return RoomThumbnailCache.shared.image(for: room.thumbnailURL)
+        if let loaded, loaded.username == room.ref { return loaded.image }
+        return RoomThumbnailCache.shared.image(for: room.usableThumbnail())
     }
 
     var body: some View {
@@ -18,10 +18,10 @@ struct SwapBackdrop: View {
             .overlay { backdropLayer }
             .overlay { Theme.backdropScrim }
             .clipped()
-            .task(id: room.username) {
-                let name = room.username
+            .task(id: room.ref) {
+                let name = room.ref
                 if loaded?.username != name { loaded = nil }
-                guard let fetched = await RoomThumbnailCache.shared.imageOrFetch(for: room.thumbnailURL),
+                guard let fetched = await RoomThumbnailCache.shared.imageOrFetch(for: room.usableThumbnail()),
                       !Task.isCancelled else { return }
                 loaded = (name, fetched)
             }

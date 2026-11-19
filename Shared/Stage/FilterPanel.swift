@@ -8,10 +8,11 @@ struct FilterPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
+            ChoiceBar(options: siteOptions, selected: model.siteMode, choose: { model.chooseSite($0) })
             TextField("房间名或关键词，回车搜索全站", text: $model.searchText)
                 .textFieldStyle(.roundedBorder)
                 .onSubmit { model.submitSearch() }
-            GenderBar(model: model)
+            ChoiceBar(options: genderOptions, selected: model.gender, choose: { model.chooseGender($0) })
             Picker("地区", selection: Binding(
                 get: { model.region?.rawValue ?? "" },
                 set: { model.chooseRegion(Region(rawValue: $0)) }
@@ -74,24 +75,30 @@ private struct TagHints: View {
     }
 }
 
-private struct GenderBar: View {
-    @ObservedObject var model: StageModel
-    private let options: [(String, Gender?)] = [("全部", nil)] + Gender.allCases.map { (Copy.gender($0), $0) }
+/// 胶囊分段选择（站点、性别共用）。
+private struct ChoiceBar<Value: Equatable>: View {
+    var options: [(String, Value)]
+    var selected: Value
+    var choose: (Value) -> Void
 
     var body: some View {
         HStack(spacing: 4) {
             ForEach(options, id: \.0) { option in
-                Button(option.0) { model.chooseGender(option.1) }
+                Button(option.0) { choose(option.1) }
                     .buttonStyle(.plain)
                     .font(.system(size: 12, weight: .semibold))
                     .lineLimit(1)
-                    .foregroundStyle(model.gender == option.1 ? Color.black.opacity(0.86) : .white.opacity(0.78))
+                    .foregroundStyle(selected == option.1 ? Color.black.opacity(0.86) : .white.opacity(0.78))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 7)
-                    .background(model.gender == option.1 ? Theme.champagne : Color.clear, in: Capsule())
+                    .background(selected == option.1 ? Theme.champagne : Color.clear, in: Capsule())
             }
         }
         .padding(3)
         .background(.white.opacity(0.06), in: Capsule())
     }
 }
+
+/// 站点切换：Chaturbate / Cam4 / 混合，选择记住（切换等同切来源，重新加载目录）。
+private let siteOptions: [(String, SiteMode)] = [("Chaturbate", .chaturbate), ("Cam4", .cam4), ("混合", .mixed)]
+private let genderOptions: [(String, Gender?)] = [("全部", nil)] + Gender.allCases.map { (Copy.gender($0), $0) }

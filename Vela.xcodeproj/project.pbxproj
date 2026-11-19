@@ -40,6 +40,7 @@
 		060D66056AF5CB17E24CBF07 /* LoadSlot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LoadSlot.swift"; sourceTree = "<group>"; };
 		D58D9B01FE96A871D43BF155 /* PlaybackPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PlaybackPolicy.swift"; sourceTree = "<group>"; };
 		08207590C42838E351DF1E17 /* StageModel+Quality.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "StageModel+Quality.swift"; sourceTree = "<group>"; };
+		C4F1B0060000000000000001 /* StageModel+Sites.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "StageModel+Sites.swift"; sourceTree = "<group>"; };
 		CC8A972A8101B4B06BC687A7 /* PlaybackLane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackLane.swift; sourceTree = "<group>"; };
 		A2F14BB1109403F2F3C26579 /* StageModel+Dwell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "StageModel+Dwell.swift"; sourceTree = "<group>"; };
 		DFA9A0CB511670E2070E2E0C /* StageModel+Thermal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "StageModel+Thermal.swift"; sourceTree = "<group>"; };
@@ -86,6 +87,7 @@
 		C4F1A0010000000000000004 /* Cam4Directory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Cam4Directory.swift; sourceTree = "<group>"; };
 		C4F1A0010000000000000005 /* Cam4Adapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Cam4Adapter.swift; sourceTree = "<group>"; };
 		C4F1A0010000000000000006 /* SiteCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SiteCatalog.swift; sourceTree = "<group>"; };
+		C4F1B0010000000000000001 /* SiteDirectory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SiteDirectory.swift; sourceTree = "<group>"; };
 		C4F1A0010000000000000007 /* SiteKeyMigration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SiteKeyMigration.swift; sourceTree = "<group>"; };
 		C4F1A0010000000000000008 /* ISO3166.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ISO3166.swift; sourceTree = "<group>"; };
 		9FE0D685E99DE971D002F9EB /* Pager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Pager.swift; sourceTree = "<group>"; };
@@ -182,6 +184,7 @@
 		35671A2372A0EBA76251BA8F /* TriplePictureInPictureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TriplePictureInPictureTests.swift"; sourceTree = "<group>"; };
 		577C9F6B1F272558EBF1984D /* TripleLaneMediaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TripleLaneMediaTests.swift"; sourceTree = "<group>"; };
 		20CC2421A3DCB63EC3212485 /* TripleWindowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TripleWindowTests.swift"; sourceTree = "<group>"; };
+		C4F1B0040000000000000001 /* SiteWiringTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SiteWiringTests.swift; sourceTree = "<group>"; };
 		EC4C839D4FCB3130199D9B80 /* DualDwellTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DualDwellTests.swift"; sourceTree = "<group>"; };
 		FFE24CF91F90C2CC4F4B8F92 /* DualPictureInPictureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DualPictureInPictureTests.swift"; sourceTree = "<group>"; };
 		E737F6EABF2B36DB150E289B /* DualAudioFocusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DualAudioFocusTests.swift"; sourceTree = "<group>"; };
@@ -244,6 +247,7 @@
 				C4F1A0010000000000000004 /* Cam4Directory.swift */,
 				C4F1A0010000000000000005 /* Cam4Adapter.swift */,
 				C4F1A0010000000000000006 /* SiteCatalog.swift */,
+				C4F1B0010000000000000001 /* SiteDirectory.swift */,
 				C4F1A0010000000000000007 /* SiteKeyMigration.swift */,
 				C4F1A0010000000000000008 /* ISO3166.swift */,
 			);
@@ -399,6 +403,7 @@
 				533213F0A3E79556DF74A5C5 /* SettingsStore.swift */,
 				4118C98CD1ACEE3DA63A535B /* StageModel+Taste.swift */,
 				08207590C42838E351DF1E17 /* StageModel+Quality.swift */,
+				C4F1B0060000000000000001 /* StageModel+Sites.swift */,
 				CC8A972A8101B4B06BC687A7 /* PlaybackLane.swift */,
 				408C6336E8B36C0ED1511721 /* StageModel+Playback.swift */,
 				7C1E5A90D3B24F68A0C4E9F5 /* StageModel+Favorites.swift */,
@@ -473,6 +478,7 @@
 				35671A2372A0EBA76251BA8F /* TriplePictureInPictureTests.swift */,
 				577C9F6B1F272558EBF1984D /* TripleLaneMediaTests.swift */,
 				20CC2421A3DCB63EC3212485 /* TripleWindowTests.swift */,
+				C4F1B0040000000000000001 /* SiteWiringTests.swift */,
 				EC4C839D4FCB3130199D9B80 /* DualDwellTests.swift */,
 				FFE24CF91F90C2CC4F4B8F92 /* DualPictureInPictureTests.swift */,
 				E737F6EABF2B36DB150E289B /* DualAudioFocusTests.swift */,
@@ -608,6 +614,7 @@
 				4CA5F8B2BCC360A6C97AA444 /* SiteSidecar.swift in Sources */,
 				E85C881A23B06A6B8AE77E59 /* StageModel.swift in Sources */,
 				4466F8C896319175AE607015 /* StageModel+Quality.swift in Sources */,
+				C4F1B0070000000000000001 /* StageModel+Sites.swift in Sources */,
 				930B1583A2AB045584316637 /* PlaybackLane.swift in Sources */,
 				CFDE7D7A17F4597B18A1D524 /* StageModel+Dwell.swift in Sources */,
 				598687169424D5E139EA5B58 /* StageModel+Thermal.swift in Sources */,
@@ -645,6 +652,7 @@
 				C4F1A0020000000000000004 /* Cam4Directory.swift in Sources */,
 				C4F1A0020000000000000005 /* Cam4Adapter.swift in Sources */,
 				C4F1A0020000000000000006 /* SiteCatalog.swift in Sources */,
+				C4F1B0020000000000000001 /* SiteDirectory.swift in Sources */,
 				C4F1A0020000000000000007 /* SiteKeyMigration.swift in Sources */,
 				C4F1A0020000000000000008 /* ISO3166.swift in Sources */,
 				64668D6A2F4229461043A4C4 /* Pager.swift in Sources */,
@@ -745,6 +753,7 @@
 				81845D61A8E7EEE8C17292D7 /* SettingsStore.swift in Sources (VelaPhone) */,
 				BE672A31AE6665AD91A0D039 /* StageModel+Taste.swift in Sources (VelaPhone) */,
 				DC0C4FF5D4FA5F83C40A193B /* StageModel+Quality.swift in Sources (VelaPhone) */,
+				C4F1B0080000000000000001 /* StageModel+Sites.swift in Sources (VelaPhone) */,
 				FAEFA726D14323A461F813EF /* PlaybackLane.swift in Sources (VelaPhone) */,
 				E5DC8700909E3CE1DD2D4CF3 /* StageModel+Playback.swift in Sources (VelaPhone) */,
 				15B5BFDDFAFE794727EE2E3D /* StageModel+Favorites.swift in Sources (VelaPhone) */,
@@ -789,6 +798,7 @@
 				C4F1A0030000000000000004 /* Cam4Directory.swift in Sources (VelaPhone) */,
 				C4F1A0030000000000000005 /* Cam4Adapter.swift in Sources (VelaPhone) */,
 				C4F1A0030000000000000006 /* SiteCatalog.swift in Sources (VelaPhone) */,
+				C4F1B0030000000000000001 /* SiteDirectory.swift in Sources (VelaPhone) */,
 				C4F1A0030000000000000007 /* SiteKeyMigration.swift in Sources (VelaPhone) */,
 				C4F1A0030000000000000008 /* ISO3166.swift in Sources (VelaPhone) */,
 				B7A0C0DE0000000000000071 /* Pager.swift in Sources (VelaPhone) */,
@@ -857,6 +867,7 @@
 				6251BA8F95615533C731586F /* TriplePictureInPictureTests.swift in Sources (VelaPhoneTests) */,
 				EBF1984D3ACEDBCDF0D92D03 /* TripleLaneMediaTests.swift in Sources (VelaPhoneTests) */,
 				C321248504B5C9DA888188FE /* TripleWindowTests.swift in Sources (VelaPhoneTests) */,
+				C4F1B0050000000000000001 /* SiteWiringTests.swift in Sources (VelaPhoneTests) */,
 				A5A4190849DE7CF8CC4C13FF /* DualDwellTests.swift in Sources (VelaPhoneTests) */,
 				947D5F2B75D49C497F1A064D /* DualPictureInPictureTests.swift in Sources (VelaPhoneTests) */,
 				83BA5543DA01DD34D13CCC4A /* DualAudioFocusTests.swift in Sources (VelaPhoneTests) */,
@@ -915,6 +926,7 @@
 		C4F1A0030000000000000004 /* Cam4Directory.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = C4F1A0010000000000000004 /* Cam4Directory.swift */; };
 		C4F1A0030000000000000005 /* Cam4Adapter.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = C4F1A0010000000000000005 /* Cam4Adapter.swift */; };
 		C4F1A0030000000000000006 /* SiteCatalog.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = C4F1A0010000000000000006 /* SiteCatalog.swift */; };
+		C4F1B0030000000000000001 /* SiteDirectory.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = C4F1B0010000000000000001 /* SiteDirectory.swift */; };
 		C4F1A0030000000000000007 /* SiteKeyMigration.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = C4F1A0010000000000000007 /* SiteKeyMigration.swift */; };
 		C4F1A0030000000000000008 /* ISO3166.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = C4F1A0010000000000000008 /* ISO3166.swift */; };
 		B7A0C0DE0000000000000071 /* Pager.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 9FE0D685E99DE971D002F9EB /* Pager.swift */; };
@@ -986,6 +998,7 @@
 		B9BB748BBC48D97D4A3D3D92 /* LoadSlot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 060D66056AF5CB17E24CBF07 /* LoadSlot.swift */; };
 		84E18F6BCC0E604427682EEB /* PlaybackPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D58D9B01FE96A871D43BF155 /* PlaybackPolicy.swift */; };
 		4466F8C896319175AE607015 /* StageModel+Quality.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08207590C42838E351DF1E17 /* StageModel+Quality.swift */; };
+		C4F1B0070000000000000001 /* StageModel+Sites.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4F1B0060000000000000001 /* StageModel+Sites.swift */; };
 		930B1583A2AB045584316637 /* PlaybackLane.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC8A972A8101B4B06BC687A7 /* PlaybackLane.swift */; };
 		CFDE7D7A17F4597B18A1D524 /* StageModel+Dwell.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2F14BB1109403F2F3C26579 /* StageModel+Dwell.swift */; };
 		598687169424D5E139EA5B58 /* StageModel+Thermal.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFA9A0CB511670E2070E2E0C /* StageModel+Thermal.swift */; };
@@ -1031,6 +1044,7 @@
 		C4F1A0020000000000000004 /* Cam4Directory.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4F1A0010000000000000004 /* Cam4Directory.swift */; };
 		C4F1A0020000000000000005 /* Cam4Adapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4F1A0010000000000000005 /* Cam4Adapter.swift */; };
 		C4F1A0020000000000000006 /* SiteCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4F1A0010000000000000006 /* SiteCatalog.swift */; };
+		C4F1B0020000000000000001 /* SiteDirectory.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4F1B0010000000000000001 /* SiteDirectory.swift */; };
 		C4F1A0020000000000000007 /* SiteKeyMigration.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4F1A0010000000000000007 /* SiteKeyMigration.swift */; };
 		C4F1A0020000000000000008 /* ISO3166.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4F1A0010000000000000008 /* ISO3166.swift */; };
 		64668D6A2F4229461043A4C4 /* Pager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FE0D685E99DE971D002F9EB /* Pager.swift */; };
@@ -1118,6 +1132,7 @@
 		15B5BFDDFAFE794727EE2E3D /* StageModel+Favorites.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 7C1E5A90D3B24F68A0C4E9F5 /* StageModel+Favorites.swift */; };
 		E5DC8700909E3CE1DD2D4CF3 /* StageModel+Playback.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 408C6336E8B36C0ED1511721 /* StageModel+Playback.swift */; };
 		DC0C4FF5D4FA5F83C40A193B /* StageModel+Quality.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 08207590C42838E351DF1E17 /* StageModel+Quality.swift */; };
+		C4F1B0080000000000000001 /* StageModel+Sites.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = C4F1B0060000000000000001 /* StageModel+Sites.swift */; };
 		FAEFA726D14323A461F813EF /* PlaybackLane.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = CC8A972A8101B4B06BC687A7 /* PlaybackLane.swift */; };
 		BE672A31AE6665AD91A0D039 /* StageModel+Taste.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 4118C98CD1ACEE3DA63A535B /* StageModel+Taste.swift */; };
 		81845D61A8E7EEE8C17292D7 /* SettingsStore.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 533213F0A3E79556DF74A5C5 /* SettingsStore.swift */; };
@@ -1157,6 +1172,7 @@
 		6251BA8F95615533C731586F /* TriplePictureInPictureTests.swift in Sources (VelaPhoneTests) */ = {isa = PBXBuildFile; fileRef = 35671A2372A0EBA76251BA8F /* TriplePictureInPictureTests.swift */; };
 		EBF1984D3ACEDBCDF0D92D03 /* TripleLaneMediaTests.swift in Sources (VelaPhoneTests) */ = {isa = PBXBuildFile; fileRef = 577C9F6B1F272558EBF1984D /* TripleLaneMediaTests.swift */; };
 		C321248504B5C9DA888188FE /* TripleWindowTests.swift in Sources (VelaPhoneTests) */ = {isa = PBXBuildFile; fileRef = 20CC2421A3DCB63EC3212485 /* TripleWindowTests.swift */; };
+		C4F1B0050000000000000001 /* SiteWiringTests.swift in Sources (VelaPhoneTests) */ = {isa = PBXBuildFile; fileRef = C4F1B0040000000000000001 /* SiteWiringTests.swift */; };
 		A5A4190849DE7CF8CC4C13FF /* DualDwellTests.swift in Sources (VelaPhoneTests) */ = {isa = PBXBuildFile; fileRef = EC4C839D4FCB3130199D9B80 /* DualDwellTests.swift */; };
 		947D5F2B75D49C497F1A064D /* DualPictureInPictureTests.swift in Sources (VelaPhoneTests) */ = {isa = PBXBuildFile; fileRef = FFE24CF91F90C2CC4F4B8F92 /* DualPictureInPictureTests.swift */; };
 		83BA5543DA01DD34D13CCC4A /* DualAudioFocusTests.swift in Sources (VelaPhoneTests) */ = {isa = PBXBuildFile; fileRef = E737F6EABF2B36DB150E289B /* DualAudioFocusTests.swift */; };

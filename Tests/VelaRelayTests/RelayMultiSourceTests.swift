@@ -198,6 +198,23 @@ final class RelayMultiSourceTests: XCTestCase {
         XCTAssertEqual(resumedStatus, 200)
     }
 
+    func testEachSourceSendsItsOwnSiteHeaders() async throws {
+        try await listen()
+        let c4Headers = ["Referer": "https://www.cam4.com/", "Origin": "https://www.cam4.com"]
+        let c4 = try XCTUnwrap(relay.localURL(
+            for: muxed("c4"), maxBandwidth: .infinity, audioSuppressed: false, headers: c4Headers
+        ))
+        let cb = try register(muxed("cb"))
+        let c4Status = try await get(c4.url).status
+        let cbStatus = try await get(cb.url).status
+        XCTAssertEqual(c4Status, 200)
+        XCTAssertEqual(cbStatus, 200)
+        XCTAssertEqual(FakeUpstream.state.header("Referer", path("c4/video.m3u8")), "https://www.cam4.com/")
+        XCTAssertEqual(FakeUpstream.state.header("Origin", path("c4/video.m3u8")), "https://www.cam4.com")
+        XCTAssertEqual(FakeUpstream.state.header("Referer", path("cb/video.m3u8")), "https://chaturbate.com/")
+        XCTAssertEqual(FakeUpstream.state.header("Origin", path("cb/video.m3u8")), "https://chaturbate.com")
+    }
+
     // MARK: 工具
 
     private func path(_ suffix: String) -> String { "/\(tag)/\(suffix)" }
@@ -271,6 +288,15 @@ final class FakeUpstream: URLProtocol {
         private let lock = NSLock()
         private var counts: [String: Int] = [:]
         private var scripts: [String: [Int]] = [:]
+        private var headers: [String: [String: String]] = [:]
+
+        func note(_ path: String, headers fields: [String: String]) {
+            lock.withLock { headers[path] = fields }
+        }
+
+        func header(_ name: String, _ path: String) -> String? {
+            lock.withLock { headers[path]?[name] }
+        }
 
         func script(_ path: String, statuses: [Int]) {
             lock.withLock { scripts[path] = statuses }
@@ -296,6 +322,7 @@ final class FakeUpstream: URLProtocol {
             lock.withLock {
                 counts = counts.filter { !$0.key.hasPrefix("/\(prefix)/") }
                 scripts = scripts.filter { !$0.key.hasPrefix("/\(prefix)/") }
+                headers = headers.filter { !$0.key.hasPrefix("/\(prefix)/") }
             }
         }
     }
@@ -311,6 +338,7 @@ final class FakeUpstream: URLProtocol {
             client?.urlProtocol(self, didFailWithError: URLError(.badURL))
             return
         }
+        Self.state.note(url.path, headers: request.allHTTPHeaderFields ?? [:])
         let (status, n) = Self.state.hit(url.path)
         let body = status == 200 ? Self.playlist(sequence: n) : ""
         let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: nil)!

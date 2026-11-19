@@ -132,10 +132,10 @@ extension StageModel {
         }
         lane.state = .idle
         if lane.id == .primary { idleStart.clear() }
-        lane.awayRetry.enter(room.username)
+        lane.awayRetry.enter(room.ref)
         do {
             let cap = playbackCap(on: lane)
-            guard let target = try await playTarget(for: room.username, cap: cap, token: token, lane: lane, life: life) else { return }
+            guard let target = try await playTarget(for: room.ref, cap: cap, token: token, lane: lane, life: life) else { return }
             guard token == lane.playGeneration, !Task.isCancelled else { return }
             guard await relayReady(token: token, lane: lane, life: life) else { return }
             guard lifecycleAllows(.beforeRelayRegister, life) else { return }
@@ -255,8 +255,15 @@ extension StageModel {
             noteUnplayable(ticket.failure, username: username, token: token, lane: lane)
             return nil
         }
-        let playable = await selectRendition(master: master, cap: cap)
+        let picked = await fetchRendition(master: master, cap: cap, for: username)
         guard token == lane.playGeneration, !Task.isCancelled, lifecycleAllows(.beforeCommit, life) else { return nil }
+        if let failure = picked.failure {
+            // strictMaster 站点（Cam4）主列表取不到（个别 CDN 504 等）：这一间不可播，提示后自动跳过。
+            stopLane(lane)
+            noteUnplayable(failure, username: username, token: token, lane: lane)
+            return nil
+        }
+        let playable = picked.rendition
         if !playable.isUnselected { prepared.set(playable, cap: cap, for: username, now: Date()) }
         return PlayTarget(master: master, playable: playable)
     }
@@ -309,8 +316,8 @@ extension StageModel {
         // 每路起播的档位上限（-1 为不封顶）：双窗两路都应是 -1，热降档时才是有限值（§4.4）。
         Self.playbackLog.info("lane-start lane=\(Self.label(lane.id.role), privacy: .public) cap=\(cap.isFinite ? Int(cap) : -1)")
         lane.player.play(
-            rendition: target.playable, username: room.username, peakBitrate: cap,
-            allowed: laneAllowed(lane), isRetry: isRetry
+            rendition: target.playable, username: room.ref, peakBitrate: cap,
+            allowed: laneAllowed(lane), isRetry: isRetry, headers: mediaHeaders(forRef: room.ref)
         )
         pushVolume(to: lane)
         // 只有「离开后降画质」才算低档；多路的尺寸上限与热上限是有限值但不是低档，否则画质状态机会无谓地「升回」并重建播放项。
@@ -367,6 +374,8 @@ extension StageModel {
     /// 公开且有 `hls_source` 就直接用，非公开的已知状态直接给出原因；其余退回 `get_edge_hls_url_ajax`
     /// 与侧车备路（选择逻辑见 `StreamSourcing`）。
     func resolveSourced(_ username: String) async throws -> SourcedTicket {
+        // 非 cb 房间走各站适配器（没有侧车与质询）；cb 的路径下面一行不改。
+        if RoomKey.site(ofRef: username) != .chaturbate { return try await resolveOnSite(username) }
         if Date() < sidecarUntil {
             return SourcedTicket(ticket: try await sidecar.resolve(username: username), origin: .sidecar)
         }
@@ -418,18 +427,27 @@ extension StageModel {
     /// Pick one rung: its video media playlist plus the separate audio rendition it references
     /// (dropping the audio group leaves the picture silent). Falls back to the unselected master,
     /// which the relay then resolves itself.
-    func selectRendition(master: URL, cap: Double) async -> StreamRendition {
+    func selectRendition(master: URL, cap: Double, for ref: String) async -> StreamRendition {
+        await fetchRendition(master: master, cap: cap, for: ref).rendition
+    }
+
+    /// 选档，同时给出 strictMaster 站点按主列表状态码定论的不可播原因（cb 恒为 nil，仍回落到未选档主列表）。
+    /// cb 只带 Referer（与站点抽象之前相同）；其他站点带适配器给的全部头。
+    func fetchRendition(master: URL, cap: Double, for ref: String) async -> (rendition: StreamRendition, failure: StreamFailure?) {
         var request = URLRequest(url: master)
         request.timeoutInterval = 8
         request.setValue(UserAgent.safari, forHTTPHeaderField: "User-Agent")
-        request.setValue("https://chaturbate.com/", forHTTPHeaderField: "Referer")
-        guard let result = try? await http.send(request),
-              (200..<300).contains(result.status),
+        let strict = RoomKey.site(ofRef: ref) != .chaturbate
+        for (name, value) in mediaHeaders(forRef: ref) where strict || name == "Referer" {
+            request.setValue(value, forHTTPHeaderField: name)
+        }
+        guard let result = try? await http.send(request) else { return (.unselected(master), nil) }
+        guard (200..<300).contains(result.status),
               let text = String(data: result.data, encoding: .utf8),
               text.contains("#EXTM3U"),
               let rendition = StreamRendition.select(in: text, master: master, maxBandwidth: cap)
-        else { return .unselected(master) }
-        return rendition
+        else { return (.unselected(master), masterFailure(forRef: ref, status: result.status)) }
+        return (rendition, nil)
     }
 
     /// 预取下一个房间：解析并选好档位，缓存子列表地址（主列表 30 秒就过期，不存）。
@@ -441,15 +459,15 @@ extension StageModel {
         guard let life = sharedToken() else { return }
         guard let next = feed.prefetchUsernames().first, prepared.fresh(next, cap: cap, now: Date()) == nil else { return }
         #if (os(macOS) && (DEBUG || PERF_PROBE)) || (os(iOS) && PERF_PROBE)
-        if next.hasPrefix(PerfStream.username) { return }
+        if PerfStream.isTestRoom(next) { return }
         #endif
         guard lifecycleAllows(.beforeRequest, life), !Task.isCancelled else { return }
         guard let ticket = try? await resolve(next), ticket.isPlayable, let master = ticket.url else { return }
         guard token == lane.playGeneration, !Task.isCancelled, lifecycleAllows(.beforeRequest, life) else { return }
-        let playable = await selectRendition(master: master, cap: cap)
+        let playable = await selectRendition(master: master, cap: cap, for: next)
         guard token == lane.playGeneration, !Task.isCancelled, !playable.isUnselected, lifecycleAllows(.beforeCommit, life) else { return }
         prepared.set(playable, cap: cap, for: next, now: Date())
-        RoomThumbnailCache.shared.prefetch(url: feed.rooms.first { $0.username == next }?.thumbnailURL)
+        RoomThumbnailCache.shared.prefetch(url: feed.rooms.first { $0.ref == next }?.usableThumbnail())
     }
 
     /// 中继撞上 403 时的续期：重新解析当前房间并选档，返回新的子列表地址（房间已变、解析或选档失败返回 nil）。
@@ -485,7 +503,7 @@ extension StageModel {
         }
         #if (os(macOS) && (DEBUG || PERF_PROBE)) || (os(iOS) && PERF_PROBE)
         // 固定测试流不会 403，也不能为它请求真实站点。
-        if username.hasPrefix(PerfStream.username) { return nil }
+        if PerfStream.isTestRoom(username) { return nil }
         #endif
         guard let ticket = try? await resolve(username), ticket.isPlayable, let master = ticket.url else {
             Self.playbackLog.info("renew-abort resolve")
@@ -495,7 +513,7 @@ extension StageModel {
             Self.playbackLog.info("renew-abort room-changed")
             return nil
         }
-        let playable = await selectRendition(master: master, cap: cap)
+        let playable = await selectRendition(master: master, cap: cap, for: username)
         guard !playable.isUnselected, renewalIsCurrent(username, token, lane), lifecycleAllows(.beforeCommit, life) else {
             Self.playbackLog.info("renew-abort select")
             return nil
