@@ -256,18 +256,18 @@ final class SyncService: @unchecked Sendable {
             _ = env.stateStore.delete()
             if case .gone = failure { return .gone }
             if case .message(let text) = failure { return .failed(text) }
-            return .failed("加入失败")
+            return .failed("网络不可用，稍后再试")
         }
     }
 
-    enum FetchFailure: Error { case notFound, gone, message(String) }
+    enum FetchFailure: Error { case notFound, gone(deletedAt: UInt64), message(String), network }
 
     private func fetchRemote(_ transport: SyncTransport, keys: SyncKeyMaterial, state: SyncState, local: SyncLocalData, code: SyncCode) async -> Result<SyncJoinTicket, FetchFailure> {
         switch await transport.get() {
         case .notFound: return .failure(.notFound)
-        case .gone: return .failure(.gone)
+        case .gone(let deletedAt): return .failure(.gone(deletedAt: deletedAt))
         case .blob(let ver, let pub, let data, let epoch, _):
-            guard pub == keys.publicKeyText else { return .failure(.message("同步空间被占用")) }
+            guard pub == keys.publicKeyText else { return .failure(.message(SyncStatusText.halt(.pubMismatch))) }
             let codec = SyncCryptoCodec(keys: keys, sizeLimit: env.sizeLimit)
             switch codec.open(data, ver: ver) {
             case .unsupported: return .failure(.message("其他设备的 App 更新，请更新本机 App"))
@@ -283,7 +283,7 @@ final class SyncService: @unchecked Sendable {
                 }
             }
         default:
-            return .failure(.message("网络不可用，稍后再试"))
+            return .failure(.network)
         }
     }
 
@@ -351,8 +351,11 @@ final class SyncService: @unchecked Sendable {
             case .reconfirm: return .reconfirmJoin(ticket)
             case .abort: return .attention(.resumeJoining)
             }
-        case .failure:
-            return .unavailable
+        // 只有网络暂时故障才稍后再试；410、被占用、解不开、空间不见了都要用户关闭再重开或重新输入同步码。
+        case .failure(.network): return .unavailable
+        case .failure(.gone(let deletedAt)): return .stopped(SyncStatusText.halt(.gone(deletedAt: deletedAt)))
+        case .failure(.notFound): return .stopped(SyncStatusText.halt(.missing))
+        case .failure(.message(let text)): return .stopped(text)
         }
     }
 

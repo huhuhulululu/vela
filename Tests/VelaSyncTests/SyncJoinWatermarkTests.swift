@@ -32,6 +32,23 @@ final class SyncJoinWatermarkTests: XCTestCase {
         XCTAssertEqual(result, .stopped(SyncStatusText.halt(.rollback)))
     }
 
+    /// 审计 high：恢复加入时 410、空间被占用、解不开不是「钥匙串暂不可用」，要给出能关闭的停止状态；只有网络故障才稍后再试。
+    func testResumedJoinClassifiesRemoteFailures() async {
+        let other = try! SyncCrypto.derive([UInt8](repeating: 8, count: 32))
+        let cases: [(SyncServerResponse, SyncStartResult)] = [
+            (.gone(deletedAt: 1_700_000_000_000), .stopped(SyncStatusText.halt(.gone(deletedAt: 1_700_000_000_000)))),
+            (.blob(ver: 3, pub: other.publicKeyText, data: "e1.x.y", epoch: ServiceFixture.epoch, now: 0), .stopped(SyncStatusText.halt(.pubMismatch))),
+            (.blob(ver: 3, pub: ServiceFixture.keys.publicKeyText, data: "e1.AAAAAAAAAAAAAAAA.AAAAAAAAAAAAAAAAAAAAAA", epoch: ServiceFixture.epoch, now: 0), .stopped("无法解密云端数据")),
+            (.transient, .unavailable),
+        ]
+        for (response, expected) in cases {
+            let (service, t) = resumable()
+            t.gets = [response]
+            let result = await service.start(local: { SyncLocalData() }, sink: MemorySink())
+            XCTAssertEqual(result, expected, "\(response)")
+        }
+    }
+
     func resumable() -> (SyncService, ScriptedTransport) {
         let store = MemoryStateStore(), keys = MemoryKeyStore()
         var state = SyncState(phase: .joining, origin: ServiceFixture.origin, blobID: ServiceFixture.keys.blobID, clock: SyncClock(dev: 7))
