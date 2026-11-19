@@ -56,8 +56,11 @@ class MainActivity : ComponentActivity() {
 
     private var composeView: ComposeView? = null
     private var composed: Boolean = false
+    private var nextExportId: Long = 1L
     private var pendingExport: ByteArray? = null
+    private var pendingExportId: Long = 0L
     private var pendingExportUri: String? = null
+    private var pendingUriId: Long = 0L
 
     private val createFavorites = registerForActivityResult(
         ActivityResultContracts.CreateDocument("application/json"),
@@ -75,20 +78,26 @@ class MainActivity : ComponentActivity() {
 
     internal fun onFavoriteExportResult(uri: Uri?) {
         if (uri == null) {
-            clearPendingExport()
+            cancelWaitingExport()
             return
         }
         val bytes = pendingExport ?: AtomicFile.read(exportSnapshot(), limit = Prefs.maxFileBytes)
-        if (bytes == null) {
-            clearPendingExport()
+        val id = when {
+            pendingExport != null && pendingExportId != 0L -> pendingExportId
+            else -> readExportId(exportIdFile()) ?: 0L
+        }
+        if (bytes == null || id == 0L) {
+            cancelWaitingExport()
             notifyTransferFailure(exporting = true)
             return
         }
         // 写入完成前保留快照和 URI。选择器返回后、IO 还没开始时重建，新 Activity 才能接着写。
         pendingExport = bytes
+        pendingExportId = id
         rememberExportUri(uri)
         try {
             AtomicFile.write(exportSnapshot(), bytes)
+            AtomicFile.write(exportIdFile(), id.toString().toByteArray(Charsets.UTF_8))
         } catch (_: IOException) {
         }
         beginExportWrite()
@@ -123,9 +132,9 @@ class MainActivity : ComponentActivity() {
                 ?: AtomicFile.read(exportSnapshot(), limit = Prefs.maxFileBytes)
             pendingExportUri = savedInstanceState.getString(EXPORT_URI)
                 ?: AtomicFile.read(exportUriFile(), limit = 4_096)?.toString(Charsets.UTF_8)
+            restoreExportIds()
         } else if (savedInstanceState == null) {
-            deleteExportSnapshot()
-            exportUriFile().delete()
+            deleteExportFiles()
         }
         installDebugHooks(applicationContext)
         if (!debugAllowsStageBoot()) return
@@ -176,7 +185,9 @@ class MainActivity : ComponentActivity() {
         val bytes = pendingExport ?: return
         outState.putBoolean(EXPORT_PENDING, true)
         if (bytes.size <= EXPORT_INLINE_LIMIT) outState.putByteArray(EXPORT_BYTES, bytes)
-        pendingExportUri?.let { outState.putString(EXPORT_URI, it) }
+        if (pendingUriId == pendingExportId) {
+            pendingExportUri?.let { outState.putString(EXPORT_URI, it) }
+        }
     }
 
     override fun onStart() {
@@ -243,15 +254,20 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun stashExport(bytes: ByteArray) {
+        val id = nextExportId++
         pendingExport = bytes
+        pendingExportId = id
         try {
             AtomicFile.write(exportSnapshot(), bytes)
+            AtomicFile.write(exportIdFile(), id.toString().toByteArray(Charsets.UTF_8))
         } catch (_: IOException) {
         }
     }
 
     private fun beginExportWrite() {
+        val id = pendingExportId
         val uriText = pendingExportUri ?: return
+        if (id == 0L || pendingUriId != id) return
         val bytes = pendingExport ?: return
         val uri = Uri.parse(uriText)
         lifecycleScope.launch {
@@ -259,38 +275,89 @@ class MainActivity : ComponentActivity() {
                 val stream = contentResolver.openOutputStream(uri) ?: throw IOException("unavailable")
                 stream.use { it.write(bytes) }
             }
-            if (isDestroyed || pendingExportUri != uriText) return@launch
-            if (ok) {
-                clearPendingExport()
-            } else {
-                clearPendingExport()
-                notifyTransferFailure(exporting = true)
-            }
+            if (isDestroyed) return@launch
+            finishExport(id, ok)
         }
+    }
+
+    private fun finishExport(id: Long, ok: Boolean) {
+        if (pendingExportId == id) {
+            clearPendingExport()
+        } else if (pendingUriId == id) {
+            pendingExportUri = null
+            pendingUriId = 0L
+            exportUriFile().delete()
+            exportUriIdFile().delete()
+        }
+        if (!ok) notifyTransferFailure(exporting = true)
     }
 
     private fun rememberExportUri(uri: Uri) {
         val text = uri.toString()
+        val id = pendingExportId
         pendingExportUri = text
+        pendingUriId = id
         try {
             AtomicFile.write(exportUriFile(), text.toByteArray(Charsets.UTF_8))
+            AtomicFile.write(exportUriIdFile(), id.toString().toByteArray(Charsets.UTF_8))
         } catch (_: IOException) {
         }
     }
 
+    private fun cancelWaitingExport() {
+        if (pendingUriId != 0L && pendingUriId != pendingExportId) {
+            pendingExport = null
+            pendingExportId = 0L
+            exportSnapshot().delete()
+            exportIdFile().delete()
+            return
+        }
+        clearPendingExport()
+    }
+
     private fun clearPendingExport() {
         pendingExport = null
+        pendingExportId = 0L
         pendingExportUri = null
-        deleteExportSnapshot()
-        exportUriFile().delete()
+        pendingUriId = 0L
+        deleteExportFiles()
+    }
+
+    private fun restoreExportIds() {
+        val bytesId = readExportId(exportIdFile())
+        val uriId = readExportId(exportUriIdFile())
+        if (bytesId != null) {
+            pendingExportId = bytesId
+            if (nextExportId <= bytesId) nextExportId = bytesId + 1
+        }
+        if (uriId != null) pendingUriId = uriId
+        if (pendingExportUri != null && pendingUriId != 0L && pendingExportId != 0L && pendingUriId != pendingExportId) {
+            pendingExportUri = null
+        }
+        if (pendingExport != null && pendingExportUri != null && (pendingExportId == 0L || pendingUriId == 0L)) {
+            if (pendingExportId == 0L) pendingExportId = nextExportId++
+            pendingUriId = pendingExportId
+        }
+    }
+
+    private fun readExportId(file: File): Long? {
+        val raw = AtomicFile.read(file, limit = 64) ?: return null
+        return raw.toString(Charsets.UTF_8).trim().toLongOrNull()
     }
 
     private fun exportSnapshot(): File = AtomicFile.resolve(filesDir, "pending-favorite-export")
 
     private fun exportUriFile(): File = AtomicFile.resolve(filesDir, "pending-favorite-export-uri")
 
-    private fun deleteExportSnapshot() {
+    private fun exportIdFile(): File = AtomicFile.resolve(filesDir, "pending-favorite-export-id")
+
+    private fun exportUriIdFile(): File = AtomicFile.resolve(filesDir, "pending-favorite-export-uri-id")
+
+    private fun deleteExportFiles() {
         exportSnapshot().delete()
+        exportUriFile().delete()
+        exportIdFile().delete()
+        exportUriIdFile().delete()
     }
 
     private suspend fun runDocument(block: () -> Unit): Boolean =

@@ -6,6 +6,7 @@ import android.net.Uri
 import androidx.test.core.app.ActivityScenario
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
@@ -169,6 +170,63 @@ class FavoriteFileExchangeTest {
     }
 
     @Test
+    fun testOlderExportCompletionDoesNotClearTheNewerPendingExport() {
+        val alice = FavoriteExchange.encode(listOf("alice"))
+        val bob = FavoriteExchange.encode(listOf("bob"))
+        val uriA = Uri.parse("content://vela.test/export-a.json")
+        val uriB = Uri.parse("content://vela.test/export-b.json")
+        val gate = HoldingStream()
+        val writtenB = ByteArrayOutputStream()
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.stage.ageConfirmed = true
+                activity.stage.curation = Curation(favorites = listOf("alice"))
+                activity.stage.dispatch(StageIntent.ExportFavorites)
+            }
+            ShadowLooper.idleMainLooper()
+            scenario.onActivity { activity ->
+                val request = shadowOf(activity).nextStartedActivityForResult.intent
+                shadowOf(activity.contentResolver).registerOutputStream(uriA, gate)
+                shadowOf(activity).receiveResult(
+                    request,
+                    Activity.RESULT_OK,
+                    Intent().setData(uriA),
+                )
+            }
+            assertTrue("第一次导出没有开始写", gate.started.await(5, TimeUnit.SECONDS))
+            scenario.onActivity { activity ->
+                activity.stage.curation = Curation(favorites = listOf("bob"))
+                activity.stage.dispatch(StageIntent.ExportFavorites)
+            }
+            ShadowLooper.idleMainLooper()
+            lateinit var requestB: Intent
+            scenario.onActivity { activity ->
+                requestB = shadowOf(activity).nextStartedActivityForResult.intent
+                assertEquals(Intent.ACTION_CREATE_DOCUMENT, requestB.action)
+                shadowOf(activity.contentResolver).registerOutputStream(uriB, writtenB)
+            }
+            gate.release.countDown()
+            assertTrue("第一次导出没有写完", gate.finished.await(5, TimeUnit.SECONDS))
+            assertTrue(waitUntil(scenario) {
+                File(it.filesDir, "Vela/pending-favorite-export").isFile
+            })
+            scenario.onActivity { activity ->
+                shadowOf(activity).receiveResult(
+                    requestB,
+                    Activity.RESULT_OK,
+                    Intent().setData(uriB),
+                )
+            }
+            assertTrue(waitUntil(scenario) { writtenB.size() > 0 })
+            assertArrayEquals(bob, writtenB.toByteArray())
+            assertArrayEquals(alice, gate.bytes())
+            scenario.onActivity { activity ->
+                assertFalse(activity.stage.state.value.toast == activity.getString(R.string.ui_export_failed))
+            }
+        }
+    }
+
+    @Test
     fun testDocumentIoFailuresDoNotCrash() {
         val missing = Uri.parse("content://vela.test/missing.json")
         val full = Uri.parse("content://vela.test/full.json")
@@ -213,6 +271,26 @@ class FavoriteFileExchangeTest {
                 },
             )
         }
+    }
+
+    private class HoldingStream : OutputStream() {
+        val started = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val finished = CountDownLatch(1)
+        private val buf = ByteArrayOutputStream()
+
+        override fun write(b: Int) {
+            write(byteArrayOf(b.toByte()))
+        }
+
+        override fun write(b: ByteArray, off: Int, len: Int) {
+            buf.write(b, off, len)
+            started.countDown()
+            release.await(8, TimeUnit.SECONDS)
+            finished.countDown()
+        }
+
+        fun bytes(): ByteArray = buf.toByteArray()
     }
 
     private fun waitUntil(
