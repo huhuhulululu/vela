@@ -366,7 +366,9 @@ final class SyncService: @unchecked Sendable {
             }
             switch SyncLifecycle.joinRecovery(plan: plan, remoteVer: ticket.remoteVer, remoteHash: ticket.remoteHash, recomputed: ticket.preview) {
             case .proceed:
-                _ = await finishJoin(state, keys: keys, remote: ticket.remote, local: data)
+                let first = await finishJoin(state, keys: keys, remote: ticket.remote, local: data)
+                // 激活前落盘失败：协调器没建起来，joining 状态原样保留，下次启动再恢复。
+                guard isActive else { return .failed(first == .storageFailed ? .storageFailed : .localSaveFailed) }
                 return .active
             case .reconfirm: return .reconfirmJoin(ticket)
             case .abort: return .attention(.resumeJoining)

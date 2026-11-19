@@ -49,8 +49,20 @@ final class SyncJoinWatermarkTests: XCTestCase {
         }
     }
 
-    func resumable() -> (SyncService, ScriptedTransport) {
+    /// 审计 medium：恢复加入时落盘失败不得报「已开启」；保留 joining 状态，下次启动再恢复。
+    func testResumedJoinSaveFailureIsReported() async {
         let store = MemoryStateStore(), keys = MemoryKeyStore()
+        let (service, t) = resumable(store: store, keys: keys)
+        t.gets = [ServiceFixture.blob(ServiceFixture.remoteDoc(favorites: ["zed"]), ver: 4)]
+        store.failFromSave = store.saves + 1
+        let result = await service.start(local: { SyncLocalData() }, sink: MemorySink())
+        XCTAssertEqual(result, .failed(.storageFailed))
+        XCTAssertFalse(service.isActive)
+        guard case .present(let s) = store.load() else { return XCTFail() }
+        XCTAssertEqual(s.phase, .joining)
+    }
+
+    func resumable(store: MemoryStateStore = MemoryStateStore(), keys: MemoryKeyStore = MemoryKeyStore()) -> (SyncService, ScriptedTransport) {
         var state = SyncState(phase: .joining, origin: ServiceFixture.origin, blobID: ServiceFixture.keys.blobID, clock: SyncClock(dev: 7))
         state.joinPlan = SyncJoinPlan(origin: ServiceFixture.origin, blobID: state.blobID, epoch: ServiceFixture.epoch, ver: 3,
                                       envelopeHash: "x", preview: SyncJoinPreview())
