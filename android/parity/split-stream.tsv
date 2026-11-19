@@ -1,0 +1,5 @@
+# C4 显式映射。三列制表符：swift_file、swift_test、kotlin_id。
+# 整文件归属的用例靠类名后缀对上，不重复写。这里只列混在 VelaCoreTests 里的两条。
+swift_file	swift_test	kotlin_id
+Tests/VelaCoreTests/VelaCoreTests.swift	testStreamTickets	vela.core.stream.VelaCoreTests#testStreamTickets
+Tests/VelaCoreTests/VelaCoreTests.swift	testStreamRequestDoesNotAskForHighestBandwidth	vela.core.stream.VelaCoreTests#testStreamRequestDoesNotAskForHighestBandwidth

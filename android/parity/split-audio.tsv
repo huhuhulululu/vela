@@ -1,0 +1,3 @@
+# swift_file	swift_test	kotlin_id
+# A2 的 AudioTransitionTests 与 Swift 同名，类名后缀就是 AudioTransitionTests。
+# 断言改成音频焦点，见 audio.notes.md。这里不需要显式映射。

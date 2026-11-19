@@ -1,0 +1,8 @@
+# C3 跳过。三列制表符：swift_file、swift_test、reason。
+# deferred:C9 在 --group lifecycle 视为已登记；--all 要等 C9 消化。
+swift_file	swift_test	reason
+Tests/VelaCoreTests/ChallengeGateTests.swift	testStreamChallengeOnlyWhenBodyLooksLikeChallenge	deferred:C9 引用 StreamDecoder（C4）
+Tests/VelaCoreTests/ChallengeGateTests.swift	testStreamPlain403And503AreUnavailable	deferred:C9 引用 StreamDecoder（C4）
+Tests/VelaCoreTests/ChallengeGateTests.swift	testStreamOtherStatusesUnchanged	deferred:C9 引用 StreamDecoder（C4）
+Tests/VelaCoreTests/ChallengeGateTests.swift	testCatalogPlain403And503AreStatusFailures	deferred:C9 引用 CatalogAPI.fetch（C5）
+Tests/VelaCoreTests/ChallengeGateTests.swift	testCatalogChallengeBodyIsChallengeAtAnyStatus	deferred:C9 引用 CatalogAPI.fetch（C5）
