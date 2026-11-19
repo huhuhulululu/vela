@@ -71,7 +71,12 @@ class LifecycleWiring(
 
     fun moveTo(next: PhoneScenePhase) {
         if (next == phase) return
-        val intent = stage.captureResumeIntent()
+        // 只在进后台时捕获。恢复时任务已被取消，再捕获会把记下的意图盖成 null。
+        val intent = if (next == PhoneScenePhase.BACKGROUND) {
+            stage.captureResumeIntent()
+        } else {
+            stage.notedResume
+        }
         val lanes = stage.phoneSnapshots()
         // PiP1 才会传入画中画输入。这里恒为 null：回桌面一律全停。
         val actions = PhoneLifecycle.actions(
@@ -147,14 +152,17 @@ class LifecycleWiring(
                 session.prepareAudio()
                 session.restoreUi()
             }
-            is PhoneLifecycleAction.RedoResumeIntent -> when (action.intent) {
-                PhoneResumeIntent.RELOAD -> {
-                    steps.add("redo-reload")
-                    stage.redoReload()
-                }
-                PhoneResumeIntent.SEARCH -> {
-                    steps.add("redo-search")
-                    stage.redoSearch()
+            is PhoneLifecycleAction.RedoResumeIntent -> {
+                stage.notedResume = null
+                when (action.intent) {
+                    PhoneResumeIntent.RELOAD -> {
+                        steps.add("redo-reload")
+                        stage.redoReload()
+                    }
+                    PhoneResumeIntent.SEARCH -> {
+                        steps.add("redo-search")
+                        stage.redoSearch()
+                    }
                 }
             }
             is PhoneLifecycleAction.RequestPlay -> {
