@@ -118,7 +118,9 @@ final class SyncHub: ObservableObject {
     /// 「关的同时停协调器」，停了之后磁盘上仍是已开启，再打开时投影会覆盖期间的本机改动）。
     func setExperiment(_ on: Bool) {
         guard let model, on != experimentEnabled else { return }
-        if !on, phase == .active || service.isActive {
+        // 磁盘上还有同步状态（例如钥匙串暂时不可用而停在暂停）也算开启着（H9）：关掉开关后的本机编辑，
+        // 再开开关时会被旧文档的投影覆盖。
+        if !on, phase == .active || service.isActive || service.hasStoredState {
             set(\.notice, "请先关闭同步，再关闭实验开关。")
             return
         }
@@ -455,6 +457,7 @@ final class SyncHub: ObservableObject {
     /// 离开加入页、退出或挂起都会作废这张票。
     func confirmJoin() async {
         guard let model, let sink, case .preview(let ticket) = joinStage, !busy else { return }
+        let generation = joinGeneration
         busy = true
         set(\.committing, true)
         defer {
@@ -481,6 +484,12 @@ final class SyncHub: ObservableObject {
             joinStage = .idle
             model.reloadSyncedSettingsFromStore()
         case .reconfirm(let fresh):
+            // 重算期间被取消（离页、进后台）：不越过取消重新装上确认页（M11）。
+            guard generation == joinGeneration, !ticket.isCancelled else {
+                fresh.cancel()
+                joinStage = .idle
+                return
+            }
             joinStage = .preview(fresh)
             set(\.notice, "云端或本机数据有变化，请再确认一次。")
         case .failed(let text):

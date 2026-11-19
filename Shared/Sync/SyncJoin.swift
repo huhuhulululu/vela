@@ -179,7 +179,7 @@ extension SyncService {
         // 上锁之后的本机数据重算：与确认页的计数不同就回到确认页。
         switch ticketFromRemote(t, local: local) {
         case .success(let fresh):
-            if fresh.preview != t.preview { return .reconfirm(fresh) }
+            if fresh.preview != t.preview { return original.isCancelled ? .cancelled : .reconfirm(fresh) }
             t = fresh
         case .failure(let e): return .failed(e.text)
         }
@@ -207,7 +207,7 @@ extension SyncService {
                 }
                 switch ticket(code: t.code, keys: t.keys, dev: t.dev, ver: ver, pub: pub, data: data, epoch: epoch, now: now, local: local) {
                 case .success(let fresh):
-                    if fresh.preview != t.preview { return .reconfirm(fresh) }
+                    if fresh.preview != t.preview { return original.isCancelled ? .cancelled : .reconfirm(fresh) }
                     t = fresh
                 case .failure(let e): return .failed(e.text)
                 }
@@ -314,6 +314,12 @@ extension SyncService {
     }
 
     private func endCommit() { commitLock.withLock { committing = false } }
+
+    /// 磁盘上有同步状态（已开启、暂停、损坏等，不是「无」）：界面据此拒绝关闭实验开关（第 23 节第 17 条，H9）。
+    var hasStoredState: Bool {
+        if case .none = env.stateStore.load() { return false }
+        return true
+    }
 
     /// 释放提交锁（调用方要求保持时，在主线程完成激活之后调用；重复调用无害）。
     func releaseJoinCommit() { endCommit() }

@@ -135,6 +135,30 @@ final class SyncJoinCommitLockTests: XCTestCase {
         XCTAssertNotNil(r.keys.entry)
     }
 
+    /// 上锁后重算发现计数变了（要回确认页），而重算期间票据已被取消（离页、进后台）：不得返回新票据，按取消处理。
+    func testM11_cancelBeforeReconfirmReturnsCancelled() async {
+        let r = rig()
+        guard let t = await ticket(r) else { return XCTFail() }
+        let result = await r.service.commitJoin(t, local: {
+            t.cancel()
+            return SyncLocalData(curation: Curation(favorites: ["alice", "bob"], blocked: ["mallory"]))
+        }, sink: r.sink)
+        XCTAssertEqual(result, .cancelled, "取消在重算窗口内发生，不能越过它重新装上确认页")
+        XCTAssertFalse(r.t.log.contains { $0.hasPrefix("PUT") })
+        assertNotJoined(r)
+    }
+
+    /// 409 后重算计数变了、而等 PUT 期间票据已被取消：同样按取消处理。
+    func testM11_cancelDuringConflictedPutReturnsCancelled() async {
+        let r = rig()
+        guard let t = await ticket(r) else { return XCTFail() }
+        r.t.puts = [ServiceFixture.blob(ServiceFixture.remoteDoc(favorites: ["zed", "alice"]), ver: 4, conflict: true)]
+        r.t.onPut = { t.cancel() }
+        let result = await r.service.commitJoin(t, local: { SyncLocalData(curation: self.localCuration) }, sink: r.sink)
+        XCTAssertEqual(result, .cancelled)
+        assertNotJoined(r)
+    }
+
     /// 409 重试：响应版本与信封水位不得回退（与普通同步一致）。
     func testConflictMustNotRollBackWatermark() async {
         for (ver, label) in [(UInt64(2), "版本回退"), (UInt64(3), "同版本换了信封")] {

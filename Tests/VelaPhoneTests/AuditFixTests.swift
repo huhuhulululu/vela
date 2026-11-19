@@ -604,6 +604,30 @@ final class SyncJoinWiringTests: XCTestCase {
         XCTAssertFalse(hub.busy)
     }
 
+    // MARK: H9 磁盘上有同步状态就不能关实验开关
+
+    /// 磁盘上同步状态是已开启，但启动因钥匙串暂时不可用停在 `.unavailable`、启动任务已结束：关实验开关要被拒，
+    /// 否则之后的本机编辑会在再开开关时被旧文档的投影覆盖。
+    func testH9_cannotTurnExperimentOffWhileStateIsStoredButUnavailable() async throws {
+        let stage = makeStage()
+        let store = StateStore(), keys = KeyStore(), transport = SlowTransport()
+        let material = try SyncCrypto.derive(Self.key)
+        var state = SyncState(phase: .active, origin: Self.origin, blobID: material.blobID, clock: SyncClock(dev: 7))
+        state.epoch = Self.epoch
+        store.stored = state
+        keys.entry = SyncKeychainEntry(key: Self.key, dev: 7, blobID: material.blobID)
+        keys.unavailable = true
+        let (hub, service) = hub(stage, store: store, keys: keys, transport: transport)
+        await waitUntil { hub.phase == .unavailable }
+        XCTAssertEqual(hub.phase, .unavailable, "前提：钥匙串暂时不可用")
+        try? await Task.sleep(nanoseconds: 200_000_000)
+        XCTAssertFalse(service.isActive, "前提：协调器没挂上")
+        hub.setExperiment(false)
+        XCTAssertTrue(hub.experimentEnabled, "磁盘上还有同步状态：拒绝关闭")
+        XCTAssertNotNil(hub.notice)
+        XCTAssertTrue(stage.settings.experimentSync)
+    }
+
     // MARK: M7 停留记账不绕过提交锁
 
     /// 加入提交中：停留结算不改口味、不排保存；锁一放开照常记账。
