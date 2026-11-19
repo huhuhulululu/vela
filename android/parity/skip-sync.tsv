@@ -1,0 +1,8 @@
+# S4 跳过。三列制表符：swift_file、swift_test、reason。
+# 安卓 CurationStore / TasteStore 没有 lastLoadOutcome，且不在 S4 允许改的文件里。
+swift_file	swift_test	reason
+Tests/VelaCoreTests/SyncTasteTests.swift	testCurationStoreOutcomeMissingThenLoaded	不移植：CurationStore 没有 lastLoadOutcome，S4 不能改 curation 包
+Tests/VelaCoreTests/SyncTasteTests.swift	testCurationStoreQuarantineOutcomeIsSticky	不移植：CurationStore 没有 lastLoadOutcome，S4 不能改 curation 包
+Tests/VelaCoreTests/SyncTasteTests.swift	testCurationStoreReadOnlyOutcome	不移植：CurationStore 没有 lastLoadOutcome，S4 不能改 curation 包
+Tests/VelaCoreTests/SyncTasteTests.swift	testTasteStoreOutcomes	不移植：TasteStore 没有 lastLoadOutcome，S4 不能改 taste 包
+Tests/VelaCoreTests/SyncTasteTests.swift	testTasteStoreReadOnlyOutcome	不移植：TasteStore 没有 lastLoadOutcome，S4 不能改 taste 包

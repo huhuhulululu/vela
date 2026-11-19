@@ -29,6 +29,7 @@ GROUPS = (
     "recommend",
     "curation",
     "selection",
+    "sync",
     "audio",
     "cross",
 )
@@ -126,6 +127,19 @@ WHOLE = {
     "Tests/VelaCoreTests/VetoVisibilityTests.swift": "cross",
     "Tests/VelaCoreTests/FileLimitTests.swift": "cross",
     "Tests/VelaCoreTests/SearchFix13Tests.swift": "cross",
+    "Tests/VelaCoreTests/SyncVectorsTests.swift": "sync",
+    "Tests/VelaCoreTests/SyncSimulationTests.swift": "sync",
+    "Tests/VelaCoreTests/SyncCoordinatorTests.swift": "sync",
+    "Tests/VelaCoreTests/SyncLifecycleTests.swift": "sync",
+    "Tests/VelaCoreTests/SyncCodeTests.swift": "sync",
+    "Tests/VelaCoreTests/SyncProjectionTests.swift": "sync",
+    "Tests/VelaCoreTests/SyncDocumentTests.swift": "sync",
+    "Tests/VelaCoreTests/SyncMergeTests.swift": "sync",
+    "Tests/VelaCoreTests/SyncMigrationTests.swift": "sync",
+    "Tests/VelaCoreTests/SyncOpsTests.swift": "sync",
+    "Tests/VelaCoreTests/SyncPrimitivesTests.swift": "sync",
+    "Tests/VelaCoreTests/SyncRestampTests.swift": "sync",
+    "Tests/VelaCoreTests/SyncTasteTests.swift": "sync",
 }
 
 PARTIAL = {

@@ -1,0 +1,5 @@
+# swift_file	swift_test	kotlin_id
+# S4 的 Kotlin 测试与 Swift 同名，类名后缀与 Swift 文件名一致
+# （SyncVectorsTests、SyncSimulationTests、SyncCoordinatorTests、
+# SyncLifecycleTests、SyncCodeTests、SyncProjectionTests）。
+# parity 按类名后缀对上，这里不需要显式映射。
