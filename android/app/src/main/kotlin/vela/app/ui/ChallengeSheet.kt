@@ -1,7 +1,5 @@
 package vela.app.ui
 
-import android.annotation.SuppressLint
-import android.webkit.WebChromeClient
 import android.webkit.WebView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -77,7 +75,6 @@ fun ChallengeSheet(
     }
 }
 
-@SuppressLint("SetJavaScriptEnabled")
 @Composable
 private fun ChallengeWeb(url: String, modifier: Modifier = Modifier) {
     var progress by remember { mutableFloatStateOf(0f) }
@@ -86,12 +83,7 @@ private fun ChallengeWeb(url: String, modifier: Modifier = Modifier) {
             modifier = Modifier.fillMaxSize(),
             factory = { context ->
                 WebView(context).apply {
-                    settings.javaScriptEnabled = true
-                    webChromeClient = object : WebChromeClient() {
-                        override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                            progress = newProgress / 100f
-                        }
-                    }
+                    configureChallengeWeb(this) { progress = it }
                     tag = url
                     loadUrl(url)
                 }

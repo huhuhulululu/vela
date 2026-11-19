@@ -2,9 +2,7 @@ package vela.app.stage
 
 import android.annotation.SuppressLint
 import android.graphics.Color as AndroidColor
-import android.webkit.WebChromeClient
 import android.webkit.WebView
-import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -35,10 +33,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import vela.app.R
+import vela.app.ui.configureChallengeWeb
 import vela.app.ui.theme.ChampagneButton
 import vela.app.ui.theme.QuietTextButton
 import vela.app.ui.theme.Theme
-import vela.core.base.net.UserAgent
 
 /**
  * 站点质询页。网页只用来完成确认，画面仍回播放器。
@@ -88,6 +86,7 @@ fun ChallengeSheet(
                         view.loadUrl(url)
                     }
                 },
+                onRelease = { view -> view.destroy() },
             )
             if (progress > 0f && progress < 1f) {
                 Box(
@@ -120,16 +119,7 @@ private fun challengeWebView(
     view.setBackgroundColor(AndroidColor.rgb(11, 11, 13))
     view.contentDescription = "challenge-web"
     view.tag = url
-    view.settings.javaScriptEnabled = true
-    view.settings.domStorageEnabled = true
-    view.settings.mediaPlaybackRequiresUserGesture = true
-    view.settings.userAgentString = UserAgent.safari
-    view.webViewClient = WebViewClient()
-    view.webChromeClient = object : WebChromeClient() {
-        override fun onProgressChanged(view: WebView?, newProgress: Int) {
-            onProgress(newProgress / 100f)
-        }
-    }
+    configureChallengeWeb(view, onProgress)
     view.layoutParams = FrameLayout.LayoutParams(
         FrameLayout.LayoutParams.MATCH_PARENT,
         FrameLayout.LayoutParams.MATCH_PARENT,
