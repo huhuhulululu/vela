@@ -138,6 +138,13 @@ public enum SyncLifecycle {
     }
 
     static func finishClear(_ state: SyncState, store: SyncStateStore, keychain: SyncKeychain, transport: SyncTransport) async -> SyncFlowResult {
+        // 从没联系上服务端（没有 epoch、水位为 0、没有在途请求）：空间不可能存在，delete 也签不了名，直接做本机关闭的剩余步骤。
+        if state.epoch == nil, state.lastSeenVer == 0, state.inflight == nil {
+            var disabling = state
+            disabling.phase = .disabling
+            guard store.save(disabling) else { return .storageFailed }
+            return finishDisable(store: store, keychain: keychain)
+        }
         var base = state.lastSeenVer
         for _ in 0...SyncCoordinator.conflictRetries {
             switch await transport.delete(base: base, epoch: state.epoch) {

@@ -189,6 +189,19 @@ final class SyncLifecycleTests: XCTestCase {
         XCTAssertEqual(keychain.entry, .none)
     }
 
+    /// 审计 medium：离线开启、空间从未创建（没有 epoch、水位为 0、没有在途请求）时，清除云端直接做本机关闭，不发 delete。
+    func testClearWithoutEverReachingServerFinishesLocally() async {
+        let s = state(.active, doc: sampleDoc())
+        XCTAssertNil(s.epoch)
+        let store = MemoryStateStore(s), keychain = MemoryKeychain(.present(blobID: blob)), sink = MemorySink()
+        let transport = MemoryTransport(MemoryServer())
+        let result = await SyncLifecycle.clear(s, store: store, keychain: keychain, sink: sink, transport: transport)
+        XCTAssertEqual(result, .done)
+        XCTAssertEqual(transport.deletes, [])
+        XCTAssertNil(store.stored)
+        XCTAssertEqual(keychain.entry, .none)
+    }
+
     func testClearKeepsClearingWhenNetworkFails() async {
         let server = MemoryServer()
         server.ver = 2
