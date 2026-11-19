@@ -76,9 +76,7 @@ internal object WebNetworkGate {
             try {
                 if (WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) {
                     val port = tunnel().port
-                    val config = ProxyConfig.Builder()
-                        .addProxyRule("http://127.0.0.1:$port")
-                        .build()
+                    val config = originProxyConfig(port)
                     ProxyController.getInstance().setProxyOverride(config, CALLBACKS) {
                         enforcing = true
                         deliverPending()
@@ -151,6 +149,13 @@ internal object WebNetworkGate {
         Thread(runnable, "vela-webview-proxy").apply { isDaemon = true }
     }
 }
+
+/** WebView 进程级代理。调用方要让回环和链路本地也走这条规则，而不是留给系统隐式直连。 */
+internal fun originProxyConfig(port: Int): ProxyConfig =
+    ProxyConfig.Builder()
+        .addProxyRule("http://127.0.0.1:$port")
+        .removeImplicitRules()
+        .build()
 
 internal fun originGateAllows(
     url: String,

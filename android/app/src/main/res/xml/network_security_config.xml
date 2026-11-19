@@ -1,8 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 本机来源代理只走环回明文。其它主机仍按默认禁止明文。 -->
+<!-- 不给 WebView 放行回环明文。环回和链路本地也要走来源代理，不能靠全局明文例外直连。 -->
 <network-security-config>
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="false">127.0.0.1</domain>
-        <domain includeSubdomains="false">localhost</domain>
-    </domain-config>
+    <base-config cleartextTrafficPermitted="false" />
 </network-security-config>

@@ -60,6 +60,28 @@ if ! grep -F "OK (" "${out}" >/dev/null 2>&1; then
   exit 1
 fi
 
+proxy_out="${out_dir}/proxy-instrument.txt"
+set +e
+adb shell am instrument -w \
+  -e class vela.app.infra.WebProxyEmulatorTest \
+  vela.app.test/androidx.test.runner.AndroidJUnitRunner >"${proxy_out}" 2>&1
+proxy_status=$?
+set -e
+cat "${proxy_out}"
+if [ "${proxy_status}" -ne 0 ]; then
+  exit "${proxy_status}"
+fi
+if grep -F "FAILURES!!!" "${proxy_out}" >/dev/null 2>&1; then
+  exit 1
+fi
+if grep -F "INSTRUMENTATION_FAILED" "${proxy_out}" >/dev/null 2>&1; then
+  exit 1
+fi
+if ! grep -F "OK (" "${proxy_out}" >/dev/null 2>&1; then
+  echo "代理仪器测试没有 OK" >&2
+  exit 1
+fi
+
 if [ -n "${VELA_REQUEST_LOG:-}" ] && [ -f "${VELA_REQUEST_LOG}" ]; then
   if ! grep -F '"path":"/api/ts/roomlist/room-list"' "${VELA_REQUEST_LOG}" >/dev/null 2>&1; then
     echo "请求日志里没有目录" >&2

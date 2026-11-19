@@ -168,4 +168,5 @@ dependencies {
     androidTestImplementation(libs.androidx.test.rules)
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.uiautomator)
+    androidTestImplementation("org.bouncycastle:bcpkix-jdk18on:1.78.1")
 }
