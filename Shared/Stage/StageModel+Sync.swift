@@ -148,8 +148,23 @@ final class SyncHub: ObservableObject {
             model.$showTaste.removeDuplicates().filter { $0 }.sink { [weak self] _ in self?.trigger(.panel) },
         ]
         observeLifecycle()
-        startTask = Task { await start() }
+        launchStart()
     }
+
+    /// 排启动恢复：排上的那一刻就进入「启动中」（`starting`，实验开关此时拒绝关闭），不留任务开跑之前的空隙（H5'）。
+    private func launchStart() {
+        guard !starting else { return }
+        starting = true
+        let id = UUID()
+        startID = id
+        startTask = Task { [weak self] in
+            await self?.start()
+            // 只有当前这一次启动结束才退出「启动中」：摘线后迟到的旧任务不改它。
+            if self?.startID == id { self?.starting = false }
+        }
+    }
+
+    private var startID: UUID?
 
     /// 启动恢复的任务：摘线时取消。
     private var startTask: Task<Void, Never>?
@@ -169,6 +184,8 @@ final class SyncHub: ObservableObject {
         cancelJoin()
         startTask?.cancel()
         startTask = nil
+        startID = nil
+        starting = false
         editTask?.cancel()
         editTask = nil
         for o in observers { NotificationCenter.default.removeObserver(o) }
@@ -212,9 +229,8 @@ final class SyncHub: ObservableObject {
     private var starting = false
 
     private func start() async {
-        guard let model, let sink, !starting else { return }
-        starting = true
-        defer { starting = false }
+        // 调用服务之前再确认一次：已摘线或任务被取消就不读钥匙串、不启动（磁盘为已开启时也不会被激活）。
+        guard wired, !Task.isCancelled, let model, let sink else { return }
         let local = model.syncLocalData()
         let result = await service.start(local: { local }, sink: sink)
         if abandonedAfterAwait() { return }
@@ -271,7 +287,7 @@ final class SyncHub: ObservableObject {
 
     func trigger(_ trigger: SyncScheduler.Trigger) {
         if SyncScheduler.retriesStartup(unavailable: phase == .unavailable, on: trigger), !starting {
-            startTask = Task { await start() }
+            launchStart()
             return
         }
         guard isOn, service.isActive, scheduler.allows(trigger, now: nowMillis) else { return }

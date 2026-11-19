@@ -390,9 +390,20 @@ final class SyncJoinWiringTests: XCTestCase {
 
     final class KeyStore: SyncKeyStore {
         var entry: SyncKeychainEntry?
-        func readEntry() -> SyncKeychainLookup { entry.map { .present($0) } ?? .none }
+        /// 钥匙串暂时不可用（首次解锁前）。
+        var unavailable = false
+        private(set) var reads = 0
+        func readEntry() -> SyncKeychainLookup {
+            reads += 1
+            if unavailable { return .unavailable }
+            return entry.map { .present($0) } ?? .none
+        }
         func write(_ entry: SyncKeychainEntry) -> SyncKeychainWrite { self.entry = entry; return .ok }
-        func read() -> SyncKeychainRead { entry.map { .present(blobID: $0.blobID) } ?? .none }
+        func read() -> SyncKeychainRead {
+            reads += 1
+            if unavailable { return .unavailable }
+            return entry.map { .present(blobID: $0.blobID) } ?? .none
+        }
         func delete() -> Bool { entry = nil; return true }
     }
 
@@ -482,6 +493,34 @@ final class SyncJoinWiringTests: XCTestCase {
         await create.value
         XCTAssertFalse(!hub.experimentEnabled && (hub.phase == .active || service.isActive),
                        "实验已关却有活动同步：phase=\(hub.phase) active=\(service.isActive)")
+    }
+
+    /// 钥匙串暂时不可用时，离散触发会重排启动；排上之后立刻关实验开关：要么拒绝关闭，要么之后绝不再启动同步
+    /// （不读钥匙串、不激活）。
+    func testH5_turningExperimentOffRightAfterUnavailableRetryNeverStartsSync() async throws {
+        let stage = makeStage()
+        let store = StateStore(), keys = KeyStore(), transport = SlowTransport()
+        let material = try SyncCrypto.derive(Self.key)
+        var state = SyncState(phase: .active, origin: Self.origin, blobID: material.blobID, clock: SyncClock(dev: 7))
+        state.epoch = "0123456789abcdef0123456789abcdef"
+        store.stored = state
+        keys.entry = SyncKeychainEntry(key: Self.key, dev: 7, blobID: material.blobID)
+        keys.unavailable = true
+        let (hub, service) = hub(stage, store: store, keys: keys, transport: transport)
+        await waitUntil { hub.phase == .unavailable }
+        XCTAssertEqual(hub.phase, .unavailable, "前提：钥匙串暂时不可用")
+        keys.unavailable = false
+        let readsBefore = keys.reads
+        hub.trigger(.foreground)
+        hub.setExperiment(false)
+        try? await Task.sleep(nanoseconds: 500_000_000)
+        if hub.experimentEnabled {
+            XCTAssertNotNil(hub.notice, "拒绝关闭要说明原因")
+        } else {
+            XCTAssertEqual(keys.reads, readsBefore, "开关已关：排上的启动不再调用服务（不读钥匙串）")
+            XCTAssertFalse(service.isActive)
+            XCTAssertNotEqual(hub.phase, .active)
+        }
     }
 
     // MARK: M7 停留记账不绕过提交锁
