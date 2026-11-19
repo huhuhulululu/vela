@@ -40,6 +40,17 @@ enum SyncStatusText {
         }
     }
 
+    /// 关闭、清除、启动恢复等流程的结果（第 12 节），按实际发生的事说。
+    static func flow(_ result: SyncFlowResult) -> String {
+        switch result {
+        case .done: return ""
+        case .localSaveFailed: return "本机保存失败，未做任何更改。"
+        case .storageFailed: return "读写本机同步状态或钥匙串失败，没有完成的步骤会在下次启动时继续。"
+        case .remotePending: return "暂时连不上服务器，清除尚未完成，下次启动时继续。"
+        case .remoteRejected: return "云端拒绝了清除请求。"
+        }
+    }
+
     static func startup(_ action: SyncStartupAction) -> String? {
         switch action {
         case .keyLost: return "同步密钥丢失，请重新输入同步码。"

@@ -417,15 +417,7 @@ final class SyncHub: ObservableObject {
 
     func showNotice(_ text: String) { set(\.notice, text) }
 
-    static func flowText(_ result: SyncFlowResult) -> String {
-        switch result {
-        case .done: return ""
-        case .localSaveFailed: return "本机保存失败，未做任何更改。"
-        case .storageFailed: return "删除同步状态失败，下次启动时继续。"
-        case .remotePending: return "暂时连不上服务器，清除尚未完成，下次启动时继续。"
-        case .remoteRejected: return "云端拒绝了清除请求。"
-        }
-    }
+    static func flowText(_ result: SyncFlowResult) -> String { SyncStatusText.flow(result) }
 }
 
 enum SyncHubError: Error, Equatable {
