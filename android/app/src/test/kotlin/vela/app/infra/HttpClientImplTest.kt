@@ -11,7 +11,10 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.asExecutor
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -158,6 +161,78 @@ class HttpClientImplTest {
         }
     }
 
+    @Test(timeout = 8_000)
+    fun testHeaderDelayCountsAgainstTheTotalDeadline() {
+        withServer({ exchange ->
+            Thread.sleep(800)
+            exchange.sendResponseHeaders(200, 100_000)
+            try {
+                Thread.sleep(5_000)
+            } catch (_: InterruptedException) {
+            }
+        }) { port ->
+            val started = System.nanoTime()
+            val failed = runCatching {
+                runBlocking {
+                    HttpClientImpl().send(HTTPRequest(url = "http://127.0.0.1:$port/slow-header", timeoutSeconds = 1.0))
+                }
+            }
+            val elapsedMs = (System.nanoTime() - started) / 1_000_000
+            assertTrue(failed.isFailure)
+            assertTrue("响应头之后又给了完整读超时 elapsed=$elapsedMs", elapsedMs < 1_500)
+        }
+    }
+
+    @Test(timeout = 15_000)
+    fun testQueuedTimeCountsAgainstTheTotalDeadline() {
+        val hits = AtomicInteger()
+        saturateIo {
+            withServer({ exchange ->
+                hits.incrementAndGet()
+                val body = "ok".toByteArray()
+                exchange.sendResponseHeaders(200, body.size.toLong())
+                exchange.responseBody.use { it.write(body) }
+            }) { port ->
+                val scope = CoroutineScope(SupervisorJob())
+                val job = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                    HttpClientImpl().send(HTTPRequest(url = "http://127.0.0.1:$port/queued", timeoutSeconds = 0.4))
+                }
+                Thread.sleep(700)
+                releaseSaturatedIo()
+                val finished = runCatching { runBlocking { withTimeout(3_000) { job.join() } } }
+                Thread.sleep(200)
+                assertTrue(finished.isSuccess)
+                assertTrue("排队时间没有计入总期限", job.isCancelled || !job.isActive)
+                assertEquals("排队超过期限后仍然发出了请求", 0, hits.get())
+                scope.cancel()
+            }
+        }
+    }
+
+    @Test(timeout = 15_000)
+    fun testCancelBeforeExecutionDoesNotSend() {
+        val hits = AtomicInteger()
+        saturateIo {
+            withServer({ exchange ->
+                hits.incrementAndGet()
+                val body = "ok".toByteArray()
+                exchange.sendResponseHeaders(200, body.size.toLong())
+                exchange.responseBody.use { it.write(body) }
+            }) { port ->
+                val scope = CoroutineScope(SupervisorJob())
+                val job = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                    HttpClientImpl().send(HTTPRequest(url = "http://127.0.0.1:$port/queued", timeoutSeconds = 8.0))
+                }
+                job.cancel()
+                releaseSaturatedIo()
+                runBlocking { withTimeout(3_000) { job.join() } }
+                Thread.sleep(300)
+                assertEquals("取消后排队任务仍然发出了请求", 0, hits.get())
+                scope.cancel()
+            }
+        }
+    }
+
     @Test
     fun testForwardsCallerHeadersAndErrorBody() {
         val userAgent = AtomicReference<String?>(null)
@@ -178,6 +253,32 @@ class HttpClientImplTest {
             assertEquals("nope", result.data.toString(Charsets.UTF_8))
             assertEquals("vela-test-agent", userAgent.get())
         }
+    }
+
+    private val ioRelease = java.util.concurrent.atomic.AtomicReference<CountDownLatch?>(null)
+
+    private fun saturateIo(block: () -> Unit) {
+        val release = CountDownLatch(1)
+        ioRelease.set(release)
+        val running = CountDownLatch(64)
+        val executor = Dispatchers.IO.asExecutor()
+        repeat(96) {
+            executor.execute {
+                running.countDown()
+                release.await()
+            }
+        }
+        try {
+            assertTrue("IO 没有饱和", running.await(5, TimeUnit.SECONDS))
+            block()
+        } finally {
+            release.countDown()
+            ioRelease.set(null)
+        }
+    }
+
+    private fun releaseSaturatedIo() {
+        ioRelease.get()?.countDown()
     }
 
     private fun withServer(handler: com.sun.net.httpserver.HttpHandler, block: (Int) -> Unit) {
