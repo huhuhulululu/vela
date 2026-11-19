@@ -62,6 +62,9 @@ class PlaybackLane(
         Probe.current.onRenderedFirstFrame(laneName, at)
     }
 
+    /** 播放状态变化时通知舞台。代替前台轮询。 */
+    var onPlaybackFace: (() -> Unit)? = null
+
     var readyUsername: String? = null
         private set
     var playingUsername: String? = null
@@ -229,6 +232,7 @@ class PlaybackLane(
         lastError = message
         failed = true
         syncRefreshing()
+        publishFace()
     }
 
     fun attachSurface(surface: Surface?) {
@@ -253,6 +257,7 @@ class PlaybackLane(
     fun renderedOutputBufferCount(): Int = player.renderedOutputBufferCount()
 
     fun release() {
+        onPlaybackFace = null
         stop()
         player.release()
     }
@@ -280,6 +285,11 @@ class PlaybackLane(
             playingUsername = null
             armStuck()
         }
+        publishFace()
+    }
+
+    private fun publishFace() {
+        onPlaybackFace?.invoke()
     }
 
     override fun onPlaybackError(reset: Boolean, chain: List<FailureCode>) {
@@ -346,6 +356,7 @@ class PlaybackLane(
             if (!hub.allowStart) return
             lastError = "本地中继没能启动，暂时无法播放"
             failed = true
+            publishFace()
             return
         }
         activeSourceId = handle.id
@@ -503,6 +514,7 @@ class PlaybackLane(
         lastError = message
         failed = true
         syncRefreshing()
+        publishFace()
     }
 
     private fun retryWithFreshAddress(username: String) {
@@ -546,6 +558,7 @@ class PlaybackLane(
         lastError = message
         failed = true
         syncRefreshing()
+        publishFace()
     }
 
     private fun armStuck() {
@@ -588,6 +601,7 @@ class PlaybackLane(
                 lastError = message
                 failed = true
                 syncRefreshing()
+                publishFace()
             }
         }
     }

@@ -4,10 +4,6 @@ import android.media.AudioManager
 import android.util.Log
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -226,7 +222,7 @@ class AppPlaybackSession(
     val lane: StateFlow<PlaybackLane?> = mutableLane.asStateFlow()
 
     var webHost: FrameLayout? = null
-    private var observe: Job? = null
+    private var observed: PlaybackLane? = null
     private var audioStarted: Boolean = false
 
     private val audio: AudioFocusController = AudioFocusController(
@@ -314,24 +310,25 @@ class AppPlaybackSession(
     }
 
     private fun observe(lane: PlaybackLane) {
-        observe?.cancel()
-        observe = stage.scope.launch {
-            while (isActive) {
-                if (lane.failed && stage.state.value.lane.playback != LanePlayback.Failed) {
-                    stage.noteFailed(true, lane.lastError ?: "暂时无法播放")
-                }
-                val ready = lane.readyUsername
-                if (ready != null) stage.noteReady(ready)
-                val playing = lane.playingUsername
-                if (playing != null) stage.notePlaying(playing)
-                delay(OBSERVE_MS)
-            }
+        stopObserving()
+        observed = lane
+        lane.onPlaybackFace = { syncFromLane(lane) }
+        syncFromLane(lane)
+    }
+
+    private fun syncFromLane(lane: PlaybackLane) {
+        if (lane.failed && stage.state.value.lane.playback != LanePlayback.Failed) {
+            stage.noteFailed(true, lane.lastError ?: "暂时无法播放")
         }
+        val ready = lane.readyUsername
+        if (ready != null) stage.noteReady(ready)
+        val playing = lane.playingUsername
+        if (playing != null) stage.notePlaying(playing)
     }
 
     private fun stopObserving() {
-        observe?.cancel()
-        observe = null
+        observed?.onPlaybackFace = null
+        observed = null
     }
 
     private class StageAudioSinks(
@@ -370,9 +367,6 @@ class AppPlaybackSession(
         override fun pausePlayback() = Unit
     }
 
-    companion object {
-        private const val OBSERVE_MS: Long = 250L
-    }
 }
 
 internal fun StageViewModel.phoneSnapshots(): List<PhoneLaneSnapshot> = listOf(
