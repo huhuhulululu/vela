@@ -18,6 +18,7 @@ import vela.app.lane.LaneSurface
 import vela.app.stage.AppPlaybackSession
 import vela.app.stage.LifecycleWiring
 import vela.app.stage.StageViewModel
+import vela.app.stage.challengeEntryUrl
 import vela.app.ui.StageScreen
 import vela.core.lifecycle.PhoneScenePhase
 
@@ -117,7 +118,7 @@ class MainActivity : ComponentActivity() {
         val session = this.session
         view.setContent {
             val lane by session.lane.collectAsState()
-            StageScreen(stage = stage) { _ ->
+            StageScreen(stage = stage, challengeUrl = challengeEntryUrl()) { _ ->
                 val current = lane
                 if (current != null) {
                     LaneSurface(lane = current, thumbnail = null, modifier = Modifier.fillMaxSize())

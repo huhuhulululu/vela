@@ -1,17 +1,8 @@
 package vela.app.playchain
 
-import android.graphics.Bitmap
-import android.graphics.Color
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebView
-import android.widget.FrameLayout
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.ComposeView
-import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -25,16 +16,10 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import vela.app.MainActivity
 import vela.app.infra.Endpoints
-import vela.app.infra.HttpClientImpl
 import vela.app.infra.Settings
-import vela.app.lane.LaneSurface
-import vela.app.lane.PlaybackLane
-import vela.app.stage.ChallengeSheet
 import vela.app.stage.StageIntent
 import vela.app.stage.StageSurface
 import vela.app.stage.StageViewModel
-import vela.app.stage.UpstreamHttp
-import vela.app.stage.bindLane
 import vela.app.stage.challengeEntryUrl
 
 /**
@@ -66,51 +51,16 @@ class ChallengeEmulatorTest {
         val settings = Settings(target)
         settings.ageConfirmed = true
         settings.hintSeen = true
-        val directory = java.nio.file.Paths.get(target.filesDir.absolutePath, "playchain-emu")
-        directory.toFile().deleteRecursively()
-        java.nio.file.Files.createDirectories(directory)
+        java.io.File(target.filesDir, "Vela").deleteRecursively()
 
         val scenario = ActivityScenario.launch(MainActivity::class.java)
-        val activityRef = AtomicReference<android.app.Activity>(null)
+        val activityRef = AtomicReference<MainActivity>(null)
         val stageRef = AtomicReference<StageViewModel>(null)
-        val laneRef = AtomicReference<PlaybackLane>(null)
         try {
             scenario.onActivity { activity ->
                 activityRef.set(activity)
                 Endpoints.overrideRoot(upstream)
-                val stage = StageViewModel(
-                    settings = settings,
-                    http = UpstreamHttp(upstream, HttpClientImpl()),
-                    directory = directory,
-                    context = activity,
-                )
-                val lane = PlaybackLane.create(activity)
-                val host = FrameLayout(activity)
-                stage.bindLane(lane, host)
-                stageRef.set(stage)
-                laneRef.set(lane)
-                val thumb = Bitmap.createBitmap(16, 16, Bitmap.Config.ARGB_8888)
-                thumb.eraseColor(Color.rgb(180, 90, 48))
-                val compose = ComposeView(activity)
-                compose.setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
-                host.addView(compose, FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                ))
-                activity.setContentView(host)
-                compose.setContent {
-                    val state by stage.state.collectAsState()
-                    if (state.surface == StageSurface.Challenge) {
-                        ChallengeSheet(
-                            url = challengeEntryUrl(),
-                            onDone = { stage.dispatch(StageIntent.RetryAfterChallenge) },
-                            onClose = { stage.dispatch(StageIntent.DismissChallenge) },
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    } else {
-                        LaneSurface(lane = lane, thumbnail = thumb, modifier = Modifier.fillMaxSize())
-                    }
-                }
+                stageRef.set(activity.stage)
             }
 
             val stage = stageRef.get()
@@ -122,7 +72,7 @@ class ChallengeEmulatorTest {
             val page = challengeEntryUrl()
             assertTrue("质询地址不是伪上游：$page", page.startsWith(upstream.trimEnd('/')))
 
-            assertTrue("WebView 没有挂上", waitUntil(90_000) {
+            assertTrue("正式界面没有挂上 WebView", waitUntil(90_000) {
                 onMainOrNull(activity) { findWeb(activity.findViewById(android.R.id.content)) } != null
             })
             val web = onMainOrNull(activity) { findWeb(activity.findViewById(android.R.id.content)) }
@@ -138,28 +88,17 @@ class ChallengeEmulatorTest {
             // 改为等伪上游自己说已通关（站点根由 403 变 200），再重试。
             assertTrue("伪上游没有记下通关", waitUntil(40_000) { upstreamCleared(page) })
             onMainOrNull(activity) { stage.dispatch(StageIntent.RetryAfterChallenge) }
-            val lane = laneRef.get()
             assertTrue(
                 "通关后没有起播 username=${stage.state.value.currentUsername} note=${stage.state.value.lane.playbackNote} " +
-                    "error=${stage.state.value.catalogError} failed=${lane.failed} last=${lane.lastError}",
-                waitUntil(45_000) { lane.firstFrameElapsedMs >= 0L },
+                    "error=${stage.state.value.catalogError}",
+                waitUntil(45_000) {
+                    val lane = activity.session.lane.value
+                    lane != null && lane.firstFrameElapsedMs >= 0L
+                },
             )
             assertTrue(stage.state.value.surface != StageSurface.Challenge)
             assertTrue(stage.state.value.currentUsername != null)
         } finally {
-            val activity = activityRef.get()
-            if (activity != null) {
-                val latch = CountDownLatch(1)
-                activity.runOnUiThread {
-                    try {
-                        stageRef.get()?.close()
-                        laneRef.get()?.release()
-                    } finally {
-                        latch.countDown()
-                    }
-                }
-                latch.await(5, TimeUnit.SECONDS)
-            }
             Endpoints.clearOverride()
             scenario.close()
         }
