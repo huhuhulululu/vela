@@ -10,6 +10,7 @@ import android.webkit.WebViewClient
 import java.net.URI
 import vela.app.BuildConfig
 import vela.app.infra.Endpoints
+import vela.app.infra.WebNetworkGate
 import vela.app.infra.applyFirstPartyCookiesOnly
 import vela.app.infra.interceptWhitelisted
 import vela.core.base.net.UserAgent
@@ -29,15 +30,35 @@ internal fun configureChallengeWeb(view: WebView, onProgress: (Float) -> Unit) {
     view.settings.allowFileAccess = false
     view.settings.allowContentAccess = false
     applyFirstPartyCookiesOnly(view)
-    view.webViewClient = ChallengeNavigationClient()
+    WebNetworkGate.addRule("challenge", ::challengeNavigationAllowed)
+    WebNetworkGate.watch(Endpoints.siteRoot())
+    view.webViewClient = ChallengeNavigationClient(delegateUnvalidatedMethods = false)
     view.webChromeClient = object : WebChromeClient() {
         override fun onProgressChanged(web: WebView?, newProgress: Int) {
             onProgress(newProgress / 100f)
         }
     }
+    WebNetworkGate.ensure(view)
+    WebNetworkGate.runWhenReady {
+        view.webViewClient = ChallengeNavigationClient(
+            delegateUnvalidatedMethods = WebNetworkGate.isEnforcing(),
+        )
+    }
 }
 
-internal class ChallengeNavigationClient : WebViewClient() {
+internal fun loadChallengePage(view: WebView, url: String) {
+    WebNetworkGate.ensure(view)
+    WebNetworkGate.runWhenReady {
+        view.webViewClient = ChallengeNavigationClient(
+            delegateUnvalidatedMethods = WebNetworkGate.isEnforcing(),
+        )
+        view.loadUrl(url)
+    }
+}
+
+internal class ChallengeNavigationClient(
+    private val delegateUnvalidatedMethods: Boolean = true,
+) : WebViewClient() {
     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
         return !challengeNavigationAllowed(request.url)
     }
@@ -48,9 +69,14 @@ internal class ChallengeNavigationClient : WebViewClient() {
     }
 
     override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
-        // POST 导航不会进 shouldOverrideUrlLoading，主框架也要在这里挡。
-        // 允许的 GET/HEAD 子资源自己校验每一跳重定向。
-        return interceptWhitelisted(view, request, ::challengeNavigationAllowed)
+        // POST 导航不会进 shouldOverrideUrlLoading。代理没接上时不交回 WebView。
+        return interceptWhitelisted(
+            view,
+            request,
+            Endpoints.siteRoot(),
+            ::challengeNavigationAllowed,
+            delegateUnvalidatedMethods,
+        )
     }
 }
 

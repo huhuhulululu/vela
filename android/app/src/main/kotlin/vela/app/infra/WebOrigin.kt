@@ -74,14 +74,16 @@ internal fun unavailableWebResponse(): WebResourceResponse =
     )
 
 /**
- * 主框架和子资源都先看来源。允许的 GET/HEAD 子资源自己跟随重定向，
- * 每一跳都要仍在允许的来源里；WebView 不会把重定向后的地址交回来。
- * 其它方法留回 WebView，这样 POST 正文不会丢。
+ * 子资源 GET/HEAD 自己跟随重定向，每一跳都要仍在允许的来源里。
+ * POST 和其它方法拿不到正文，不能在这里重放；只有网络层代理已经按主机拦下重定向时才交回 WebView。
+ * 代理没接上时明确拒绝，不再把 307/308 和 fetch/XHR 交给 WebView 自己跟。
  */
 internal fun interceptWhitelisted(
     view: WebView?,
     request: WebResourceRequest?,
+    documentRoot: String,
     allows: (String) -> Boolean,
+    delegateUnvalidatedMethods: Boolean = true,
 ): WebResourceResponse? {
     if (request == null) return blockedWebResponse()
     val url = request.url?.toString() ?: return blockedWebResponse()
@@ -89,14 +91,25 @@ internal fun interceptWhitelisted(
         if (request.isForMainFrame) view?.post { view.stopLoading() }
         return blockedWebResponse()
     }
-    if (request.isForMainFrame) return null
     val method = request.method?.uppercase(Locale.ROOT) ?: "GET"
-    if (method != "GET" && method != "HEAD") return null
-    return try {
-        loadGuardedSubresource(url, method, request.requestHeaders ?: emptyMap(), allows)
-    } catch (_: Exception) {
-        unavailableWebResponse()
+    if (!request.isForMainFrame && (method == "GET" || method == "HEAD")) {
+        return try {
+            loadGuardedSubresource(
+                url,
+                method,
+                request.requestHeaders ?: emptyMap(),
+                allows,
+                documentRoot,
+            )
+        } catch (_: Exception) {
+            unavailableWebResponse()
+        }
     }
+    if (method != "GET" && method != "HEAD" && !delegateUnvalidatedMethods) {
+        if (request.isForMainFrame) view?.post { view.stopLoading() }
+        return blockedWebResponse()
+    }
+    return null
 }
 
 internal fun loadGuardedSubresource(
@@ -104,6 +117,7 @@ internal fun loadGuardedSubresource(
     method: String,
     headers: Map<String, String>,
     allows: (String) -> Boolean,
+    documentRoot: String,
 ): WebResourceResponse {
     var current = initialUrl
     var verb = method.uppercase(Locale.ROOT)
@@ -118,7 +132,7 @@ internal fun loadGuardedSubresource(
             useCaches = false
         }
         try {
-            forwardSubresourceHeaders(connection, headers, current)
+            forwardSubresourceHeaders(connection, headers, current, isFirstPartyRequest(current, documentRoot))
             val status = connection.responseCode
             if (status in 300..399) {
                 val location = connection.getHeaderField("Location")
@@ -135,7 +149,7 @@ internal fun loadGuardedSubresource(
                 hops += 1
                 continue
             }
-            return subresourceResponse(connection, current, status)
+            return subresourceResponse(connection, current, status, isFirstPartyRequest(current, documentRoot))
         } catch (error: IOException) {
             try {
                 connection.disconnect()
@@ -149,10 +163,19 @@ internal fun loadGuardedSubresource(
 
 private const val MAX_RESOURCE_HOPS = 8
 
+internal fun isFirstPartyRequest(url: String, documentRoot: String): Boolean {
+    val host = webHost(url) ?: return false
+    val site = webHost(documentRoot) ?: return false
+    if (host == site) return true
+    if (site.any { it.isLetter() } && host.endsWith(".$site")) return true
+    return false
+}
+
 private fun forwardSubresourceHeaders(
     connection: HttpURLConnection,
     headers: Map<String, String>,
     url: String,
+    firstParty: Boolean,
 ) {
     for ((name, value) in headers) {
         if (name.equals("Host", true) ||
@@ -168,6 +191,7 @@ private fun forwardSubresourceHeaders(
         } catch (_: IllegalStateException) {
         }
     }
+    if (!firstParty) return
     val cookie = headers.entries.firstOrNull { it.key.equals("Cookie", true) }?.value ?: readWebCookie(url)
     if (!cookie.isNullOrBlank()) {
         try {
@@ -184,7 +208,8 @@ private fun readWebCookie(url: String): String? =
         null
     }
 
-private fun storeWebCookies(connection: HttpURLConnection, url: String) {
+private fun storeWebCookies(connection: HttpURLConnection, url: String, firstParty: Boolean) {
+    if (!firstParty) return
     try {
         val manager = CookieManager.getInstance()
         val values = connection.headerFields.entries
@@ -197,8 +222,13 @@ private fun storeWebCookies(connection: HttpURLConnection, url: String) {
     }
 }
 
-private fun subresourceResponse(connection: HttpURLConnection, url: String, status: Int): WebResourceResponse {
-    storeWebCookies(connection, url)
+private fun subresourceResponse(
+    connection: HttpURLConnection,
+    url: String,
+    status: Int,
+    firstParty: Boolean,
+): WebResourceResponse {
+    storeWebCookies(connection, url, firstParty)
     val contentType = connection.getHeaderField("Content-Type").orEmpty()
     val mime = contentType.substringBefore(';').trim().ifEmpty { "application/octet-stream" }
     val charset = Regex("charset=([^;]+)", RegexOption.IGNORE_CASE)
@@ -256,7 +286,12 @@ internal open class OriginWebViewClient(
     private val onFinished: (String?) -> Unit = {},
     private val onMainFrameError: () -> Unit = {},
     private val onOriginRejected: () -> Unit = {},
+    private val delegateUnvalidatedMethods: Boolean = true,
 ) : WebViewClient() {
+    init {
+        WebNetworkGate.watch(siteRoot)
+    }
+
     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
         if (!request.isForMainFrame) return false
         val url = request.url?.toString() ?: return true
@@ -269,7 +304,13 @@ internal open class OriginWebViewClient(
     }
 
     override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
-        return interceptWhitelisted(view, request) { WebOriginPolicy.allows(it, siteRoot) }
+        return interceptWhitelisted(
+            view,
+            request,
+            siteRoot,
+            { WebOriginPolicy.allows(it, siteRoot) },
+            delegateUnvalidatedMethods,
+        )
     }
 
     override fun onPageFinished(view: WebView?, url: String?) {

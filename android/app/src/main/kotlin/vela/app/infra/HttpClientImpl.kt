@@ -6,10 +6,13 @@ import java.net.HttpURLConnection
 import java.net.Socket
 import java.net.SocketTimeoutException
 import java.net.URL
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.locks.LockSupport
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.math.roundToInt
+import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asExecutor
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -32,27 +35,27 @@ class HttpClientImpl : HTTPClient {
         var finished = false
         return try {
             val result = suspendCancellableCoroutine { continuation ->
+                call.bind(continuation)
                 continuation.invokeOnCancellation { call.cancel() }
                 Dispatchers.IO.asExecutor().execute {
                     try {
                         when (call.claim()) {
                             LiveCall.Claim.CANCELLED -> Unit
-                            LiveCall.Claim.EXPIRED -> {
-                                if (continuation.isActive) {
-                                    continuation.resumeWithException(SocketTimeoutException("deadline"))
-                                }
-                            }
+                            LiveCall.Claim.EXPIRED -> call.failDeadline(continuation)
                             LiveCall.Claim.RUN -> {
                                 try {
                                     val value = execute(connection, request, deadline, call)
                                     call.checkpoint()
-                                    continuation.resume(value) { _, _, _ -> call.cancel() }
+                                    call.complete { continuation.resume(value) { _, _, _ -> call.cancel() } }
                                 } catch (error: Throwable) {
-                                    if (continuation.isActive) {
-                                        continuation.resumeWithException(mapCallError(error, deadline, call))
-                                    } else {
-                                        call.cancel()
+                                    val delivered = call.complete {
+                                        if (continuation.isActive) {
+                                            continuation.resumeWithException(mapCallError(error, deadline, call))
+                                        } else {
+                                            call.cancel()
+                                        }
                                     }
+                                    if (!delivered) call.cancel()
                                 }
                             }
                         }
@@ -83,16 +86,39 @@ class HttpClientImpl : HTTPClient {
         enum class Claim { RUN, CANCELLED, EXPIRED }
 
         private val lock = Any()
+        private val resumed = AtomicBoolean(false)
+        private var waiter: CancellableContinuation<HTTPResult>? = null
         private var cancelled = false
         private var expired = false
         private var started = false
         private var finished = false
+
+        fun bind(cont: CancellableContinuation<HTTPResult>) {
+            val expireNow = synchronized(lock) {
+                waiter = cont
+                !cancelled && !started && !finished && (expired || deadline.expired())
+            }
+            if (expireNow) failDeadline(cont)
+        }
 
         fun claim(): Claim = synchronized(lock) {
             if (cancelled) return Claim.CANCELLED
             if (expired || deadline.expired()) return Claim.EXPIRED
             started = true
             Claim.RUN
+        }
+
+        /** 期限到了就在这一刻结束调用方，不等 IO 线程把排队任务取出来。 */
+        fun failDeadline(cont: CancellableContinuation<HTTPResult>) {
+            if (!resumed.compareAndSet(false, true)) return
+            synchronized(lock) { waiter = null }
+            if (cont.isActive) cont.resumeWithException(SocketTimeoutException("deadline"))
+        }
+
+        fun complete(block: () -> Unit): Boolean {
+            if (!resumed.compareAndSet(false, true)) return false
+            block()
+            return true
         }
 
         fun checkpoint() {
@@ -115,11 +141,15 @@ class HttpClientImpl : HTTPClient {
         }
 
         fun expire() {
-            val live = synchronized(lock) {
+            val abort: Boolean
+            val cont: CancellableContinuation<HTTPResult>?
+            synchronized(lock) {
                 expired = true
-                started && !finished && !cancelled
+                abort = started && !finished && !cancelled
+                cont = if (!cancelled && !finished) waiter else null
             }
-            if (live) abortConnection(connection)
+            if (abort) abortConnection(connection)
+            if (cont != null) failDeadline(cont)
         }
 
         fun finish() {
@@ -158,21 +188,14 @@ class HttpClientImpl : HTTPClient {
     ) : AutoCloseable {
         private val thread = Thread({
             try {
-                var left = deadline.awaitNanos()
-                while (left > 0L) {
-                    val millis = left / 1_000_000L
-                    val nanos = (left % 1_000_000L).toInt()
-                    if (millis > 0L) {
-                        Thread.sleep(millis, nanos.coerceAtLeast(0))
-                    } else if (nanos > 0) {
-                        Thread.sleep(0, nanos)
-                    }
-                    left = deadline.awaitNanos()
+                while (!deadline.expired()) {
+                    if (Thread.interrupted()) return@Thread
+                    val left = deadline.awaitNanos()
                     if (left <= 0L) break
-                    if (millis == 0L) break
+                    LockSupport.parkNanos(left)
+                    if (Thread.interrupted()) return@Thread
                 }
-                while (!deadline.expired()) Thread.onSpinWait()
-                onElapsed()
+                if (!Thread.currentThread().isInterrupted) onElapsed()
             } catch (_: InterruptedException) {
             }
         }, "vela-http-deadline")
@@ -328,7 +351,7 @@ class HttpClientImpl : HTTPClient {
                             break
                         }
                     } else {
-                        Thread.onSpinWait()
+                        Thread.yield()
                     }
                 }
             }, "vela-http-abort")

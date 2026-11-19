@@ -85,13 +85,13 @@ private fun ChallengeWeb(url: String, modifier: Modifier = Modifier) {
                 WebView(context).apply {
                     configureChallengeWeb(this) { progress = it }
                     tag = url
-                    loadUrl(url)
+                    loadChallengePage(this, url)
                 }
             },
             update = { view ->
                 if (view.tag != url) {
                     view.tag = url
-                    view.loadUrl(url)
+                    loadChallengePage(view, url)
                 }
             },
             onRelease = { view -> view.destroy() },

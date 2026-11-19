@@ -57,6 +57,7 @@ class MainActivity : ComponentActivity() {
     private var composeView: ComposeView? = null
     private var composed: Boolean = false
     private var pendingExport: ByteArray? = null
+    private var pendingExportUri: String? = null
 
     private val createFavorites = registerForActivityResult(
         ActivityResultContracts.CreateDocument("application/json"),
@@ -73,25 +74,24 @@ class MainActivity : ComponentActivity() {
     }
 
     internal fun onFavoriteExportResult(uri: Uri?) {
-        val bytes = pendingExport
-        pendingExport = null
         if (uri == null) {
-            deleteExportSnapshot()
+            clearPendingExport()
             return
         }
+        val bytes = pendingExport ?: AtomicFile.read(exportSnapshot(), limit = Prefs.maxFileBytes)
         if (bytes == null) {
-            deleteExportSnapshot()
+            clearPendingExport()
             notifyTransferFailure(exporting = true)
             return
         }
-        lifecycleScope.launch {
-            val ok = runDocument {
-                val stream = contentResolver.openOutputStream(uri) ?: throw IOException("unavailable")
-                stream.use { it.write(bytes) }
-            }
-            deleteExportSnapshot()
-            if (!ok) notifyTransferFailure(exporting = true)
+        // 写入完成前保留快照和 URI。选择器返回后、IO 还没开始时重建，新 Activity 才能接着写。
+        pendingExport = bytes
+        rememberExportUri(uri)
+        try {
+            AtomicFile.write(exportSnapshot(), bytes)
+        } catch (_: IOException) {
         }
+        beginExportWrite()
     }
 
     internal fun importFavoritesFrom(uri: Uri) {
@@ -121,8 +121,11 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState?.getBoolean(EXPORT_PENDING) == true) {
             pendingExport = savedInstanceState.getByteArray(EXPORT_BYTES)
                 ?: AtomicFile.read(exportSnapshot(), limit = Prefs.maxFileBytes)
+            pendingExportUri = savedInstanceState.getString(EXPORT_URI)
+                ?: AtomicFile.read(exportUriFile(), limit = 4_096)?.toString(Charsets.UTF_8)
         } else if (savedInstanceState == null) {
             deleteExportSnapshot()
+            exportUriFile().delete()
         }
         installDebugHooks(applicationContext)
         if (!debugAllowsStageBoot()) return
@@ -158,6 +161,14 @@ class MainActivity : ComponentActivity() {
         val host = FrameLayout(this)
         addContentView(host, ViewGroup.LayoutParams(1, 1))
         session.webHost = host
+        if (pendingExportUri != null) {
+            if (pendingExport != null) {
+                beginExportWrite()
+            } else {
+                clearPendingExport()
+                notifyTransferFailure(exporting = true)
+            }
+        }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -165,6 +176,7 @@ class MainActivity : ComponentActivity() {
         val bytes = pendingExport ?: return
         outState.putBoolean(EXPORT_PENDING, true)
         if (bytes.size <= EXPORT_INLINE_LIMIT) outState.putByteArray(EXPORT_BYTES, bytes)
+        pendingExportUri?.let { outState.putString(EXPORT_URI, it) }
     }
 
     override fun onStart() {
@@ -238,7 +250,44 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun beginExportWrite() {
+        val uriText = pendingExportUri ?: return
+        val bytes = pendingExport ?: return
+        val uri = Uri.parse(uriText)
+        lifecycleScope.launch {
+            val ok = runDocument {
+                val stream = contentResolver.openOutputStream(uri) ?: throw IOException("unavailable")
+                stream.use { it.write(bytes) }
+            }
+            if (isDestroyed || pendingExportUri != uriText) return@launch
+            if (ok) {
+                clearPendingExport()
+            } else {
+                clearPendingExport()
+                notifyTransferFailure(exporting = true)
+            }
+        }
+    }
+
+    private fun rememberExportUri(uri: Uri) {
+        val text = uri.toString()
+        pendingExportUri = text
+        try {
+            AtomicFile.write(exportUriFile(), text.toByteArray(Charsets.UTF_8))
+        } catch (_: IOException) {
+        }
+    }
+
+    private fun clearPendingExport() {
+        pendingExport = null
+        pendingExportUri = null
+        deleteExportSnapshot()
+        exportUriFile().delete()
+    }
+
     private fun exportSnapshot(): File = AtomicFile.resolve(filesDir, "pending-favorite-export")
+
+    private fun exportUriFile(): File = AtomicFile.resolve(filesDir, "pending-favorite-export-uri")
 
     private fun deleteExportSnapshot() {
         exportSnapshot().delete()
@@ -286,6 +335,7 @@ internal fun readLimited(input: InputStream, limit: Int): ByteArray {
 
 private const val EXPORT_PENDING = "vela.pendingExport"
 private const val EXPORT_BYTES = "vela.pendingExportBytes"
+private const val EXPORT_URI = "vela.pendingExportUri"
 private const val EXPORT_INLINE_LIMIT = 400_000
 
 /** release 没有 StageHost，真实启动一律起舞台。hooks 自己出错也放行，避免把正式路径停掉。 */

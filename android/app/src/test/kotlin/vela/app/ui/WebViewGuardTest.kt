@@ -1,6 +1,7 @@
 package vela.app.ui
 
 import android.net.Uri
+import android.webkit.CookieManager
 import android.webkit.WebResourceRequest
 import com.sun.net.httpserver.HttpServer
 import java.net.InetAddress
@@ -10,6 +11,7 @@ import java.nio.charset.StandardCharsets
 import java.util.Collections
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -144,6 +146,83 @@ class WebViewGuardTest {
             server.stop(0)
             pool.shutdownNow()
             evil.close()
+        }
+    }
+
+    @Test
+    fun testAllowedThirdPartySubresourceDoesNotSendOrStoreCookies() {
+        val seen = AtomicReference<String?>(null)
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        val pool = Executors.newCachedThreadPool()
+        server.executor = pool
+        server.createContext("/") { exchange ->
+            seen.set(exchange.requestHeaders.getFirst("Cookie"))
+            val body = "js".toByteArray(StandardCharsets.UTF_8)
+            exchange.responseHeaders.add("Content-Type", "application/javascript")
+            exchange.responseHeaders.add("Set-Cookie", "third=1; Path=/")
+            exchange.sendResponseHeaders(200, body.size.toLong())
+            exchange.responseBody.use { it.write(body) }
+        }
+        server.start()
+        try {
+            val url = "http://127.0.0.1:${server.address.port}/a.js"
+            val cookies = CookieManager.getInstance()
+            cookies.setAcceptCookie(true)
+            cookies.setCookie(url, "sid=secret")
+            cookies.flush()
+            val response = vela.app.infra.loadGuardedSubresource(
+                initialUrl = url,
+                method = "GET",
+                headers = mapOf("Cookie" to "sid=from-header"),
+                allows = { true },
+                documentRoot = "https://chaturbate.com/",
+            )
+            assertEquals(200, response.statusCode)
+            assertEquals("第三方子资源带上了 Cookie", null, seen.get())
+            val stored = cookies.getCookie(url)
+            assertTrue("第三方 Set-Cookie 被写回了 $stored", stored == null || !stored.contains("third=1"))
+        } finally {
+            server.stop(0)
+            pool.shutdownNow()
+        }
+    }
+
+    @Test
+    fun testFirstPartySubresourceKeepsItsOwnCookies() {
+        val seen = AtomicReference<String?>(null)
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        val pool = Executors.newCachedThreadPool()
+        server.executor = pool
+        server.createContext("/") { exchange ->
+            seen.set(exchange.requestHeaders.getFirst("Cookie"))
+            val body = "js".toByteArray(StandardCharsets.UTF_8)
+            exchange.responseHeaders.add("Content-Type", "application/javascript")
+            exchange.responseHeaders.add("Set-Cookie", "fresh=1; Path=/")
+            exchange.sendResponseHeaders(200, body.size.toLong())
+            exchange.responseBody.use { it.write(body) }
+        }
+        server.start()
+        try {
+            val origin = "http://127.0.0.1:${server.address.port}"
+            val url = "$origin/a.js"
+            val cookies = CookieManager.getInstance()
+            cookies.setAcceptCookie(true)
+            cookies.setCookie(url, "sid=secret")
+            cookies.flush()
+            val response = vela.app.infra.loadGuardedSubresource(
+                initialUrl = url,
+                method = "GET",
+                headers = emptyMap(),
+                allows = { true },
+                documentRoot = "$origin/",
+            )
+            assertEquals(200, response.statusCode)
+            assertTrue("第一方 Cookie 没送出去 ${seen.get()}", seen.get()?.contains("sid=secret") == true)
+            val stored = cookies.getCookie(url)
+            assertTrue("第一方 Set-Cookie 没写回 $stored", stored?.contains("fresh=1") == true)
+        } finally {
+            server.stop(0)
+            pool.shutdownNow()
         }
     }
 

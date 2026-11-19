@@ -9,6 +9,10 @@ import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asExecutor
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -114,6 +118,53 @@ class FavoriteFileExchangeTest {
             }
             assertTrue(waitUntil(scenario) { written.size() > 0 })
             assertArrayEquals(expected, written.toByteArray())
+        }
+    }
+
+    @Test
+    fun testExportWriteSurvivesRecreationAfterResult() {
+        val expected = FavoriteExchange.encode(listOf("alice"))
+        val uri = Uri.parse("content://vela.test/out-recreate.json")
+        val written = ByteArrayOutputStream()
+        val release = CountDownLatch(1)
+        val running = CountDownLatch(64)
+        val executor = Dispatchers.IO.asExecutor()
+        repeat(96) {
+            executor.execute {
+                running.countDown()
+                release.await()
+            }
+        }
+        try {
+            assertTrue("IO 没有饱和", running.await(5, TimeUnit.SECONDS))
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                scenario.onActivity { activity ->
+                    activity.stage.ageConfirmed = true
+                    activity.stage.curation = Curation(favorites = listOf("alice"))
+                    activity.stage.dispatch(StageIntent.ExportFavorites)
+                }
+                ShadowLooper.idleMainLooper()
+                lateinit var request: Intent
+                scenario.onActivity { activity ->
+                    request = shadowOf(activity).nextStartedActivityForResult.intent
+                    shadowOf(activity).receiveResult(
+                        request,
+                        Activity.RESULT_OK,
+                        Intent().setData(uri),
+                    )
+                }
+                ShadowLooper.idleMainLooper()
+                scenario.recreate()
+                ShadowLooper.idleMainLooper()
+                scenario.onActivity { activity ->
+                    shadowOf(activity.contentResolver).registerOutputStream(uri, written)
+                }
+                release.countDown()
+                assertTrue(waitUntil(scenario) { written.size() > 0 })
+                assertArrayEquals(expected, written.toByteArray())
+            }
+        } finally {
+            release.countDown()
         }
     }
 

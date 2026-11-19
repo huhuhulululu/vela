@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 只并入 debug 与 perf：允许访问模拟器与本机的 http 伪上游（10.0.2.2、127.0.0.1）。release 不含此文件，保持默认禁止明文。 -->
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <application android:networkSecurityConfig="@xml/network_security_config_testnet" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application
+        android:networkSecurityConfig="@xml/network_security_config_testnet"
+        tools:replace="android:networkSecurityConfig" />
 </manifest>
