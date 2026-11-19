@@ -176,7 +176,8 @@ public final class SyncCoordinator: @unchecked Sendable {
         case .valid(let d): doc = d
         case .newerSchema: return .failure(.readOnly)
         case .invalid(let reason):
-            state.lastFailure = "invalid:\(reason)"
+            // 只记类别（冒号前的部分），不把房间键、标签等文档内容写进 sync-state.json。
+            state.lastFailure = "invalid:" + (reason.split(separator: ":", maxSplits: 1).first.map(String.init) ?? "")
             _ = store.save(state)
             return .failure(.invalidRemote)
         }

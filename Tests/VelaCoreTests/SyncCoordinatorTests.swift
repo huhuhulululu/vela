@@ -308,6 +308,18 @@ final class SyncCoordinatorTests: XCTestCase {
         XCTAssertEqual(r, .readOnly)
     }
 
+    /// 安全审查 Info：sync-state.json 的 lastFailure 只记类别，不得带房间键等文档内容。
+    func testInvalidRemoteFailureRecordsOnlyCategory() async {
+        let a = await seeded()
+        let bad = PlainCodec().seal(Array("{\"schema\":2,\"rooms\":{\"cb:secretname\":{}},\"veto\":{},\"settings\":{}}".utf8), ver: 3)!
+        a.transport.scriptedGets = [.blob(ver: 3, pub: "PUB", data: bad, epoch: server.epoch, now: server.now)]
+        let r = await a.coordinator.runCycle()
+        XCTAssertEqual(r, .invalidRemote)
+        let failure = a.coordinator.state.lastFailure ?? ""
+        XCTAssertFalse(failure.contains("secretname"), failure)
+        XCTAssertEqual(failure, "invalid:room")
+    }
+
     func testInvalidRemoteIsNotMerged() async {
         let a = await seeded()
         let bad = PlainCodec().seal(Array("{\"schema\":2,\"rooms\":{},\"veto\":{}}".utf8), ver: 3)!
