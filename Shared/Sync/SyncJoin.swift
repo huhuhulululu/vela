@@ -11,6 +11,8 @@ final class SyncJoinTicket: @unchecked Sendable {
     let keys: SyncKeyMaterial
     let dev: UInt32
     let remoteVer: UInt64
+    /// 已验证信封的哈希：409 重试时与新响应比较，版本与信封水位不得回退。
+    let remoteHash: String
     let remoteEpoch: String
     let remoteNow: UInt64
     let remote: SyncDocument
@@ -22,13 +24,15 @@ final class SyncJoinTicket: @unchecked Sendable {
     let report: SyncMigrationReport
     private let lock = NSLock()
     private var cancelledFlag = false
+    private var finalizedFlag = false
 
-    init(code: SyncCode, keys: SyncKeyMaterial, dev: UInt32, remoteVer: UInt64, remoteEpoch: String, remoteNow: UInt64,
+    init(code: SyncCode, keys: SyncKeyMaterial, dev: UInt32, remoteVer: UInt64, remoteHash: String, remoteEpoch: String, remoteNow: UInt64,
          remote: SyncDocument, replica: SyncReplica, fits: Bool, preview: SyncJoinPreview, report: SyncMigrationReport) {
         self.code = code
         self.keys = keys
         self.dev = dev
         self.remoteVer = remoteVer
+        self.remoteHash = remoteHash
         self.remoteEpoch = remoteEpoch
         self.remoteNow = remoteNow
         self.remote = remote
@@ -41,9 +45,27 @@ final class SyncJoinTicket: @unchecked Sendable {
     var host: String { code.host }
     var fingerprint: String { keys.fingerprint }
 
-    /// 用户取消或离开加入页：确认前取消什么都不写；提交途中取消则云端写完也不落本机。
-    func cancel() { lock.withLock { cancelledFlag = true } }
+    /// 用户取消、离开加入页、App 退出或被挂起：作废这张票。确认前取消什么都不写；提交途中取消则撤销已写的本机部分。
+    /// 与提交的最后一步（写「已开启」）由同一把锁裁决：返回 false 表示提交已定局，取消不再生效。
+    @discardableResult
+    func cancel() -> Bool {
+        lock.withLock {
+            guard !finalizedFlag else { return false }
+            cancelledFlag = true
+            return true
+        }
+    }
+
     var isCancelled: Bool { lock.withLock { cancelledFlag } }
+
+    /// 提交写「已开启」之前调用：没被取消就定局，之后的取消不再生效。
+    func finalize() -> Bool {
+        lock.withLock {
+            guard !cancelledFlag else { return false }
+            finalizedFlag = true
+            return true
+        }
+    }
 }
 
 enum SyncJoinPrepared {
@@ -66,12 +88,14 @@ enum SyncJoinCommit: Equatable {
     case reconfirm(SyncJoinTicket)
     /// 未加入，本机原样；附界面文案。
     case failed(String)
+    /// 回滚没有完成：快照留着，下次启动继续收尾；界面提示需要修复。
+    case needsRepair(String)
 
     static func == (a: SyncJoinCommit, b: SyncJoinCommit) -> Bool {
         switch (a, b) {
         case (.joined, .joined), (.cancelled, .cancelled): return true
         case (.reconfirm(let x), .reconfirm(let y)): return x === y
-        case (.failed(let x), .failed(let y)): return x == y
+        case (.failed(let x), .failed(let y)), (.needsRepair(let x), .needsRepair(let y)): return x == y
         default: return false
         }
     }
@@ -115,7 +139,7 @@ extension SyncService {
             switch SyncDocument.decode(bytes) {
             case .valid(let doc):
                 let stamped = SyncMigration.stampJoin(local, remote: doc, clock: SyncClock(dev: dev), pt: env.wallClock())
-                return .success(SyncJoinTicket(code: code, keys: keys, dev: dev, remoteVer: ver, remoteEpoch: epoch, remoteNow: now,
+                return .success(SyncJoinTicket(code: code, keys: keys, dev: dev, remoteVer: ver, remoteHash: codec.digest(data), remoteEpoch: epoch, remoteNow: now,
                                                remote: doc, replica: stamped.replica, fits: stamped.fits,
                                                preview: stamped.preview, report: stamped.report))
             case .newerSchema: return .failure(JoinError(text: "其他设备的 App 更新，请更新本机 App"))
@@ -124,13 +148,18 @@ extension SyncService {
         }
     }
 
-    /// 用户确认后提交。`local` 取确认这一刻的本机数据：与预览时算出的计数不同就回到确认页。
-    func commitJoin(_ original: SyncJoinTicket, local: SyncLocalData, sink: SyncLocalSink) async -> SyncJoinCommit {
+    /// 用户确认后提交（第 12.4 节）。先上提交锁：从这里到结束，本机收藏、屏蔽、口味与同步设置的写操作一律被拒
+    /// （`localWriteAllowed` 为 false），所以 `local` 在上锁之后才取，网络往返期间不可能有新的本机改动被覆盖。
+    /// 锁在任何结局下都释放；App 退出时锁随进程消失，没写「已开启」就按未加入处理。
+    func commitJoin(_ original: SyncJoinTicket, local takeLocal: () -> SyncLocalData, sink: SyncLocalSink) async -> SyncJoinCommit {
         if original.isCancelled { return .cancelled }
         guard !isActive else { return .failed("这台设备已开启同步，请先关闭") }
-        guard case .none = env.stateStore.load() else { return .failed("本机还有未清理的同步状态，请先关闭同步") }
+        guard case .none = env.stateStore.load(), !env.journal.exists else { return .failed("本机还有未清理的同步状态，请先关闭同步") }
+        guard beginCommit() else { return .failed("正在加入同步…") }
+        defer { endCommit() }
+        let local = takeLocal()
         var t = original
-        // 确认这一刻重算：用户在预览期间改了本机数据时，计数会变。
+        // 上锁之后的本机数据重算：与确认页的计数不同就回到确认页。
         switch ticketFromRemote(t, local: local) {
         case .success(let fresh):
             if fresh.preview != t.preview { return .reconfirm(fresh) }
@@ -148,13 +177,17 @@ extension SyncService {
             let next = t.remoteVer + 1
             guard let envelope = codec.seal(t.replica.doc.encoded(), ver: next) else { return .failed("系统随机源不可用，未加入") }
             let response = await transport.put(SyncPutRequest(base: t.remoteVer, next: next, envelope: envelope, epoch: t.remoteEpoch))
-            if original.isCancelled || t.isCancelled { return .cancelled }
+            if original.isCancelled { return .cancelled }
             switch response {
             case .stored(let ver, let epoch, _):
                 guard ver == next, epoch == t.remoteEpoch else { return .failed("服务器响应异常，未加入") }
-                return commitLocally(t, ver: next, envelopeHash: codec.digest(envelope), sink: sink, local: local)
+                return commitLocally(original, t, ver: next, envelopeHash: codec.digest(envelope), sink: sink)
             case .conflict(let ver, let pub, let data, let epoch, let now):
                 guard epoch == t.remoteEpoch else { return .failed(SyncStatusText.halt(.epochChanged)) }
+                // 与普通同步的水位检查一致：版本不得回退，同版本不得换信封（第 11.4 节）。
+                if ver < t.remoteVer || (ver == t.remoteVer && codec.digest(data) != t.remoteHash) {
+                    return .failed(SyncStatusText.halt(.rollback))
+                }
                 switch ticket(code: t.code, keys: t.keys, dev: t.dev, ver: ver, pub: pub, data: data, epoch: epoch, now: now, local: local) {
                 case .success(let fresh):
                     if fresh.preview != t.preview { return .reconfirm(fresh) }
@@ -173,39 +206,62 @@ extension SyncService {
 
     private func ticketFromRemote(_ t: SyncJoinTicket, local: SyncLocalData) -> Result<SyncJoinTicket, JoinError> {
         let stamped = SyncMigration.stampJoin(local, remote: t.remote, clock: SyncClock(dev: t.dev), pt: env.wallClock())
-        return .success(SyncJoinTicket(code: t.code, keys: t.keys, dev: t.dev, remoteVer: t.remoteVer, remoteEpoch: t.remoteEpoch,
+        return .success(SyncJoinTicket(code: t.code, keys: t.keys, dev: t.dev, remoteVer: t.remoteVer, remoteHash: t.remoteHash, remoteEpoch: t.remoteEpoch,
                                        remoteNow: t.remoteNow, remote: t.remote, replica: stamped.replica, fits: stamped.fits,
                                        preview: stamped.preview, report: stamped.report))
     }
 
-    /// 本机提交：钥匙串 → 同步状态 → 投影落盘屏障。任一步失败就撤销已写的部分并恢复本机原文件，回到未加入。
-    private func commitLocally(_ t: SyncJoinTicket, ver: UInt64, envelopeHash: String, sink: SyncLocalSink, local: SyncLocalData) -> SyncJoinCommit {
-        let originalTaste = sink.currentTaste()
+    /// 本机提交（第 12.4 节、第 23 节第 13 条）：文件快照 → 钥匙串 → 投影（屏障落盘）→ 同步状态（「已开启」，最后写）→ 删快照。
+    /// 每步之间看一次取消；任一步失败或被取消，用快照换回本机文件，再删钥匙串与状态。回滚本身失败就报「需要修复」。
+    private func commitLocally(_ original: SyncJoinTicket, _ t: SyncJoinTicket, ver: UInt64, envelopeHash: String, sink: SyncLocalSink) -> SyncJoinCommit {
         let failed = SyncJoinCommit.failed("本机保存失败，未加入；本机数据保持原样")
-        func rollback(restoreFiles: Bool) -> SyncJoinCommit {
-            _ = env.keyStore.delete()
-            _ = env.stateStore.delete()
-            if restoreFiles {
-                _ = sink.saveCuration(local.curation)
-                _ = sink.saveTaste(originalTaste)
-            }
-            return failed
+        func undo(_ outcome: SyncJoinCommit) -> SyncJoinCommit {
+            rollbackJoin() ? outcome : .needsRepair(SyncStatusText.joinRepair)
         }
-        guard env.keyStore.write(SyncKeychainEntry(key: t.code.key, dev: t.dev, blobID: t.keys.blobID)) == .ok else {
-            return rollback(restoreFiles: false)
-        }
+        if original.isCancelled { return .cancelled }
+        guard env.journal.snapshot() else { return failed }
+        guard env.keyStore.write(SyncKeychainEntry(key: t.code.key, dev: t.dev, blobID: t.keys.blobID)) == .ok else { return undo(failed) }
+        if original.isCancelled { return undo(.cancelled) }
         var state = SyncState(phase: .active, origin: t.code.origin, blobID: t.keys.blobID, clock: t.replica.clock, doc: t.replica.doc)
         state.epoch = t.remoteEpoch
         state.lastSeenVer = ver
         state.lastSeenHash = envelopeHash
         state.maxSentL = t.replica.doc.allRegisters.map(\.hlc.l).max() ?? 0
         state.migrated = true
-        guard env.stateStore.save(state) else { return rollback(restoreFiles: false) }
-        guard SyncLifecycle.barrier(state.doc, sink: sink) else { return rollback(restoreFiles: true) }
+        guard SyncLifecycle.barrier(state.doc, sink: sink) else { return undo(failed) }
+        // 定局：写「已开启」之前与取消用同一把锁裁决。
+        guard original.finalize() else { return undo(.cancelled) }
+        guard env.stateStore.save(state) else { return undo(failed) }
+        // 快照删不掉不影响结果：状态已是「已开启」，下次启动只会删掉它。
+        _ = env.journal.discard()
         activate(state, keys: t.keys)
         onDocumentChanged?(state.doc)
         return .joined
     }
+
+    /// 撤销未完成的加入：换回快照，再删同步状态与钥匙串条目。全部成功才返回 true。
+    func rollbackJoin() -> Bool {
+        guard env.journal.restore() else { return false }
+        guard env.stateStore.delete() else { return false }
+        return env.keyStore.delete()
+    }
+
+    // MARK: 提交锁
+
+    var isCommittingJoin: Bool { commitLock.withLock { committing } }
+
+    /// 本机收藏、屏蔽、口味与同步设置的写操作是否允许（提交中一律拒绝，不排队）。
+    var localWriteAllowed: Bool { !isCommittingJoin }
+
+    private func beginCommit() -> Bool {
+        commitLock.withLock {
+            guard !committing else { return false }
+            committing = true
+            return true
+        }
+    }
+
+    private func endCommit() { commitLock.withLock { committing = false } }
 
     /// 404 时「仍用此码创建」：等同于用这个 `K` 开启同步（第 12.3 节）。
     func createWithCode(_ code: SyncCode, local: SyncLocalData) async -> SyncCreateResult {

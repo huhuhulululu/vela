@@ -108,10 +108,11 @@ final class TestDevice {
 final class MemoryStateStore: SyncStateStore {
     private let lock = NSLock()
     private var stored: SyncState?
+    var corrupted = false
     /// 从第几次保存起失败（nil 表示不失败）。
     var failFromSave: Int?
     private(set) var saves = 0
-    func load() -> SyncStateRead { lock.withLock { stored.map { .present($0) } ?? .none } }
+    func load() -> SyncStateRead { lock.withLock { corrupted ? .corrupted : (stored.map { .present($0) } ?? .none) } }
     func save(_ state: SyncState) -> Bool {
         lock.withLock {
             saves += 1
@@ -126,12 +127,14 @@ final class MemoryStateStore: SyncStateStore {
 final class MemoryKeyStore: SyncKeyStore {
     var entry: SyncKeychainEntry?
     var failWrite = false
+    var onWrite: (() -> Void)?
     private(set) var writes = 0
     func readEntry() -> SyncKeychainLookup { entry.map { .present($0) } ?? .none }
     func write(_ entry: SyncKeychainEntry) -> SyncKeychainWrite {
         writes += 1
         guard !failWrite else { return .failed }
         self.entry = entry
+        onWrite?()
         return .ok
     }
     func read() -> SyncKeychainRead { entry.map { .present(blobID: $0.blobID) } ?? .none }
@@ -145,6 +148,7 @@ final class MemorySink: SyncLocalSink {
     private(set) var saveCount = 0
     /// 第几次保存失败（只这一次；nil 表示不失败）。
     var failOnSave: Int?
+    var onSave: (() -> Void)?
     func cancelPendingSaves() {}
     func currentTaste() -> Taste { taste }
     func saveCuration(_ c: Curation) -> Bool {
@@ -157,6 +161,7 @@ final class MemorySink: SyncLocalSink {
         saveCount += 1
         if saveCount == failOnSave { return false }
         taste = t
+        onSave?()
         return true
     }
     func applySettings(_ s: [String: Bool]) { settings.merge(s) { $1 } }
@@ -197,6 +202,34 @@ final class ScriptedTransport: SyncTransport, @unchecked Sendable {
     func delete(base: UInt64, epoch: String?) async -> SyncServerResponse { await next(\.deletes, "DELETE \(base)") }
 }
 
+/// 加入提交的文件快照替身：整份记下 sink 里的收藏、口味与设置，回滚时原样换回。
+final class MemoryJournal: SyncJoinJournal {
+    let sink: MemorySink
+    private var saved: (Curation, Taste, [String: Bool])?
+    var failSnapshot = false
+    var failRestore = false
+    private(set) var restores = 0
+    init(_ sink: MemorySink) { self.sink = sink }
+    var exists: Bool { saved != nil }
+    func snapshot() -> Bool {
+        guard !failSnapshot else { return false }
+        saved = (sink.curation, sink.taste, sink.settings)
+        return true
+    }
+    func restore() -> Bool {
+        restores += 1
+        guard !failRestore else { return false }
+        guard let saved else { return true }
+        (sink.curation, sink.taste, sink.settings) = saved
+        self.saved = nil
+        return true
+    }
+    func discard() -> Bool {
+        saved = nil
+        return true
+    }
+}
+
 enum ServiceFixture {
     static let origin = "https://sync.example"
     static let epoch = "0123456789abcdef0123456789abcdef"
@@ -220,8 +253,10 @@ enum ServiceFixture {
         return doc
     }
 
-    static func service(_ transport: ScriptedTransport, store: MemoryStateStore = MemoryStateStore(), keys: MemoryKeyStore = MemoryKeyStore()) -> SyncService {
+    static func service(_ transport: ScriptedTransport, store: MemoryStateStore = MemoryStateStore(), keys: MemoryKeyStore = MemoryKeyStore(),
+                        journal: SyncJoinJournal = MemoryJournal(MemorySink())) -> SyncService {
         SyncService(env: SyncService.Environment(stateStore: store, keyStore: keys, makeTransport: { _, _ in transport },
+                                                 journal: journal,
                                                  wallClock: { 1_800_000_000_000 },
                                                  random: { n in n == 32 ? key : [UInt8](repeating: 1, count: n) }))
     }

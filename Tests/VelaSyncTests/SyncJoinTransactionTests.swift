@@ -18,9 +18,11 @@ final class SyncJoinTransactionTests: XCTestCase {
         let sink = MemorySink()
         let service: SyncService
         let originalTaste: Taste
+        let journal: MemoryJournal
 
         init(curation: Curation) {
-            service = ServiceFixture.service(t, store: store, keys: keys)
+            journal = MemoryJournal(sink)
+            service = ServiceFixture.service(t, store: store, keys: keys, journal: journal)
             sink.curation = curation
             sink.taste = Taste().vetoing("t:asian", now: Date(timeIntervalSince1970: 1_000))
             originalTaste = sink.taste
@@ -39,6 +41,7 @@ final class SyncJoinTransactionTests: XCTestCase {
         XCTAssertEqual(d.sink.curation, localCuration, "本机收藏原样", file: file, line: line)
         XCTAssertEqual(d.sink.taste, d.originalTaste, "本机口味原样", file: file, line: line)
         XCTAssertFalse(d.service.isActive, file: file, line: line)
+        XCTAssertFalse(d.journal.exists, "快照已换回或删除", file: file, line: line)
     }
 
     func testPreviewPersistsNothing() async {
@@ -55,7 +58,7 @@ final class SyncJoinTransactionTests: XCTestCase {
         let d = device()
         guard case .preview(let ticket) = await d.service.prepareJoin(ServiceFixture.code, local: local) else { return XCTFail() }
         ticket.cancel()
-        let r = await d.service.commitJoin(ticket, local: local, sink: d.sink)
+        let r = await d.service.commitJoin(ticket, local: { self.local }, sink: d.sink)
         XCTAssertEqual(r, .cancelled)
         XCTAssertFalse(d.t.log.contains { $0.hasPrefix("PUT") }, "已取消的加入不写云端")
         assertUntouched(d)
@@ -66,7 +69,7 @@ final class SyncJoinTransactionTests: XCTestCase {
         guard case .preview(let ticket) = await d.service.prepareJoin(ServiceFixture.code, local: local) else { return XCTFail() }
         d.t.puts = [.stored(ver: 4, epoch: ServiceFixture.epoch, now: 1_800_000_000_000)]
         d.t.onPut = { ticket.cancel() }
-        let r = await d.service.commitJoin(ticket, local: local, sink: d.sink)
+        let r = await d.service.commitJoin(ticket, local: { self.local }, sink: d.sink)
         XCTAssertEqual(r, .cancelled)
         assertUntouched(d)
     }
@@ -76,7 +79,7 @@ final class SyncJoinTransactionTests: XCTestCase {
             let d = device()
             guard case .preview(let ticket) = await d.service.prepareJoin(ServiceFixture.code, local: local) else { return XCTFail() }
             d.t.puts = [response]
-            guard case .failed = await d.service.commitJoin(ticket, local: local, sink: d.sink) else { return XCTFail("\(response)") }
+            guard case .failed = await d.service.commitJoin(ticket, local: { self.local }, sink: d.sink) else { return XCTFail("\(response)") }
             assertUntouched(d)
         }
     }
@@ -91,7 +94,7 @@ final class SyncJoinTransactionTests: XCTestCase {
             case "state": d.store.failFromSave = 1
             default: d.sink.failOnSave = 2  // 收藏写成功、口味写失败：收藏要被恢复
             }
-            guard case .failed = await d.service.commitJoin(ticket, local: local, sink: d.sink) else { return XCTFail(failure) }
+            guard case .failed = await d.service.commitJoin(ticket, local: { self.local }, sink: d.sink) else { return XCTFail(failure) }
             assertUntouched(d)
         }
     }
@@ -100,7 +103,7 @@ final class SyncJoinTransactionTests: XCTestCase {
         let d = device()
         guard case .preview(let ticket) = await d.service.prepareJoin(ServiceFixture.code, local: local) else { return XCTFail() }
         d.t.puts = [.stored(ver: 4, epoch: ServiceFixture.epoch, now: 1_800_000_000_000)]
-        guard case .joined = await d.service.commitJoin(ticket, local: local, sink: d.sink) else { return XCTFail() }
+        guard case .joined = await d.service.commitJoin(ticket, local: { self.local }, sink: d.sink) else { return XCTFail() }
         XCTAssertTrue(d.service.isActive)
         guard case .present(let s) = d.store.load() else { return XCTFail() }
         XCTAssertEqual(s.phase, .active)
@@ -119,13 +122,13 @@ final class SyncJoinTransactionTests: XCTestCase {
         guard case .preview(let ticket) = await d.service.prepareJoin(ServiceFixture.code, local: local) else { return XCTFail() }
         d.t.puts = [ServiceFixture.blob(ServiceFixture.remoteDoc(favorites: ["zed", "yan"]), ver: 4, conflict: true),
                     .stored(ver: 5, epoch: ServiceFixture.epoch, now: 1_800_000_000_000)]
-        guard case .joined = await d.service.commitJoin(ticket, local: local, sink: d.sink) else { return XCTFail() }
+        guard case .joined = await d.service.commitJoin(ticket, local: { self.local }, sink: d.sink) else { return XCTFail() }
         XCTAssertEqual(Set(d.sink.curation.favorites), ["alice", "zed", "yan"])
 
         let e = device()
         guard case .preview(let t2) = await e.service.prepareJoin(ServiceFixture.code, local: local) else { return XCTFail() }
         e.t.puts = [ServiceFixture.blob(ServiceFixture.remoteDoc(favorites: ["zed", "alice"]), ver: 4, conflict: true)]
-        guard case .reconfirm(let again) = await e.service.commitJoin(t2, local: local, sink: e.sink) else { return XCTFail() }
+        guard case .reconfirm(let again) = await e.service.commitJoin(t2, local: { self.local }, sink: e.sink) else { return XCTFail() }
         XCTAssertEqual(again.preview.n, 0, "远端已有 alice，不再上传")
         assertUntouched(e)
     }

@@ -22,6 +22,8 @@ enum SyncStartResult: Equatable {
     /// 需要用户处理的启动状态（第 12.1 节）：说明文字由界面按动作给出。
     case attention(SyncStartupAction)
     case failed(SyncFlowResult)
+    /// 上次加入提交没收尾、且换回快照失败：需要修复（不静默，不激活）。
+    case needsRepair(String)
     /// 停止同步、需要用户「关闭再重开」或重新输入同步码的情况（第 11.4 节）；附界面文案。
     case stopped(String)
 
@@ -31,6 +33,7 @@ enum SyncStartResult: Equatable {
         case (.attention(let x), .attention(let y)): return x == y
         case (.failed(let x), .failed(let y)): return x == y
         case (.stopped(let x), .stopped(let y)): return x == y
+        case (.needsRepair(let x), .needsRepair(let y)): return x == y
         default: return false
         }
     }
@@ -51,12 +54,19 @@ final class SyncService: @unchecked Sendable {
         var keyStore: SyncKeyStore
         /// 由同步码里的 origin 与派生材料造传输；测试指向本机服务端。
         var makeTransport: (_ origin: String, _ keys: SyncKeyMaterial) -> SyncTransport
+        /// 加入提交的本机文件快照（第 12.4 节）。
+        var journal: SyncJoinJournal = NoJournal()
         var wallClock: () -> UInt64 = { UInt64(Date().timeIntervalSince1970 * 1000) }
         var random: (Int) throws -> [UInt8] = SyncCrypto.random
         var sizeLimit: Int = SyncLimits.plaintextBytes
     }
 
-    let env: Environment
+    private(set) var env: Environment
+    /// 本次启动换回过未完成加入的快照（界面据此重读本机数据并提示）。
+    private(set) var rolledBackAtStartup = false
+
+    /// 界面层接线时换上真实的文件快照（需要 SettingsStore）。
+    func configureJournal(_ journal: SyncJoinJournal) { env.journal = journal }
     private(set) var coordinator: SyncCoordinator?
     private(set) var keys: SyncKeyMaterial?
     private var origin: String?
@@ -64,6 +74,8 @@ final class SyncService: @unchecked Sendable {
     /// 周期单飞：一个周期从 GET 到最后一次落盘结束前，第二个周期（例如退出前补推）只能排队。
     /// `gate` 在等网络时会放开给本地操作，所以不能用它代替。排队用异步挂起，不占协作线程（复审 medium）。
     private let flight = AsyncMutex()
+    let commitLock = NSLock()
+    var committing = false
     /// 文档变化（本地操作或合并）：在任意线程调用，接收方自己回主线程重建投影。
     var onDocumentChanged: ((SyncDocument) -> Void)?
 
@@ -95,6 +107,19 @@ final class SyncService: @unchecked Sendable {
         let lookup = env.keyStore.readEntry()
         if lookup == .unsupported { return .unsupported }
         let read = env.stateStore.load()
+        // 状态文件坏掉：只进入「状态损坏」，不再读第二次，更不删钥匙串里的 K（复审 high）。
+        if read == .corrupted { return .attention(.stateCorrupted) }
+        // 上次加入提交没收尾（第 12.4 节）：已开启说明提交已完成，只删快照；否则换回快照，删掉钥匙串与状态。
+        if env.journal.exists {
+            if case .present(let s) = read, s.phase == .active {
+                _ = env.journal.discard()
+            } else {
+                guard lookup != .unavailable else { return .unavailable }
+                guard rollbackJoin() else { return .needsRepair(SyncStatusText.joinRepair) }
+                rolledBackAtStartup = true
+                return .notEnabled
+            }
+        }
         let action = SyncLifecycle.startupAction(state: read, keychain: env.keyStore.read())
         var entryKeys: SyncKeyMaterial?
         if case .present(let entry) = lookup { entryKeys = try? SyncCrypto.derive(entry.key) }
@@ -149,6 +174,12 @@ final class SyncService: @unchecked Sendable {
             return nil
         }
         Self.acquire(gate)
+        // 拿到 gate 之后再确认协调器还是这一个：关闭、清除在 gate 内摘下协调器，摘下之后不得再跑周期写回状态（复审 medium）。
+        guard coordinator === c else {
+            gate.signal()
+            await flight.unlock()
+            return nil
+        }
         let result = await c.runCycle()
         gate.signal()
         await flight.unlock()
