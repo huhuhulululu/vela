@@ -107,7 +107,7 @@ object FavoriteResolver {
     ): FavoritePlan {
         val known = HashMap<String, KnownCatalog.Entry>()
         for (entry in catalog.usable(now)) {
-            val key = Curation.key(entry.room.username)
+            val key = Curation.key(entry.room.ref)
             val existing = known[key]
             if (existing == null ||
                 entry.at.timeIntervalSince1970() > existing.at.timeIntervalSince1970()

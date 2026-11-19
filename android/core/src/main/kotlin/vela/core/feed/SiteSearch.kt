@@ -113,7 +113,7 @@ object SiteSearch {
 
     /** 去重、去掉屏蔽的；没有后续页。屏蔽名单按已经小写的用户名比对。 */
     fun page(rooms: List<Room>, blocked: Set<String>): CatalogPage {
-        val kept = dedupeRooms(rooms).filter { it.username.lowerRoot() !in blocked }
+        val kept = dedupeRooms(rooms).filter { it.identity !in blocked }
         return CatalogPage(rooms = kept, total = kept.size, nextOffset = kept.size)
     }
 }

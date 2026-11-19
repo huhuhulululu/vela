@@ -8,14 +8,15 @@ data class RoomQuery(
     val hidden: Set<String> = emptySet(),
 ) {
     fun matches(room: Room): Boolean {
-        if (room.username.lowerRoot() in blocked) return false
+        if (room.identity in blocked) return false
         val onlyNames = only
-        if (onlyNames != null && room.username.lowerRoot() !in onlyNames) return false
+        if (onlyNames != null && room.identity !in onlyNames) return false
         if (publicOnly && room.show != ShowState.publicShow) return false
         if (hidden.isNotEmpty() && isHidden(room, hidden)) return false
         val needle = text.trimSwiftWhitespace().lowerRoot()
         if (needle.isEmpty()) return true
         if (needle in room.username.lowerRoot()) return true
+        if (needle in room.ref.lowerRoot()) return true
         if (needle in room.displayName.lowerRoot()) return true
         if (needle in room.subject.lowerRoot()) return true
         return room.tags.any { needle in it.lowerRoot() }

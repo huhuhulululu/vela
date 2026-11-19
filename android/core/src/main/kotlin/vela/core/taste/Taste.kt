@@ -8,7 +8,11 @@ import java.util.Locale
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.pow
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
 import vela.core.base.model.FeedSource
 import vela.core.base.model.Gender
 import vela.core.base.model.Prefs
@@ -16,6 +20,9 @@ import vela.core.base.model.Room
 import vela.core.base.model.TasteKeys
 import vela.core.base.model.lowerRoot
 import vela.core.base.model.timeIntervalSince1970
+import vela.core.sites.RoomKey
+import vela.core.sites.SiteKeyMigration
+import vela.core.sites.SiteKeys
 
 /** 一个标签（或性别）的命中与落空证据。Beta-Bernoulli：后验是 Beta(1 + hit, 1 + miss)。 */
 @Serializable
@@ -48,7 +55,7 @@ data class Posterior(
  *
  * `tagKey` / `genderKey` 转调 [TasteKeys]。时刻参数是 [Instant]，时长和证据仍是 `Double` 秒。
  */
-@Serializable
+@Serializable(with = TasteSerializer::class)
 data class Taste(
     val beliefs: Map<String, Belief> = emptyMap(),
     val seen: Map<String, Double> = emptyMap(),
@@ -133,7 +140,7 @@ data class Taste(
 
     /** 对当前房间不感兴趣：强落空，也标记看过。 */
     fun rejecting(room: Room, source: FeedSource, now: Instant): Taste {
-        val base = marking(room.username, now)
+        val base = marking(room.ref, now)
         if (paused) return base
         var next = base.applying(room, hit = 0.0, miss = rejectStep, now = now, rarity = null)
         if (source == FeedSource.guess) next = next.withTally(isHit = false, now = now)
@@ -271,7 +278,7 @@ data class Taste(
         now: Instant,
         rarity: TagRarity?,
     ): Taste {
-        val base = marking(room.username, now)
+        val base = marking(room.ref, now)
         if (paused) return base
         var next = base
         if (feedback != Feedback.none) {
@@ -363,7 +370,11 @@ data class Taste(
 
         private fun decay(age: Double): Double = 0.5.pow(max(0.0, age) / halfLife)
 
-        private fun clipped(name: String): String = name.lowerRoot().take(Prefs.maxNameLength)
+        private fun clipped(name: String): String = seenKey(name)
+
+        /** 小写 ref，再截断到用户名上限。裸名与 `cb:` 归到同一键。 */
+        internal fun seenKey(name: String): String =
+            RoomKey.normalizeRef(name).take(Prefs.maxNameLength)
 
         private fun bump(
             beliefs: MutableMap<String, Belief>,
@@ -454,4 +465,59 @@ data class Taste(
             return Instant.ofEpochSecond(whole, nanos)
         }
     }
+}
+
+object TasteSerializer : KSerializer<Taste> {
+    override val descriptor: SerialDescriptor = Disk.serializer().descriptor
+
+    override fun serialize(encoder: Encoder, value: Taste) {
+        val disk = LinkedHashMap<String, Double>()
+        for ((key, seenAt) in value.seen) {
+            val stored = SiteKeys.disk(key)
+            disk[stored] = maxOf(disk[stored] ?: 0.0, seenAt)
+        }
+        encoder.encodeSerializableValue(
+            Disk.serializer(),
+            Disk(
+                beliefs = value.beliefs,
+                seen = disk,
+                daily = value.daily,
+                paused = value.paused,
+                keyVersion = SiteKeyMigration.version,
+            ),
+        )
+    }
+
+    override fun deserialize(decoder: Decoder): Taste {
+        val raw = decoder.decodeSerializableValue(Incoming.serializer())
+        val merged = LinkedHashMap<String, Double>()
+        for ((key, seenAt) in raw.seen) {
+            val clipped = Taste.seenKey(SiteKeys.memory(key))
+            merged[clipped] = maxOf(merged[clipped] ?: 0.0, seenAt)
+        }
+        return Taste(
+            beliefs = raw.beliefs,
+            seen = merged,
+            daily = raw.daily,
+            paused = raw.paused,
+        )
+    }
+
+    @Serializable
+    private data class Incoming(
+        val beliefs: Map<String, Belief> = emptyMap(),
+        val seen: Map<String, Double> = emptyMap(),
+        val daily: Map<String, DayTally> = emptyMap(),
+        val paused: Boolean = false,
+        val keyVersion: Int = 0,
+    )
+
+    @Serializable
+    private data class Disk(
+        val beliefs: Map<String, Belief>,
+        val seen: Map<String, Double>,
+        val daily: Map<String, DayTally>,
+        val paused: Boolean,
+        val keyVersion: Int,
+    )
 }

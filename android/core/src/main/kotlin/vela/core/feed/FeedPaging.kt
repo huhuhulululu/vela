@@ -1,6 +1,5 @@
 package vela.core.feed
 
-import vela.core.base.model.lowerRoot
 
 /**
  * 可见列表上的落点。算法与 Swift `LanePaging.landingIndex` 相同。
@@ -16,14 +15,16 @@ internal object FeedPaging {
         val sum = origin.toLong() + delta.toLong()
         var next = sum.coerceIn(0L, (count - 1).toLong()).toInt()
         if (skipping.isEmpty()) return next
-        val banned = skipping.mapTo(HashSet()) { it.lowerRoot() }
+        val banned = skipping.mapTo(HashSet()) { vela.core.sites.RoomKey.normalizeRef(it) }
         val direction = if (delta > 0) 1 else -1
-        while (names[next].lowerRoot() in banned) {
+        while (vela.core.sites.RoomKey.normalizeRef(names[next]) in banned) {
             val candidate = next + direction
             if (candidate < 0 || candidate >= count) break
             next = candidate
         }
-        if (names[next].lowerRoot() in banned && names[origin].lowerRoot() !in banned) {
+        if (vela.core.sites.RoomKey.normalizeRef(names[next]) in banned &&
+            vela.core.sites.RoomKey.normalizeRef(names[origin]) !in banned
+        ) {
             return origin
         }
         return next

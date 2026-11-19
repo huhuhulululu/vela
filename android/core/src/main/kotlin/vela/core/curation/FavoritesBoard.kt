@@ -74,7 +74,7 @@ data class FavoritesBoard(
             val playable = HashMap<String, Room>()
             for (room in catalog) {
                 if (!room.show.isPlayable) continue
-                val key = Curation.key(room.username)
+                val key = Curation.key(room.ref)
                 if (playable[key] == null) playable[key] = room
             }
 

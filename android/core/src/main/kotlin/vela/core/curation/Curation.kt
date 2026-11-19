@@ -16,15 +16,16 @@ import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.Json
 import vela.core.base.io.Mover
 import vela.core.base.io.PreferenceQuarantine
-import vela.core.base.model.CurationKeys
 import vela.core.base.model.Prefs
-import vela.core.base.model.lowerRoot
 import vela.core.base.model.trimSwiftWhitespace
+import vela.core.sites.RoomKey
+import vela.core.sites.SiteKeyMigration
+import vela.core.sites.SiteKeys
 
 /**
- * 本机收藏与屏蔽。按用户名（不分大小写）记录，各有数量上限，超出丢最旧的。
- * 同一个用户名只会在其中一边。更新都返回新值。
- * `key` 转调 L0a 的 [CurationKeys.key]。
+ * 本机收藏与屏蔽。按 ref（不分大小写）记录，各有数量上限，超出丢最旧的。
+ * 同一个 ref 只会在其中一边。更新都返回新值。
+ * 内存里 cb 保留输入时的大小写（无前缀），其他站点存 ref；编码一律写 raw。
  */
 @Serializable(with = CurationSerializer::class)
 class Curation(
@@ -98,7 +99,8 @@ class Curation(
     companion object {
         const val maxEntries: Int = 300
 
-        fun key(name: String): String = CurationKeys.key(name)
+        /** 裸名、`cb:x`、`c4:x` 都归一到小写 ref。参数名沿用，存的是 ref。 */
+        fun key(name: String): String = RoomKey.normalizeRef(name)
 
         /** 去重（保留先出现的）、去空，超出上限只留最新的（列表前部）。 */
         private fun clean(names: List<String>): List<String> {
@@ -106,8 +108,8 @@ class Curation(
             val out = ArrayList<String>(minOf(names.size, maxEntries))
             for (name in names) {
                 val trimmed = name.trimSwiftWhitespace().take(Prefs.maxNameLength)
-                if (trimmed.isEmpty() || !seen.add(trimmed.lowerRoot())) continue
-                out.add(trimmed)
+                if (trimmed.isEmpty() || !seen.add(key(trimmed))) continue
+                out.add(SiteKeys.memory(trimmed))
                 if (out.size == maxEntries) break
             }
             return out
@@ -116,19 +118,41 @@ class Curation(
 }
 
 object CurationSerializer : KSerializer<Curation> {
-    override val descriptor: SerialDescriptor = Surrogate.serializer().descriptor
+    override val descriptor: SerialDescriptor = Out.serializer().descriptor
 
     override fun serialize(encoder: Encoder, value: Curation) {
-        encoder.encodeSerializableValue(Surrogate.serializer(), Surrogate(value.favorites, value.blocked))
+        encoder.encodeSerializableValue(
+            Out.serializer(),
+            Out(
+                favorites = value.favorites.map(SiteKeys::disk),
+                blocked = value.blocked.map(SiteKeys::disk),
+                keyVersion = SiteKeyMigration.version,
+            ),
+        )
     }
 
     override fun deserialize(decoder: Decoder): Curation {
-        val raw = decoder.decodeSerializableValue(Surrogate.serializer())
-        return Curation(favorites = raw.favorites, blocked = raw.blocked)
+        val raw = decoder.decodeSerializableValue(Incoming.serializer())
+        return Curation(
+            favorites = raw.favorites.map(SiteKeys::memory),
+            blocked = raw.blocked.map(SiteKeys::memory),
+        )
     }
 
     @Serializable
-    private data class Surrogate(val favorites: List<String>, val blocked: List<String>)
+    private data class Incoming(
+        val favorites: List<String> = emptyList(),
+        val blocked: List<String> = emptyList(),
+        val keyVersion: Int = 0,
+    )
+
+    /** 没有缺省值，编码时即使 `encodeDefaults = false` 也会写出 `keyVersion`。 */
+    @Serializable
+    private data class Out(
+        val favorites: List<String>,
+        val blocked: List<String>,
+        val keyVersion: Int,
+    )
 }
 
 /**

@@ -1,13 +1,18 @@
 package vela.core.ledger
 
 import java.time.Instant
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Required
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.Json
 import vela.core.base.model.Prefs
-import vela.core.base.model.lowerRoot
 import vela.core.base.model.timeIntervalSince1970
-import vela.core.base.model.trimSwiftWhitespace
+import vela.core.sites.RoomKey
+import vela.core.sites.SiteKeyMigration
+import vela.core.sites.SiteKeys
 import kotlin.math.max
 
 /**
@@ -24,7 +29,7 @@ internal val ledgerJson: Json = Json {
  * 实际观看累计：为温和的收藏提示记账（不自动收藏）。
  * Swift 是值类型；这里用不可变 data class，更新方法返回新值。
  */
-@Serializable
+@Serializable(with = WatchLedgerSerializer::class)
 data class WatchLedger(
     @Required val entries: Map<String, Entry> = emptyMap(),
 ) {
@@ -176,9 +181,52 @@ data class WatchLedger(
         const val visitCountThreshold: Int = 3
         const val maxEntries: Int = 500
 
-        fun key(username: String): String {
-            val trimmed = username.trimSwiftWhitespace().take(Prefs.maxNameLength)
-            return trimmed.lowerRoot()
+        /** 账本键是小写 ref。参数名仍叫 username，存的是 ref（裸名与 `cb:` 归到同一键）。 */
+        fun key(username: String): String =
+            RoomKey.normalizeRef(username).take(Prefs.maxNameLength)
+
+        internal fun prefer(first: Entry, second: Entry): Entry {
+            if (second.lastUsed != first.lastUsed) {
+                return if (second.lastUsed > first.lastUsed) second else first
+            }
+            return if (second.totalSeconds > first.totalSeconds) second else first
         }
     }
+}
+
+object WatchLedgerSerializer : KSerializer<WatchLedger> {
+    override val descriptor: SerialDescriptor = Disk.serializer().descriptor
+
+    override fun serialize(encoder: Encoder, value: WatchLedger) {
+        val disk = LinkedHashMap<String, WatchLedger.Entry>()
+        for ((key, entry) in value.entries) {
+            val stored = SiteKeys.disk(key)
+            val existing = disk[stored]
+            disk[stored] = if (existing == null) entry else WatchLedger.prefer(existing, entry)
+        }
+        encoder.encodeSerializableValue(Disk.serializer(), Disk(disk, SiteKeyMigration.version))
+    }
+
+    override fun deserialize(decoder: Decoder): WatchLedger {
+        val raw = decoder.decodeSerializableValue(Incoming.serializer())
+        val merged = LinkedHashMap<String, WatchLedger.Entry>()
+        for ((key, entry) in raw.entries) {
+            val mem = WatchLedger.key(SiteKeys.memory(key))
+            val existing = merged[mem]
+            merged[mem] = if (existing == null) entry else WatchLedger.prefer(existing, entry)
+        }
+        return WatchLedger(merged)
+    }
+
+    @Serializable
+    private data class Incoming(
+        val entries: Map<String, WatchLedger.Entry> = emptyMap(),
+        val keyVersion: Int = 0,
+    )
+
+    @Serializable
+    private data class Disk(
+        val entries: Map<String, WatchLedger.Entry>,
+        val keyVersion: Int,
+    )
 }
