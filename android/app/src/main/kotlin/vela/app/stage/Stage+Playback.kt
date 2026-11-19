@@ -36,6 +36,7 @@ import vela.core.hls.RenewalFreshness
 import vela.core.hls.RenewalPolicy
 import vela.core.hls.SkipTracker
 import vela.core.lifecycle.AwayRetry
+import vela.core.lifecycle.LifecycleEpoch
 import vela.core.stream.ContextProbe
 import vela.core.stream.SourcedTicket
 import vela.core.stream.StreamDecodeError
@@ -184,6 +185,8 @@ internal fun StageViewModel.startBoundPlayback(
     isRetry: Boolean,
     after: (suspend StageViewModel.() -> Unit)? = null,
 ) {
+    prefetchJob?.cancel()
+    prefetchJob = null
     val token = bumpPlayback()
     val previous = playJob
     val job = scope.launch {
@@ -362,11 +365,18 @@ private fun StageViewModel.startPlayback(username: String, target: PlayTarget, c
     }
     if (prefetchEnabled) {
         val token = laneFace.generation
-        scope.launch { prefetchAhead(token) }
+        prefetchJob?.cancel()
+        prefetchJob = scope.launch { prefetchAhead(token) }
     }
 }
 
-internal suspend fun StageViewModel.resolveSourced(username: String): SourcedTicket {
+internal suspend fun StageViewModel.resolveSourced(
+    username: String,
+    life: LifecycleEpoch.Token? = null,
+): SourcedTicket {
+    if (life != null && !prefetchStillCurrent(life, laneFace.generation)) {
+        throw CancellationException("prefetch gated")
+    }
     if (isSidecarWindow()) {
         return SourcedTicket(ticket = requireSidecar().resolve(username), origin = StreamOrigin.sidecar)
     }
@@ -386,6 +396,9 @@ internal suspend fun StageViewModel.resolveSourced(username: String): SourcedTic
     when (val step = StreamSourcing.first(probe.context)) {
         is StreamSourcing.Step.Use -> return SourcedTicket(step.ticket, StreamOrigin.chatContext)
         StreamSourcing.Step.Fallback -> Unit
+    }
+    if (life != null && !prefetchStillCurrent(life, laneFace.generation)) {
+        throw CancellationException("prefetch gated")
     }
     val fallback = resolveEdge(username)
     return SourcedTicket(
@@ -460,11 +473,14 @@ internal suspend fun StageViewModel.selectRendition(master: URI, cap: Double): S
 }
 
 private suspend fun StageViewModel.prefetchAhead(token: Int) {
+    val life = lifecycleEpoch.begin() ?: return
+    if (!prefetchStillCurrent(life, token)) return
     val cap = playbackCap()
     val next = feed.prefetchUsernames().firstOrNull() ?: return
     if (prepared.fresh(next, cap, now()) != null) return
+    if (!prefetchStillCurrent(life, token)) return
     val ticket = try {
-        resolveSourced(next).ticket
+        resolveSourced(next, life).ticket
     } catch (cancelled: CancellationException) {
         throw cancelled
     } catch (_: Exception) {
@@ -472,10 +488,20 @@ private suspend fun StageViewModel.prefetchAhead(token: Int) {
     }
     val address = ticket.url
     if (!ticket.isPlayable || address == null) return
-    if (token != laneFace.generation) return
+    if (!prefetchStillCurrent(life, token)) return
     val playable = selectRendition(loopbackSharedMaster(address), cap)
-    if (token != laneFace.generation || playable.isUnselected) return
+    if (playable.isUnselected || !prefetchStillCurrent(life, token, commit = true)) return
     prepared.set(playable, cap, next, now())
+}
+
+private fun StageViewModel.prefetchStillCurrent(
+    life: LifecycleEpoch.Token,
+    token: Int,
+    commit: Boolean = false,
+): Boolean {
+    if (!playbackGateOpen || token != laneFace.generation) return false
+    val gate = if (commit) LifecycleEpoch.Gate.BEFORE_COMMIT else LifecycleEpoch.Gate.BEFORE_REQUEST
+    return lifecycleEpoch.allows(gate, life)
 }
 
 private suspend fun StageViewModel.renewRenditionOnce(

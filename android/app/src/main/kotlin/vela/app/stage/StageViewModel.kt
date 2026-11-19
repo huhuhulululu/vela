@@ -156,6 +156,7 @@ class StageViewModel(
     internal var playbackBound: Boolean = false
     internal var playbackSink: PlaybackSink? = null
     internal var playJob: Job? = null
+    internal var prefetchJob: Job? = null
     internal var skipJob: Job? = null
     internal var awayJob: Job? = null
     internal val skips = SkipTracker()
@@ -591,6 +592,8 @@ class StageViewModel(
     internal fun cancelPlaybackWork() {
         playJob?.cancel()
         playJob = null
+        prefetchJob?.cancel()
+        prefetchJob = null
         skipJob?.cancel()
         skipJob = null
         awayJob?.cancel()
@@ -772,6 +775,8 @@ class StageViewModel(
         publish()
         if (paused) {
             playJob?.cancel()
+            prefetchJob?.cancel()
+            prefetchJob = null
             playbackSink?.setAllowed(false)
         } else if (playbackBound) {
             requestPlay()
