@@ -125,6 +125,8 @@ public final class SyncCoordinator: @unchecked Sendable {
             switch response {
             case .stored(let ver, let epoch, _):
                 if let known = state.epoch, known != epoch { return halt(.epochChanged) }
+                // 200 回的版本必须恰为请求的 next；不符说明响应不可信，保留 inflight 到下一周期核对。
+                guard ver == request.next else { return .transient }
                 state.lastSeenVer = ver
                 state.lastSeenHash = hash
                 state.pushedGen = max(state.pushedGen, state.inflight?.sentGen ?? 0)

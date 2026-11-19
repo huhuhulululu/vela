@@ -256,6 +256,19 @@ final class SyncCoordinatorTests: XCTestCase {
         XCTAssertEqual(r, .halted(.missing), "结果未知的创建之后遇 404 停写")
     }
 
+    /// 安全审查 L2：PUT 200 回的版本必须恰为请求的 next，否则不确认推送、不推进水位，按暂时故障处理。
+    func testStoredWithUnexpectedVersionIsTransient() async {
+        let a = await seeded()
+        let before = a.coordinator.state.lastSeenVer
+        _ = a.coordinator.perform(.favorite("carol"))
+        a.transport.putOverride = .stored(ver: before + 5, epoch: server.epoch, now: server.now)
+        let r = await a.coordinator.runCycle()
+        XCTAssertEqual(r, .transient)
+        XCTAssertEqual(a.coordinator.state.lastSeenVer, before)
+        XCTAssertNotNil(a.coordinator.state.inflight, "结果未知，留到下一周期核对")
+        XCTAssertGreaterThan(a.coordinator.state.gen, a.coordinator.state.pushedGen)
+    }
+
     func testForbiddenHalts() async {
         let a = await seeded()
         _ = a.coordinator.perform(.favorite("carol"))
