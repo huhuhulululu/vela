@@ -11,7 +11,7 @@ import java.net.URI
 import vela.app.BuildConfig
 import vela.app.infra.Endpoints
 import vela.app.infra.applyFirstPartyCookiesOnly
-import vela.app.infra.blockedWebResponse
+import vela.app.infra.interceptWhitelisted
 import vela.core.base.net.UserAgent
 
 /**
@@ -49,13 +49,8 @@ internal class ChallengeNavigationClient : WebViewClient() {
 
     override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
         // POST 导航不会进 shouldOverrideUrlLoading，主框架也要在这里挡。
-        if (request == null) return blockedWebResponse()
-        val url = request.url?.toString() ?: return blockedWebResponse()
-        if (!challengeNavigationAllowed(url)) {
-            if (request.isForMainFrame) view?.post { view.stopLoading() }
-            return blockedWebResponse()
-        }
-        return null
+        // 允许的 GET/HEAD 子资源自己校验每一跳重定向。
+        return interceptWhitelisted(view, request, ::challengeNavigationAllowed)
     }
 }
 

@@ -8,6 +8,8 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.ByteArrayOutputStream
+import java.net.InetAddress
+import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.ConcurrentHashMap
@@ -102,6 +104,44 @@ class SidecarWebViewTest {
                 CookieManager.getInstance().acceptThirdPartyCookies(view)
             }
             assertFalse("第三方 Cookie 被打开了", third)
+        } finally {
+            evil.close()
+        }
+    }
+
+    @Test(timeout = 40_000)
+    fun testMainFramePostStaysInsideAllowlist() = runBlocking {
+        val evil = AcceptProbe()
+        try {
+            site.html = "<!DOCTYPE html><html><body><form id=\"f\" method=\"POST\" action=\"http://localhost:" +
+                evil.port + "/pwn\"></form><script>document.getElementById('f').submit();</script></body></html>"
+            val host = attachHost()
+            val web = WebSidecarPage(host.context, site.origin, host)
+            page = web
+            runCatching { withTimeout(20_000) { web.load("${site.origin}/") } }
+            delay(1_000)
+            assertEquals("主框架 POST 离开了站点 hits=${evil.hits()}", 0, evil.hits())
+            val view = host.getChildAt(0) as WebView
+            val current = withContext(Dispatchers.Main) { view.url.orEmpty() }
+            assertFalse("主框架跑到了 $current", current.contains("localhost:${evil.port}"))
+        } finally {
+            evil.close()
+        }
+    }
+
+    @Test(timeout = 40_000)
+    fun testSubresourceRedirectStaysInsideAllowlist() = runBlocking {
+        val evil = AcceptProbe()
+        try {
+            site.redirect = "/hop.js" to "http://localhost:${evil.port}/pwn.js"
+            site.html = "<!DOCTYPE html><html><head><script src=\"/hop.js\"></script></head><body>ready</body></html>"
+            val host = attachHost()
+            val web = WebSidecarPage(host.context, site.origin, host)
+            page = web
+            withTimeout(20_000) { web.load("${site.origin}/") }
+            delay(1_000)
+            assertEquals("允许地址的跨域 302 被跟出去了 hits=${evil.hits()} site=${site.hitDump()}", 0, evil.hits())
+            assertTrue("没有自己去取会跳转的脚本", site.hitCount("/hop.js") >= 1)
         } finally {
             evil.close()
         }
@@ -220,6 +260,9 @@ internal class LoopbackSite : AutoCloseable {
     val lastSlug = java.util.concurrent.atomic.AtomicReference("")
 
     @Volatile
+    var redirect: Pair<String, String>? = null
+
+    @Volatile
     var html: String = """
         <!DOCTYPE html><html><head><script>
         window.__bridgeAtLoad = (typeof VelaSidecar !== "undefined" && typeof VelaSidecar.deliver === "function");
@@ -290,6 +333,14 @@ internal class LoopbackSite : AutoCloseable {
                 ""
             }
             hits.computeIfAbsent(path) { AtomicInteger() }.incrementAndGet()
+            val hop = redirect
+            if (hop != null && path == hop.first) {
+                val response = "HTTP/1.1 302 Found\r\nLocation: ${hop.second}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                val out = client.getOutputStream()
+                out.write(response.toByteArray(Charsets.ISO_8859_1))
+                out.flush()
+                return
+            }
             if (path.startsWith("/get_edge_hls_url_ajax")) {
                 val slug = body.substringAfter("room_slug=", "").substringBefore("&")
                 lastSlug.set(java.net.URLDecoder.decode(slug, "UTF-8"))
@@ -323,5 +374,52 @@ internal class LoopbackSite : AutoCloseable {
         } catch (_: Exception) {
         }
         thread.join(1_000)
+    }
+}
+
+/** localhost 可能走 ::1，两边都听，误发出去的连接才能被数到。 */
+private class AcceptProbe : AutoCloseable {
+    private val hits = AtomicInteger()
+    private val sockets = mutableListOf<ServerSocket>()
+    val port: Int
+
+    init {
+        val v4 = ServerSocket()
+        v4.bind(InetSocketAddress(InetAddress.getByName("127.0.0.1"), 0))
+        port = v4.localPort
+        sockets += v4
+        try {
+            val v6 = ServerSocket()
+            v6.reuseAddress = true
+            v6.bind(InetSocketAddress(InetAddress.getByName("::1"), port))
+            sockets += v6
+        } catch (_: Exception) {
+        }
+        for (socket in sockets) {
+            Thread({
+                while (!socket.isClosed) {
+                    try {
+                        socket.accept().close()
+                        hits.incrementAndGet()
+                    } catch (_: Exception) {
+                        if (socket.isClosed) return@Thread
+                    }
+                }
+            }, "accept-probe").apply {
+                isDaemon = true
+                start()
+            }
+        }
+    }
+
+    fun hits(): Int = hits.get()
+
+    override fun close() {
+        for (socket in sockets) {
+            try {
+                socket.close()
+            } catch (_: Exception) {
+            }
+        }
     }
 }
