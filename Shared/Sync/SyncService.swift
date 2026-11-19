@@ -62,8 +62,8 @@ final class SyncService: @unchecked Sendable {
     private var origin: String?
     private let gate = DispatchSemaphore(value: 1)
     /// 周期单飞：一个周期从 GET 到最后一次落盘结束前，第二个周期（例如退出前补推）只能排队。
-    /// `gate` 在等网络时会放开给本地操作，所以不能用它代替。
-    private let flight = DispatchSemaphore(value: 1)
+    /// `gate` 在等网络时会放开给本地操作，所以不能用它代替。排队用异步挂起，不占协作线程（复审 medium）。
+    private let flight = AsyncMutex()
     /// 文档变化（本地操作或合并）：在任意线程调用，接收方自己回主线程重建投影。
     var onDocumentChanged: ((SyncDocument) -> Void)?
 
@@ -143,12 +143,15 @@ final class SyncService: @unchecked Sendable {
     // MARK: 同步周期与本地操作
 
     func runCycle() async -> SyncCycleResult? {
-        Self.acquire(flight)
-        defer { flight.signal() }
-        guard let c = coordinator else { return nil }
+        await flight.lock()
+        guard let c = coordinator else {
+            await flight.unlock()
+            return nil
+        }
         Self.acquire(gate)
         let result = await c.runCycle()
         gate.signal()
+        await flight.unlock()
         return result
     }
 
@@ -240,6 +243,28 @@ final class SyncService: @unchecked Sendable {
                                                transport: env.makeTransport(live.state.origin, live.keys))
         if result == .localSaveFailed { activate(live.state, keys: live.keys) }
         return result
+    }
+}
+
+/// 异步互斥：排队者挂起等待，不阻塞线程；先到先得。
+actor AsyncMutex {
+    private var locked = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func lock() async {
+        guard locked else {
+            locked = true
+            return
+        }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    func unlock() {
+        if waiters.isEmpty {
+            locked = false
+        } else {
+            waiters.removeFirst().resume()
+        }
     }
 }
 
