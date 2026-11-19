@@ -565,6 +565,7 @@ final class StageModel: ObservableObject {
     }
 
     func setPublicOnly(_ value: Bool) {
+        if rejectWhileJoining() { return }
         syncSetting(SyncHub.publicOnlyKey, value)
         applyPublicOnly(value)
     }

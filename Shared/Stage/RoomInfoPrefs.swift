@@ -16,10 +16,19 @@ final class RoomInfoPrefs: ObservableObject {
     /// 用户切换后通知同步（开启时写 `settings.infoAlwaysOn` 寄存器）。
     var onUserToggle: ((Bool) -> Void)?
 
+    /// 加入同步提交中时拒绝切换（返回 false）。
+    var allowsToggle: (() -> Bool)?
+
     func toggle() {
+        guard allowsToggle?() ?? true else { return }
         alwaysShow.toggle()
         store.infoAlwaysOn = alwaysShow
         onUserToggle?(alwaysShow)
+    }
+
+    /// 按存储重新读一遍（加入回滚之后）。
+    func reload() {
+        if alwaysShow != store.infoAlwaysOn { alwaysShow = store.infoAlwaysOn }
     }
 
     /// 同步投影写入：不再回写同步寄存器；同值不触发界面刷新。

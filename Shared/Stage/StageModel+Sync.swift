@@ -67,6 +67,18 @@ final class SyncHub: ObservableObject {
         self.service = service ?? SyncService(env: SyncHub.defaultEnvironment())
     }
 
+    /// 加入提交的文件快照：收藏、口味文件与两个同步设置，放在同步状态同一目录下（同卷）。
+    static func journal(settings: SettingsStore) -> SyncJoinJournal {
+        let keys = [publicOnlyKey, infoAlwaysOnKey]
+        return FileJoinJournal(
+            dir: SyncStateFileStore.defaultURL().deletingLastPathComponent().appendingPathComponent("sync-join-snapshot"),
+            files: [CurationStore.defaultURL(), TasteStore.defaultURL()],
+            settingKeys: keys,
+            readSettings: { keys.reduce(into: [:]) { out, k in out[k] = settings.explicitBool(forKey: k) } },
+            writeSettings: { values in for (k, v) in values { settings.setExplicit(k, v) } }
+        )
+    }
+
     static func defaultEnvironment() -> SyncService.Environment {
         SyncService.Environment(
             stateStore: SyncBackupExcludedStore(SyncStateFileStore(url: SyncStateFileStore.defaultURL())),
@@ -88,19 +100,63 @@ final class SyncHub: ObservableObject {
 
     // MARK: 接线
 
+    /// 实验开关（默认关）：关着时不显示同步入口、不联网、不读钥匙串（第 1 节）。
+    @Published private(set) var experimentEnabled = false
+    /// 加入提交中：本机写操作一律被拒，界面置灰并显示「正在加入同步…」。
+    @Published private(set) var committing = false
+    static let committingMessage = "正在加入同步…"
+
     func attach(_ model: StageModel) {
         self.model = model
+        set(\.experimentEnabled, model.settings.experimentSync)
+        guard experimentEnabled else { return }
+        wire(model)
+    }
+
+    /// 设置里的「实验：跨设备同步」开关。同步已开启时不能直接关（先关闭同步，免得之后再开时本机改动被投影覆盖）。
+    func setExperiment(_ on: Bool) {
+        guard let model, on != experimentEnabled else { return }
+        if !on, phase == .active || committing {
+            set(\.notice, "请先关闭同步，再关闭实验开关。")
+            return
+        }
+        model.settings.experimentSync = on
+        set(\.experimentEnabled, on)
+        if on { wire(model) } else { unwire() }
+    }
+
+    private var wired = false
+
+    private func wire(_ model: StageModel) {
+        guard !wired else { return }
+        wired = true
         sink = SyncModelSink(model: model)
         service.onDocumentChanged = { [weak self] doc in
             DispatchQueue.main.async { MainActor.assumeIsolated { self?.documentChanged(doc) } }
         }
         RoomInfoPrefs.shared.onUserToggle = { [weak model] value in model?.syncSetting(SyncHub.infoAlwaysOnKey, value) }
+        RoomInfoPrefs.shared.allowsToggle = { [weak model] in !(model?.rejectWhileJoining() ?? false) }
+        service.configureJournal(Self.journal(settings: model.settings))
         panelWatch = [
             model.$showCuration.removeDuplicates().filter { $0 }.sink { [weak self] _ in self?.trigger(.panel) },
             model.$showTaste.removeDuplicates().filter { $0 }.sink { [weak self] _ in self?.trigger(.panel) },
         ]
         observeLifecycle()
         Task { await start() }
+    }
+
+    private func unwire() {
+        guard wired else { return }
+        wired = false
+        cancelJoin()
+        editTask?.cancel()
+        editTask = nil
+        for o in observers { NotificationCenter.default.removeObserver(o) }
+        observers = []
+        panelWatch = []
+        RoomInfoPrefs.shared.onUserToggle = nil
+        RoomInfoPrefs.shared.allowsToggle = nil
+        set(\.phase, .loading)
     }
 
     private func observeLifecycle() {
@@ -110,7 +166,11 @@ final class SyncHub: ObservableObject {
             MainActor.assumeIsolated { self?.trigger(.activate) }
         })
         observers.append(center.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.pushBeforeExit() }
+            // 退出作废正在进行的加入；没写「已开启」就是未加入。
+            MainActor.assumeIsolated {
+                self?.cancelJoin()
+                self?.pushBeforeExit()
+            }
             SyncPasteboard.expireNow()
         })
         SyncPasteboard.expireLeftover()
@@ -119,7 +179,11 @@ final class SyncHub: ObservableObject {
             MainActor.assumeIsolated { self?.trigger(.foreground) }
         })
         observers.append(center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.pushInBackground() }
+            // 挂起作废正在进行的加入（提交锁随之释放）。
+            MainActor.assumeIsolated {
+                self?.cancelJoin()
+                self?.pushInBackground()
+            }
         })
         #endif
     }
@@ -138,7 +202,13 @@ final class SyncHub: ObservableObject {
 
     private func apply(_ result: SyncStartResult) {
         switch result {
-        case .notEnabled: set(\.phase, .off)
+        case .notEnabled:
+            set(\.phase, .off)
+            if service.rolledBackAtStartup {
+                model?.reloadPreferencesAfterJoinRollback()
+                set(\.notice, "上次加入同步没有完成，已恢复本机数据。")
+            }
+        case .needsRepair(let text): set(\.phase, .attention(text))
         case .unsupported: set(\.phase, .unsupported)
         case .unavailable: set(\.phase, .unavailable)
         case .active:
@@ -336,24 +406,37 @@ final class SyncHub: ObservableObject {
         }
     }
 
-    /// 确认加入：一次性提交（第 12.4 节）。提交途中点取消会作废这张票，云端写完也不落本机。
+    /// 确认加入：一次性提交（第 12.4 节）。服务在上提交锁之后才取本机数据；提交期间本机写操作一律被拒。
+    /// 离开加入页、退出或挂起都会作废这张票。
     func confirmJoin() async {
         guard let model, let sink, case .preview(let ticket) = joinStage, !busy else { return }
         busy = true
-        defer { busy = false }
-        let result = await service.commitJoin(ticket, local: model.syncLocalData(), sink: sink)
+        set(\.committing, true)
+        defer {
+            busy = false
+            set(\.committing, false)
+        }
+        let result = await service.commitJoin(ticket, local: { [weak model] in
+            // 在协作线程上调用：回主线程取（主线程此时空闲，在等这次提交）。
+            DispatchQueue.main.sync { MainActor.assumeIsolated { model?.syncLocalData() ?? SyncLocalData() } }
+        }, sink: sink)
         switch result {
         case .joined:
             joinStage = .idle
             activated()
         case .cancelled:
             joinStage = .idle
+            model.reloadSyncedSettingsFromStore()
         case .reconfirm(let fresh):
             joinStage = .preview(fresh)
             set(\.notice, "云端或本机数据有变化，请再确认一次。")
         case .failed(let text):
             joinStage = .idle
+            model.reloadSyncedSettingsFromStore()
             set(\.notice, text)
+        case .needsRepair(let text):
+            joinStage = .idle
+            set(\.phase, .attention(text))
         }
     }
 
@@ -475,7 +558,15 @@ extension StageModel {
 
     /// 同步开启时：本地操作先写同步文档，再由投影得到本机收藏；同步关闭时原样用本机函数的结果。
     /// 返回 nil 表示操作被拒绝（同步数据已满），文档与本机视图都不变。
+    /// 加入提交中：本机写操作一律拒绝（不排队），并说明原因。返回 true 表示被拒。
+    func rejectWhileJoining() -> Bool {
+        guard !sync.service.localWriteAllowed else { return false }
+        showToast(SyncHub.committingMessage)
+        return true
+    }
+
     func syncedCuration(_ op: SyncLocalOp, local: @autoclosure () -> Curation) -> Curation? {
+        if rejectWhileJoining() { return nil }
         switch sync.perform(op) {
         case .applied(let replica): return SyncProjection(replica.doc).curation
         case .full:
@@ -491,6 +582,7 @@ extension StageModel {
 
     /// 「不想看」：额度满时拒绝（同步 450 个，另有 50 个本机专用）。
     func syncedVeto(_ key: String) -> Bool {
+        if rejectWhileJoining() { return false }
         guard !taste.vetoedKeys.contains(key) else { return true }
         switch sync.perform(.veto(key), localOnlyVetoCount: localOnlyVetoCount) {
         case .vetoQuotaFull, .localOnlyQuotaFull:
@@ -505,6 +597,7 @@ extension StageModel {
 
     /// 恢复、加强、移除一个当前「不想看」的键：写 `veto.k = -`。
     func syncedUnveto(_ key: String) -> Bool {
+        if rejectWhileJoining() { return false }
         guard taste.vetoedKeys.contains(key) else { return true }
         if case .full = sync.perform(.unveto(key)) {
             showToast(SyncHub.fullMessage)
@@ -515,6 +608,7 @@ extension StageModel {
 
     /// 重置画像、清除全部偏好：在所有同步设备上取消「不想看」。
     func syncedClearVetoes() -> Bool {
+        if rejectWhileJoining() { return false }
         if case .full = sync.perform(.clearVetoes) {
             showToast(SyncHub.fullMessage)
             return false
@@ -541,6 +635,19 @@ extension StageModel {
     func applySyncedSettings(_ values: [String: Bool]) {
         if let v = values[SyncHub.publicOnlyKey] { applyPublicOnly(v) }
         if let v = values[SyncHub.infoAlwaysOnKey] { RoomInfoPrefs.shared.applySynced(v) }
+    }
+
+    /// 加入提交失败或取消后：屏障可能已把投影里的两个设置写进内存，按（已换回的）存储重新读一遍。
+    func reloadSyncedSettingsFromStore() {
+        applyPublicOnly(settings.publicOnly)
+        RoomInfoPrefs.shared.reload()
+    }
+
+    /// 启动时换回了未完成加入的快照：内存里的收藏与口味是换回之前读的，重新从文件读。
+    func reloadPreferencesAfterJoinRollback() {
+        commit(curationStore.load(), nil)
+        commitTaste(tasteStore.load())
+        reloadSyncedSettingsFromStore()
     }
 
     /// 开启时本机专用「不想看」超过 50 个的部分，在说明页列出并取消（第 6.6 节）。

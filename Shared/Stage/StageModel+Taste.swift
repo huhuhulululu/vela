@@ -119,6 +119,7 @@ extension StageModel {
     }
 
     func setLearningPaused(_ paused: Bool) {
+        if rejectWhileJoining() { return }
         commitTaste(taste.settingPaused(paused))
         if paused {
             favoriteSuggest = nil
@@ -154,6 +155,7 @@ extension StageModel {
 
     /// 对当前房间不感兴趣：记一次强落空，作废它的停留，立刻切到下一个。
     func markNotInterested(_ target: RoomTarget?) {
+        if rejectWhileJoining() { return }
         guard let lane = matchedLane(target), let room = room(of: lane) else { return }
         commitTaste(taste.rejecting(room: room, source: lane.dwellSource, now: Date()))
         lane.dwell.discard()

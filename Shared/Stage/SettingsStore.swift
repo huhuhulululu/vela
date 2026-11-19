@@ -10,6 +10,20 @@ final class SettingsStore {
     /// 用户是否明确设过这个键（docs/plans/sync.md 第 14.1 节）：未设过的缺省值开启同步时不盖章。
     func hasExplicitValue(forKey key: String) -> Bool { defaults.object(forKey: key) != nil }
 
+    /// 实验：跨设备同步（默认关）。关着时不显示同步入口、不联网、不读钥匙串。
+    var experimentSync: Bool {
+        get { defaults.bool(forKey: "experimentSync") }
+        set { defaults.set(newValue, forKey: "experimentSync") }
+    }
+
+    /// 明确设过的同步设置值（加入快照用）；nil 表示没设过。
+    func explicitBool(forKey key: String) -> Bool? { defaults.object(forKey: key) as? Bool }
+
+    /// 按快照写回：nil 表示恢复成「没设过」。
+    func setExplicit(_ key: String, _ value: Bool?) {
+        if let value { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) }
+    }
+
     /// 同步投影写入后提示系统落盘（第 12.2 节第 3 步）。
     func synchronize() { defaults.synchronize() }
 

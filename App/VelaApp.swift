@@ -10,6 +10,7 @@ struct VelaApp: App {
     var body: some Scene {
         WindowGroup {
             StageRoot(model: model)
+                .syncCommitGuard(model.sync)
                 .frame(minWidth: 640, minHeight: 360)
         }
         .windowStyle(.hiddenTitleBar)
@@ -20,7 +21,7 @@ struct VelaApp: App {
         }
         // 「设置…」（⌘,）：目前只有跨设备同步一页。
         Settings {
-            SyncPanel(hub: model.sync, width: 420)
+            SyncExperimentPage(hub: model.sync, width: 420)
                 .padding(20)
                 .preferredColorScheme(.dark)
         }

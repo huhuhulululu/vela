@@ -362,10 +362,10 @@ struct PhoneSyncSection: View {
 
     var body: some View {
         DisclosureGroup(isExpanded: $expanded) {
-            ScrollView { SyncPanel(hub: hub, width: nil).padding(.top, 8) }
+            ScrollView { SyncExperimentPage(hub: hub, width: nil).padding(.top, 8) }
                 .frame(maxHeight: 360)
         } label: {
-            Text(hub.isOn ? "跨设备同步（已开启）" : "跨设备同步")
+            Text(hub.experimentEnabled ? (hub.isOn ? "跨设备同步（实验，已开启）" : "跨设备同步（实验）") : "实验功能")
                 .font(.system(size: 13, weight: .semibold))
         }
         .tint(Theme.textSecondary)

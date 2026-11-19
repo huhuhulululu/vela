@@ -49,7 +49,11 @@ struct SyncPanel: View {
         .frame(width: width, alignment: .leading)
         .frame(maxWidth: width == nil ? 420 : nil, alignment: .leading)
         .onAppear { hub.trigger(.panel) }
-        .onDisappear { revealed = nil }
+        .onDisappear {
+            revealed = nil
+            // 离开加入页作废正在进行的加入（确认前什么都不写；提交途中撤销已写的本机部分）。
+            hub.cancelJoin()
+        }
     }
 
     private var content: AnyView {
@@ -254,6 +258,52 @@ struct SyncPanel: View {
     }
 }
 
+/// 设置里的「实验功能」：默认关；打开后才显示同步入口（第 1 节）。
+struct SyncExperimentPage: View {
+    @ObservedObject var hub: SyncHub
+    var width: CGFloat?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Toggle("实验：跨设备同步", isOn: Binding(get: { hub.experimentEnabled }, set: { hub.setExperiment($0) }))
+                .font(.system(size: 12, weight: .medium))
+            if hub.experimentEnabled {
+                SyncPanel(hub: hub, width: width)
+            } else {
+                Text("实验功能，默认关闭。关闭时不显示同步入口、不联网、不读钥匙串。")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(width: width, alignment: .leading)
+    }
+}
+
+/// 加入提交中：整个舞台置灰并提示，本机写操作在模型层同样被拒（第 12.4 节）。
+struct SyncCommitGuard: ViewModifier {
+    @ObservedObject var hub: SyncHub
+
+    func body(content: Content) -> some View {
+        content
+            .disabled(hub.committing)
+            .overlay(alignment: .top) {
+                if hub.committing {
+                    Text(SyncHub.committingMessage)
+                        .font(.system(size: 12, weight: .medium))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Theme.hintFill, in: Capsule())
+                        .padding(.top, 12)
+                }
+            }
+    }
+}
+
+extension View {
+    func syncCommitGuard(_ hub: SyncHub) -> some View { modifier(SyncCommitGuard(hub: hub)) }
+}
+
 /// 「保存你的同步码」与「查看同步码」两个专用页共用：显示整段码、短指纹，复制时标记敏感。
 struct SyncCodeCard: View {
     var title: String
@@ -298,7 +348,9 @@ struct SyncCodeCard: View {
 enum SyncPasteboard {
     static let expirySeconds: TimeInterval = 120
     #if os(macOS)
+    /// 本次复制的记录：剪贴板 changeCount 与每次复制新生成的令牌。
     private static let stampKey = "syncPasteboardChangeCount"
+    private static let tokenKey = "syncPasteboardToken"
     private static let concealed = NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")
     #endif
 
@@ -310,22 +362,32 @@ enum SyncPasteboard {
         item.setString(text, forType: .string)
         item.setString("", forType: concealed)
         board.writeObjects([item])
-        let stamp = board.changeCount
-        UserDefaults.standard.set(stamp, forKey: stampKey)
-        DispatchQueue.main.asyncAfter(deadline: .now() + SyncPasteboard.expirySeconds) { expireNow() }
+        let token = UUID().uuidString
+        UserDefaults.standard.set(board.changeCount, forKey: stampKey)
+        UserDefaults.standard.set(token, forKey: tokenKey)
+        DispatchQueue.main.asyncAfter(deadline: .now() + SyncPasteboard.expirySeconds) { expire(onlyIf: token) }
         #else
         UIPasteboard.general.setItems([[UTType.plainText.identifier: text]],
                                       options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(SyncPasteboard.expirySeconds)])
         #endif
     }
 
-    /// 剪贴板仍是本 App 写入的同步码就清空（到期、退出时调用）。
+    /// 到期：只在记录的令牌仍是这次复制的、剪贴板也没被替换时清空；之后又复制过就什么都不做。
+    static func expire(onlyIf token: String) {
+        #if os(macOS)
+        guard UserDefaults.standard.string(forKey: tokenKey) == token else { return }
+        expireNow()
+        #endif
+    }
+
+    /// 剪贴板仍是本 App 最近一次写入的同步码就清空（退出、启动、到期时调用）。
     static func expireNow() {
         #if os(macOS)
         guard let stamp = UserDefaults.standard.object(forKey: stampKey) as? Int else { return }
         let board = NSPasteboard.general
         if board.changeCount == stamp { board.clearContents() }
         UserDefaults.standard.removeObject(forKey: stampKey)
+        UserDefaults.standard.removeObject(forKey: tokenKey)
         #endif
     }
 

@@ -17,6 +17,7 @@ struct VelaPhoneApp: App {
     var body: some Scene {
         WindowGroup {
             PhoneStageView(model: model)
+                .syncCommitGuard(model.sync)
         }
         // 前后台：统一挂起与由 Stage 层恢复（§3.2）。
         .onChange(of: scenePhase) { _, phase in

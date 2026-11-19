@@ -38,4 +38,19 @@ final class SyncSourceGuardTests: XCTestCase {
         XCTAssertTrue(hub.contains("SyncPasteboard.expireLeftover()"), "启动时检查")
         XCTAssertTrue(hub.contains("SyncPasteboard.expireNow()"), "退出时清掉")
     }
+
+    /// 复审 low：每次复制生成新令牌；到期任务只在令牌仍是自己的、剪贴板也没变时才清空，不会提前清掉后一次复制。
+    func testPasteboardExpiryUsesPerCopyToken() throws {
+        let panel = try text("Shared/Stage/SyncPanel.swift")
+        XCTAssertTrue(panel.contains("let token = UUID().uuidString"))
+        XCTAssertTrue(panel.contains("expire(onlyIf: token)"))
+    }
+
+    /// 实验开关默认关；关着时不接线（不读钥匙串、不联网、不注册生命周期观察）。
+    func testSyncIsBehindDefaultOffExperimentFlag() throws {
+        let settings = try text("Shared/Stage/SettingsStore.swift")
+        XCTAssertTrue(settings.contains("defaults.bool(forKey: \"experimentSync\")"), "默认 false")
+        let hub = try text("Shared/Stage/StageModel+Sync.swift")
+        XCTAssertTrue(hub.contains("guard experimentEnabled else { return }"))
+    }
 }
