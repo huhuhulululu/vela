@@ -433,10 +433,13 @@ final class SyncHub: ObservableObject {
             return
         }
         joinStage = .checking
+        joinGeneration += 1
+        let generation = joinGeneration
         let prepared = await service.prepareJoin(text.trimmingCharacters(in: .whitespacesAndNewlines), local: model.syncLocalData())
-        if abandonedAfterAwait() {
+        // 摘线，或检查期间被取消（关面板、进后台、离开加入页，M10）：迟到的结果丢弃，票据作废。
+        guard !abandonedAfterAwait(), generation == joinGeneration else {
             if case .preview(let ticket) = prepared { ticket.cancel() }
-            joinStage = .idle
+            if generation == joinGeneration { joinStage = .idle }
             return
         }
         switch prepared {
@@ -458,10 +461,12 @@ final class SyncHub: ObservableObject {
             busy = false
             set(\.committing, false)
         }
+        // 加入成功时提交锁保持到这里完成激活（H8）；函数返回时一律释放（失败、取消在服务里已释放，重复释放无害）。
+        defer { service.releaseJoinCommit() }
         let result = await service.commitJoin(ticket, local: { [weak model] in
             // 在协作线程上调用：回主线程取（主线程此时空闲，在等这次提交）。
             DispatchQueue.main.sync { MainActor.assumeIsolated { model?.syncLocalData() ?? SyncLocalData() } }
-        }, sink: sink)
+        }, sink: sink, holdLockAfterJoin: true)
         if abandonedAfterAwait() {
             joinStage = .idle
             return
@@ -509,8 +514,12 @@ final class SyncHub: ObservableObject {
     /// 取消加入：作废当前票据（确认前什么都没写；提交途中则不落本机），回到未加入。
     func cancelJoin() {
         if case .preview(let ticket) = joinStage { ticket.cancel() }
+        joinGeneration += 1
         joinStage = .idle
     }
+
+    /// 检查阶段的代次：取消就加一，等 GET 回来时代次变了就丢弃结果。
+    private var joinGeneration = 0
 
     // MARK: 关闭与清除（第 12.6 节）
 
@@ -711,8 +720,13 @@ extension StageModel {
     }
 
     /// 加入提交失败或取消后：屏障可能已把投影里的两个设置写进内存，按（已换回的）存储重新读一遍。
+    /// 只同步内存，不写设置（M9）：换回的「未设置」不能被写成显式值，否则之后会被当成用户设置上传。
     func reloadSyncedSettingsFromStore() {
-        applyPublicOnly(settings.publicOnly)
+        let value = settings.publicOnly
+        if publicOnly != value {
+            publicOnly = value
+            applySearch()
+        }
         RoomInfoPrefs.shared.reload()
     }
 

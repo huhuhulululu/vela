@@ -411,16 +411,23 @@ final class SyncJoinWiringTests: XCTestCase {
     final class SlowTransport: SyncTransport, @unchecked Sendable {
         private let lock = NSLock()
         private var gets: [SyncServerResponse] = []
+        private var puts: [SyncServerResponse] = []
         var delay: UInt64 = 300_000_000
-        func script(gets: [SyncServerResponse]) { lock.withLock { self.gets = gets } }
+        func script(gets: [SyncServerResponse], puts: [SyncServerResponse] = []) {
+            lock.withLock {
+                self.gets = gets
+                self.puts = puts
+            }
+        }
         func get() async -> SyncServerResponse {
             let r = lock.withLock { gets.isEmpty ? SyncServerResponse.transient : gets.removeFirst() }
             try? await Task.sleep(nanoseconds: delay)
             return r
         }
         func put(_ request: SyncPutRequest) async -> SyncServerResponse {
+            let r = lock.withLock { puts.isEmpty ? SyncServerResponse.transient : puts.removeFirst() }
             try? await Task.sleep(nanoseconds: delay)
-            return .transient
+            return r
         }
         func delete(base: UInt64, epoch: String?) async -> SyncServerResponse { .transient }
     }
@@ -521,6 +528,80 @@ final class SyncJoinWiringTests: XCTestCase {
             XCTAssertFalse(service.isActive)
             XCTAssertNotEqual(hub.phase, .active)
         }
+    }
+
+    private static let epoch = "0123456789abcdef0123456789abcdef"
+    private static var nowMillis: UInt64 { UInt64(Date().timeIntervalSince1970 * 1000) }
+
+    /// 已有空间的 GET 响应：远端收藏 zed。
+    private static func remoteBlob(ver: UInt64) throws -> SyncServerResponse {
+        let keys = try SyncCrypto.derive(key)
+        var doc = SyncDocument()
+        doc.rooms["cb:zed"] = SyncRoom(f: SyncRegister(hlc: HLC(l: nowMillis - 60_000, c: 0, dev: 9), payload: "+"))
+        let data = try XCTUnwrap(SyncCryptoCodec(keys: keys).seal(doc.encoded(), ver: ver))
+        return .blob(ver: ver, pub: keys.publicKeyText, data: data, epoch: epoch, now: nowMillis)
+    }
+
+    private func isIdle(_ stage: SyncHub.JoinStage) -> Bool { if case .idle = stage { return true } else { return false } }
+
+    // MARK: H8 提交锁保持到界面激活之后
+
+    /// 加入成功：主线程激活界面、按文档重建投影时提交锁仍在（这段空隙里本机写操作被拒），激活之后才释放。
+    func testH8_commitLockIsHeldUntilJoinActivationFinishes() async throws {
+        let stage = makeStage()
+        let store = StateStore(), keys = KeyStore(), transport = SlowTransport()
+        transport.delay = 10_000_000
+        let (hub, service) = hub(stage, store: store, keys: keys, transport: transport)
+        await waitUntil { hub.phase == .off }
+        transport.script(gets: [try Self.remoteBlob(ver: 3)], puts: [.stored(ver: 4, epoch: Self.epoch, now: Self.nowMillis)])
+        let code = try XCTUnwrap(SyncCrypto.formatCode(key: Self.key, origin: Self.origin))
+        await hub.prepareJoin(code)
+        guard case .preview = hub.joinStage else { return XCTFail("前提：确认页，实际 \(hub.joinStage)") }
+        var lockedAtProjection: [Bool] = []
+        let watch = stage.$curation.dropFirst().sink { _ in lockedAtProjection.append(service.isCommittingJoin) }
+        await hub.confirmJoin()
+        watch.cancel()
+        XCTAssertEqual(hub.phase, .active)
+        XCTAssertTrue(stage.curation.isFavorite("zed"), "前提：激活时按文档重建了投影")
+        XCTAssertFalse(lockedAtProjection.isEmpty)
+        XCTAssertTrue(lockedAtProjection.allSatisfy { $0 }, "提交锁要保持到主线程完成激活")
+        XCTAssertFalse(service.isCommittingJoin, "激活之后释放")
+        XCTAssertTrue(service.localWriteAllowed)
+    }
+
+    // MARK: M9 回滚重读不写设置
+
+    /// 快照换回「未设置」之后的重读：只同步内存，不把默认值写成显式设置（否则之后会被当成用户设置上传）。
+    func testM9_rollbackReloadKeepsUnsetSettingUnset() {
+        let stage = makeStage()
+        XCTAssertFalse(stage.settings.hasExplicitValue(forKey: SyncHub.publicOnlyKey), "前提：没设过")
+        let original = stage.publicOnly
+        stage.applyPublicOnly(!original)  // 投影写入
+        stage.settings.setExplicit(SyncHub.publicOnlyKey, nil)  // 快照换回「未设置」
+        SyncModelSink(model: stage).reloadAfterRollback()
+        XCTAssertFalse(stage.settings.hasExplicitValue(forKey: SyncHub.publicOnlyKey), "仍是未设置")
+        XCTAssertEqual(stage.publicOnly, stage.settings.publicOnly, "内存跟随存储")
+    }
+
+    // MARK: M10 检查阶段取消后迟到的结果丢弃
+
+    /// 粘贴同步码后在等 GET 时取消（关面板、进后台）：迟到的响应不得重新装上确认页票据。
+    func testM10_cancelWhileCheckingDropsLateResult() async throws {
+        let stage = makeStage()
+        let store = StateStore(), keys = KeyStore(), transport = SlowTransport()
+        transport.delay = 10_000_000
+        let (hub, _) = hub(stage, store: store, keys: keys, transport: transport)
+        await waitUntil { hub.phase == .off }
+        transport.delay = 400_000_000
+        transport.script(gets: [try Self.remoteBlob(ver: 3)])
+        let code = try XCTUnwrap(SyncCrypto.formatCode(key: Self.key, origin: Self.origin))
+        let prepare = Task { await hub.prepareJoin(code) }
+        await waitUntil { if case .checking = hub.joinStage { return true } else { return false } }
+        guard case .checking = hub.joinStage else { return XCTFail("前提：在检查") }
+        hub.cancelJoin()
+        await prepare.value
+        XCTAssertTrue(isIdle(hub.joinStage), "取消后迟到的结果丢弃，实际 \(hub.joinStage)")
+        XCTAssertFalse(hub.busy)
     }
 
     // MARK: M7 停留记账不绕过提交锁
