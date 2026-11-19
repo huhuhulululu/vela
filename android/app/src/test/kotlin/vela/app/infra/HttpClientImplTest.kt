@@ -211,6 +211,32 @@ class HttpClientImplTest {
     }
 
     @Test(timeout = 15_000)
+    fun testQueuedDeadlineReturnsWhileIoStaysSaturated() {
+        val hits = AtomicInteger()
+        saturateIo {
+            withServer({ exchange ->
+                hits.incrementAndGet()
+                val body = "ok".toByteArray()
+                exchange.sendResponseHeaders(200, body.size.toLong())
+                exchange.responseBody.use { it.write(body) }
+            }) { port ->
+                val scope = CoroutineScope(SupervisorJob())
+                val started = System.nanoTime()
+                val job = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                    HttpClientImpl().send(HTTPRequest(url = "http://127.0.0.1:$port/queued", timeoutSeconds = 0.4))
+                }
+                val finished = runCatching { runBlocking { withTimeout(1_500) { job.join() } } }
+                val elapsedMs = (System.nanoTime() - started) / 1_000_000
+                assertTrue("IO 仍饱和时到期没有返回 $finished elapsed=$elapsedMs", finished.isSuccess)
+                assertTrue("elapsed=$elapsedMs", elapsedMs < 1_200)
+                assertTrue(job.isCompleted)
+                assertEquals("到期后仍把请求发出去了", 0, hits.get())
+                scope.cancel()
+            }
+        }
+    }
+
+    @Test(timeout = 15_000)
     fun testCancelBeforeExecutionDoesNotSend() {
         val hits = AtomicInteger()
         saturateIo {
