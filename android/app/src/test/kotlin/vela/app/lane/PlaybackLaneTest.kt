@@ -267,6 +267,26 @@ class PlaybackLaneTest {
     }
 
     @Test
+    fun testBehindLiveRejoinsWithoutOtherErrorOrReprepare() {
+        val fixture = open()
+        fixture.lane.play(fixture.rendition, "room-a", 800_000.0, allowed = true)
+        val medias = fixture.player.medias.size
+        fixture.player.emitBehindLive()
+        fixture.player.emitBehindLive()
+        assertEquals(0, fixture.lane.otherErrorCount)
+        assertEquals(0, fixture.lane.reprepareCount)
+        assertFalse(fixture.lane.failed)
+        assertFalse(fixture.lane.silentRetryUsed)
+        assertTrue(fixture.refreshes.isEmpty())
+        assertEquals(medias + 2, fixture.player.medias.size)
+
+        fixture.player.emitBehindLive()
+        assertEquals(1, fixture.lane.otherErrorCount)
+        assertEquals(listOf("room-a" to true), fixture.refreshes)
+        assertFalse(fixture.lane.failed)
+    }
+
+    @Test
     fun testPlaylistResetReprepareBudgetDoesNotConsumeRetry() {
         val fixture = open()
         fixture.lane.play(fixture.rendition, "room-a", 800_000.0, allowed = true)
@@ -497,6 +517,10 @@ internal class FakeLanePlayer : LanePlayer {
 
     fun emitError(reset: Boolean, chain: List<FailureCode>) {
         callbacks?.onPlaybackError(reset, chain)
+    }
+
+    fun emitBehindLive() {
+        callbacks?.onBehindLiveWindow()
     }
 
     fun emitFirstFrame() {

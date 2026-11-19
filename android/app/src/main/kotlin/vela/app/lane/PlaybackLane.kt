@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.view.Surface
+import androidx.media3.common.PlaybackException
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
@@ -117,6 +118,7 @@ class PlaybackLane(
     private val loadPolicy = VelaLoadErrorPolicy()
     private val refresh = RefreshTracker()
     private val resetTimes = ArrayList<Long>()
+    private val behindLiveTimes = ArrayList<Long>()
     private val sizeListeners = ArrayList<(Int, Int) -> Unit>()
 
     private var wantsMuted: Boolean = true
@@ -202,6 +204,7 @@ class PlaybackLane(
         lastFailure = null
         failed = false
         resetTimes.clear()
+        behindLiveTimes.clear()
         repreparing = false
         suppressWatchdog = false
     }
@@ -290,6 +293,29 @@ class PlaybackLane(
 
     private fun publishFace() {
         onPlaybackFace?.invoke()
+    }
+
+    override fun onBehindLiveWindow() {
+        if (!sessionOpen || !allowed) return
+        val now = clock.instant().toEpochMilli()
+        behindLiveTimes.removeAll { now - it >= BEHIND_LIVE_WINDOW_MS }
+        if (behindLiveTimes.size >= BEHIND_LIVE_BUDGET) {
+            onPlaybackError(
+                reset = false,
+                chain = listOf(
+                    FailureCode(
+                        PlaybackFailureClassifier.media3ErrorDomain,
+                        PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW,
+                    ),
+                ),
+            )
+            return
+        }
+        behindLiveTimes.add(now)
+        val last = lastPlay ?: return
+        LaneLog.i("behind-live rejoin")
+        // 用当前地址重新 prepare，从直播边接着播。不计其它错误，也不算序号回退。
+        start(last.rendition, last.username, last.peak, keepReady = true)
     }
 
     override fun onPlaybackError(reset: Boolean, chain: List<FailureCode>) {
@@ -732,6 +758,8 @@ class PlaybackLane(
     companion object {
         const val REPREPARE_BUDGET: Int = 2
         const val REPREPARE_WINDOW_MS: Long = 60_000L
+        const val BEHIND_LIVE_BUDGET: Int = 2
+        const val BEHIND_LIVE_WINDOW_MS: Long = 30_000L
 
         val sharedHub: LaneHub by lazy { LaneHub().also { it.start() } }
 
