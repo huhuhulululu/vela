@@ -98,6 +98,12 @@ android {
         buildConfig = true
     }
 
+    lint {
+        abortOnError = true
+        checkReleaseBuilds = true
+        error += "NewApi"
+    }
+
     testOptions {
         unitTests.isIncludeAndroidResources = true
         unitTests.isReturnDefaultValues = true

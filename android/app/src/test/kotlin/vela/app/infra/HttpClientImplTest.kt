@@ -1,6 +1,7 @@
 package vela.app.infra
 
 import com.sun.net.httpserver.HttpServer
+import java.io.File
 import java.net.CookieHandler
 import java.net.HttpURLConnection
 import java.net.InetSocketAddress
@@ -230,6 +231,57 @@ class HttpClientImplTest {
                 assertEquals("取消后排队任务仍然发出了请求", 0, hits.get())
                 scope.cancel()
             }
+        }
+    }
+
+    @Test(timeout = 8_000)
+    fun testCancelWhileConnectingReturnsWithoutCrashing() {
+        val crashes = java.util.Collections.synchronizedList(mutableListOf<Throwable>())
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { _, error -> crashes.add(error) }
+        val scope = CoroutineScope(Dispatchers.IO)
+        val job = scope.launch {
+            HttpClientImpl().send(HTTPRequest(url = "http://203.0.113.1:81/hang", timeoutSeconds = 0.6))
+        }
+        try {
+            Thread.sleep(150)
+            job.cancel()
+            runBlocking { withTimeout(2_000) { job.join() } }
+            assertTrue("取消连接时线程崩了 $crashes", crashes.isEmpty())
+        } finally {
+            Thread.setDefaultUncaughtExceptionHandler(previous)
+            job.cancel()
+            scope.cancel()
+            // 连接超时还占着 IO 线程时，后面的饱和测试会误判。
+            Thread.sleep(800)
+        }
+    }
+
+    @Test
+    fun testClientBytecodeDoesNotReferenceOnSpinWait() {
+        val location = HttpClientImpl::class.java.protectionDomain?.codeSource?.location
+        assertTrue("找不到 HttpClientImpl 的 class", location != null)
+        val root = File(location!!.toURI())
+        val files = ArrayList<Pair<String, ByteArray>>()
+        if (root.isDirectory) {
+            root.walkTopDown()
+                .filter { it.isFile && it.name.contains("HttpClientImpl") && it.extension == "class" }
+                .forEach { files.add(it.name to it.readBytes()) }
+        } else {
+            java.util.jar.JarFile(root).use { jar ->
+                val entries = jar.entries()
+                while (entries.hasMoreElements()) {
+                    val entry = entries.nextElement()
+                    if (entry.name.contains("HttpClientImpl") && entry.name.endsWith(".class")) {
+                        files.add(entry.name to jar.getInputStream(entry).readBytes())
+                    }
+                }
+            }
+        }
+        assertTrue("找不到 HttpClientImpl 的 class：$location", files.isNotEmpty())
+        for ((name, bytes) in files) {
+            val text = String(bytes, Charsets.ISO_8859_1)
+            assertTrue("$name 调用了 minSdk 26 没有的 onSpinWait", !text.contains("onSpinWait"))
         }
     }
 

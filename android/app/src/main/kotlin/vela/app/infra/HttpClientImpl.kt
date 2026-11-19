@@ -6,6 +6,7 @@ import java.net.HttpURLConnection
 import java.net.Socket
 import java.net.SocketTimeoutException
 import java.net.URL
+import java.util.concurrent.locks.LockSupport
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -158,21 +159,14 @@ class HttpClientImpl : HTTPClient {
     ) : AutoCloseable {
         private val thread = Thread({
             try {
-                var left = deadline.awaitNanos()
-                while (left > 0L) {
-                    val millis = left / 1_000_000L
-                    val nanos = (left % 1_000_000L).toInt()
-                    if (millis > 0L) {
-                        Thread.sleep(millis, nanos.coerceAtLeast(0))
-                    } else if (nanos > 0) {
-                        Thread.sleep(0, nanos)
-                    }
-                    left = deadline.awaitNanos()
+                while (!deadline.expired()) {
+                    if (Thread.interrupted()) return@Thread
+                    val left = deadline.awaitNanos()
                     if (left <= 0L) break
-                    if (millis == 0L) break
+                    LockSupport.parkNanos(left)
+                    if (Thread.interrupted()) return@Thread
                 }
-                while (!deadline.expired()) Thread.onSpinWait()
-                onElapsed()
+                if (!Thread.currentThread().isInterrupted) onElapsed()
             } catch (_: InterruptedException) {
             }
         }, "vela-http-deadline")
@@ -328,7 +322,7 @@ class HttpClientImpl : HTTPClient {
                             break
                         }
                     } else {
-                        Thread.onSpinWait()
+                        Thread.yield()
                     }
                 }
             }, "vela-http-abort")
