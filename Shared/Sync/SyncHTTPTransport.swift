@@ -89,8 +89,28 @@ final class SyncHTTPTransport: SyncTransport {
         return r
     }
 
+    /// 响应体上限：与请求体上限相同（第 10.3 节，最大的合法响应是带完整信封的 409）。
+    static let maxResponseBytes = 802_048
+
     private func send(_ request: URLRequest, kind: Kind) async -> SyncServerResponse {
-        guard let (data, response) = try? await session.data(for: request), let http = response as? HTTPURLResponse else { return .transient }
+        guard let (bytes, response) = try? await session.bytes(for: request), let http = response as? HTTPURLResponse else { return .transient }
+        // 先看声明的长度，超限不读体；再流式读取，累计超限立即中止，按暂时故障处理。
+        if http.expectedContentLength > Int64(Self.maxResponseBytes) {
+            bytes.task.cancel()
+            return .transient
+        }
+        var data = Data()
+        do {
+            for try await byte in bytes {
+                guard data.count < Self.maxResponseBytes else {
+                    bytes.task.cancel()
+                    return .transient
+                }
+                data.append(byte)
+            }
+        } catch {
+            return .transient
+        }
         let retryAfter = http.value(forHTTPHeaderField: "Retry-After").flatMap { Int($0) }
         return Self.parse(status: http.statusCode, body: data, retryAfter: retryAfter, kind: kind)
     }
