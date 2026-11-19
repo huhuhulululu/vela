@@ -7,6 +7,7 @@ public enum Cam4Directory {
     public static let snapshotTTL: TimeInterval = 10 * 60
 
     /// `page` 从 1 开始。`resultsPerPage` 夹到 1...90。
+    @_optimize(size)
     public static func url(page: Int, resultsPerPage: Int) -> URL {
         let size = min(max(resultsPerPage, 1), maxPageSize)
         let index = max(page, 1)
@@ -25,12 +26,14 @@ public enum Cam4Directory {
     }
 
     /// `page = offset / k + 1`，`k` 为夹紧后的页大小。
+    @_optimize(size)
     public static func url(offset: Int, limit: Int) -> URL {
         let size = min(max(limit, 1), maxPageSize)
         let page = max(offset, 0) / size + 1
         return url(page: page, resultsPerPage: size)
     }
 
+    @_optimize(size)
     public static func decode(
         _ data: Data,
         requestLimit: Int,
@@ -52,6 +55,7 @@ public enum Cam4Directory {
         var total: Int?
     }
 
+    @_optimize(size)
     private static func parse(_ data: Data) throws -> Parsed {
         let decoder = JSONDecoder()
         if let object = try? decoder.decode(Cam4Object.self, from: data), object.list != nil || object.total != nil {
@@ -68,8 +72,10 @@ public enum Cam4Directory {
 public struct Cam4RegionField: Decodable, Equatable, Sendable {
     public var parts: [String]
 
+    @_optimize(size)
     public init(parts: [String]) { self.parts = parts }
 
+    @_optimize(size)
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         if container.decodeNil() {
@@ -89,6 +95,7 @@ public struct Cam4RegionField: Decodable, Equatable, Sendable {
 public enum Cam4Regions {
     /// 接受逗号分隔字符串或字符串数组。数字码（`"643"`、`"4"`、`"004"`）映射成 alpha-2；
     /// 本身已是两位字母的也收下。空白丢掉，认不出的码丢掉。
+    @_optimize(size)
     public static func parse(_ raw: Cam4RegionField?) -> Set<String> {
         guard let raw else { return [] }
         var out = Set<String>()
@@ -101,6 +108,7 @@ public enum Cam4Regions {
     }
 
     /// 观看地区为空不过滤。两边都先归一成 alpha-2 再看交集（设备侧是 alpha-2，房间侧可能还是数字码）。
+    @_optimize(size)
     public static func isBlocked(_ blocked: Set<String>, viewer: Set<String>) -> Bool {
         guard !viewer.isEmpty, !blocked.isEmpty else { return false }
         let left = Set(blocked.compactMap(canonical))
@@ -108,6 +116,7 @@ public enum Cam4Regions {
         return !left.isDisjoint(with: right)
     }
 
+    @_optimize(size)
     static func canonical(_ raw: String) -> String? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
@@ -145,6 +154,7 @@ struct Cam4User: Decodable {
     var broadcastType: String?
     var languages: [String]?
 
+    @_optimize(size)
     func room(now: Date, viewerRegions: Set<String>) -> Room? {
         guard let rawName = username?.trimmingCharacters(in: .whitespacesAndNewlines),
               let key = RoomKey(site: .cam4, name: rawName) else { return nil }
@@ -176,6 +186,7 @@ struct Cam4User: Decodable {
 }
 
 enum Cam4Links {
+    @_optimize(size)
     static func https(_ raw: String?) -> URL? {
         guard var raw, !raw.isEmpty else { return nil }
         raw = raw.replacingOccurrences(of: "\\/", with: "/")
@@ -183,6 +194,7 @@ enum Cam4Links {
         return components.url
     }
 
+    @_optimize(size)
     static func gender(_ raw: String?) -> Gender? {
         switch raw?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
         case "female": return .female
@@ -193,6 +205,7 @@ enum Cam4Links {
         }
     }
 
+    @_optimize(size)
     static func location(_ raw: String?) -> String {
         let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard trimmed.count == 2, trimmed.unicodeScalars.allSatisfy(CharacterSet.letters.contains) else { return "" }
@@ -200,11 +213,13 @@ enum Cam4Links {
     }
 
     /// `profileImageLink` 的 `validto` 是秒（10 位左右）。没有则用截图的固定 TTL。
+    @_optimize(size)
     static func expiry(profile: String?, hasSnapshot: Bool, now: Date) -> Date? {
         if let date = validto(profile) { return date }
         return hasSnapshot ? now.addingTimeInterval(Cam4Directory.snapshotTTL) : nil
     }
 
+    @_optimize(size)
     static func validto(_ raw: String?) -> Date? {
         guard var raw, !raw.isEmpty else { return nil }
         raw = raw.replacingOccurrences(of: "\\/", with: "/")

@@ -7,6 +7,7 @@ import FoundationNetworking
 public struct LastBroadcast: Equatable, Sendable {
     public var at: Date?
 
+    @_optimize(size)
     public init(at: Date?) {
         self.at = at
     }
@@ -16,11 +17,13 @@ public struct LastBroadcast: Equatable, Sendable {
 /// 字段格式未在真机核对：`last_broadcast` 接受 ISO 8601 字符串、`yyyy-MM-dd HH:mm:ss`（按 UTC）或秒级 / 毫秒级 Unix 时间；
 /// `time_since_last_broadcast` 只接受秒数。
 public enum BioContext {
+    @_optimize(size)
     public static func url(username: String) -> URL {
         let slug = username.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? username
         return URL(string: "https://chaturbate.com/api/biocontext/\(slug)/")!
     }
 
+    @_optimize(size)
     public static func request(username: String) -> URLRequest {
         var request = URLRequest(url: url(username: username))
         request.httpMethod = "GET"
@@ -30,6 +33,7 @@ public enum BioContext {
     }
 
     /// 200 解析时间；404、401 与 403 带 JSON 说明算「没有可用时间」；站点质询抛 `challenge`。
+    @_optimize(size)
     public static func decode(status: Int, data: Data, now: Date) throws -> LastBroadcast {
         if looksLikeChallenge(data) { throw CatalogFailure.challenge }
         let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
@@ -47,6 +51,7 @@ public enum BioContext {
         }
     }
 
+    @_optimize(size)
     static func lastBroadcast(in object: [String: Any], now: Date) -> Date? {
         if let date = parseDate(object["last_broadcast"]) { return min(date, now) }
         if let seconds = number(object["time_since_last_broadcast"]), seconds >= 0 {
@@ -55,6 +60,7 @@ public enum BioContext {
         return nil
     }
 
+    @_optimize(size)
     static func parseDate(_ value: Any?) -> Date? {
         if let seconds = number(value), seconds > 0 {
             return Date(timeIntervalSince1970: seconds > 100_000_000_000 ? seconds / 1000 : seconds)
@@ -75,6 +81,7 @@ public enum BioContext {
     }
 
     /// 数字或纯数字字符串。
+    @_optimize(size)
     static func number(_ value: Any?) -> Double? {
         if let value = value as? NSNumber, !(value is Bool) { return value.doubleValue }
         if let text = value as? String, let double = Double(text.trimmingCharacters(in: .whitespaces)) { return double }
@@ -84,6 +91,7 @@ public enum BioContext {
 
 /// 「上次开播 3 小时前」一类中文相对时间。
 public enum BroadcastAgo {
+    @_optimize(size)
     public static func string(since date: Date, now: Date) -> String {
         let seconds = max(0, Int(now.timeIntervalSince(date)))
         let minute = 60, hour = 3_600, day = 86_400
@@ -111,6 +119,7 @@ public struct LastBroadcastCache: Equatable, Sendable {
 
     private var entries: [String: Entry] = [:]
 
+    @_optimize(size)
     public init() {}
 
     /// 有时间的条目（不论新旧），键为小写用户名：收藏夹显示用。
@@ -119,6 +128,7 @@ public struct LastBroadcastCache: Equatable, Sendable {
     }
 
     /// 这些名字里还没有新鲜结果的（保持原顺序，按小写去重）。
+    @_optimize(size)
     public func pending(_ names: [String], now: Date) -> [String] {
         var seen = Set<String>()
         return names.filter { name in
@@ -129,12 +139,14 @@ public struct LastBroadcastCache: Equatable, Sendable {
         }
     }
 
+    @_optimize(size)
     public func storing(_ values: [String: LastBroadcast], at date: Date) -> LastBroadcastCache {
         var next = self
         for (key, value) in values { next.entries[Curation.key(key)] = Entry(value: value, checkedAt: date) }
         return next
     }
 
+    @_optimize(size)
     public func pruned(keeping names: [String]) -> LastBroadcastCache {
         let keep = Set(names.map(Curation.key))
         var next = self
@@ -163,6 +175,7 @@ public struct LastBroadcastFetcher: Sendable {
     private let clock: @Sendable () -> Date
     private let backoff: EndpointBackoffBox?
 
+    @_optimize(size)
     public init(
         client: any HTTPClient, concurrency: Int = FavoriteFetcher.maxConcurrent,
         now: @escaping @Sendable () -> Date = { Date() }, backoff: EndpointBackoffBox? = .shared
@@ -173,11 +186,13 @@ public struct LastBroadcastFetcher: Sendable {
         self.backoff = backoff
     }
 
+    @_optimize(size)
     public func fetch(_ names: [String]) async -> LastBroadcastFetchResult {
         var found: [String: LastBroadcast] = [:]
         var challenged = false
         var index = 0
         await withTaskGroup(of: (String, Outcome).self) { group in
+            @_optimize(size)
             func startNext(_ group: inout TaskGroup<(String, Outcome)>) {
                 guard index < names.count else { return }
                 let name = names[index]
@@ -198,6 +213,7 @@ public struct LastBroadcastFetcher: Sendable {
     }
 
     /// 退避窗口内不发请求；正文不是 JSON 也不是质询页（404、401 除外）登记退避，不写缓存。
+    @_optimize(size)
     private func lookup(_ name: String) async -> Outcome {
         if let backoff, !backoff.allows(.bioContext) { return .failed }
         do {

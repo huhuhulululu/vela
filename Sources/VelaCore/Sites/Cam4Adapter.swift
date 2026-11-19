@@ -26,6 +26,7 @@ public final class Cam4Adapter: SiteAdapter, @unchecked Sendable {
     private var index: [String: Entry] = [:]
     private var order: [String] = []
 
+    @_optimize(size)
     public init(
         client: any HTTPClient,
         backoff: EndpointBackoffBox? = .shared,
@@ -42,6 +43,7 @@ public final class Cam4Adapter: SiteAdapter, @unchecked Sendable {
     public var capabilities: SiteCapabilities { .strictMaster }
     public var challengeHome: URL? { nil }
 
+    @_optimize(size)
     public func fetchDirectory(_ query: CatalogQuery) async throws -> CatalogPage {
         if unsupported(query) {
             return CatalogPage(rooms: [], total: 0, nextOffset: 0)
@@ -50,6 +52,7 @@ public final class Cam4Adapter: SiteAdapter, @unchecked Sendable {
         return filtered(page, query: query)
     }
 
+    @_optimize(size)
     public func resolveStream(_ room: Room) async throws -> SourcedTicket {
         let name = room.key.name.lowercased()
         if let cached = lookup(name), fresh(cached, ttl: Self.streamTTL, now: clock()) {
@@ -69,6 +72,7 @@ public final class Cam4Adapter: SiteAdapter, @unchecked Sendable {
         )
     }
 
+    @_optimize(size)
     public func status(of keys: [RoomKey], now: Date) async -> [RoomKey: FavoriteStatus] {
         var out: [RoomKey: FavoriteStatus] = [:]
         lock.lock()
@@ -87,6 +91,7 @@ public final class Cam4Adapter: SiteAdapter, @unchecked Sendable {
         return out
     }
 
+    @_optimize(size)
     public func thumbnail(for room: Room, now: Date) -> URL? {
         guard let url = room.thumbnailURL else { return nil }
         if let expires = room.thumbnailExpires, expires.timeIntervalSince(now) < Self.thumbnailMargin {
@@ -95,10 +100,12 @@ public final class Cam4Adapter: SiteAdapter, @unchecked Sendable {
         return url
     }
 
+    @_optimize(size)
     public func mediaHeaders(for key: RoomKey) -> [String: String] {
         ["Referer": "https://www.cam4.com/", "Origin": "https://www.cam4.com"]
     }
 
+    @_optimize(size)
     public func masterFailure(status: Int) -> StreamFailure? {
         if (500...599).contains(status) || status == 403 || status == 404 { return .unavailable }
         return nil
@@ -106,10 +113,12 @@ public final class Cam4Adapter: SiteAdapter, @unchecked Sendable {
 
     // MARK: 目录
 
+    @_optimize(size)
     private func unsupported(_ query: CatalogQuery) -> Bool {
         query.region != nil || CatalogQuery.normalizedHashtag(query.tag) != nil || query.newCams
     }
 
+    @_optimize(size)
     private func load(offset: Int, limit: Int) async throws -> CatalogPage {
         if let backoff, !backoff.allows(.cam4Directory) { throw EndpointBackedOff(.cam4Directory) }
         var request = URLRequest(url: Cam4Directory.url(offset: offset, limit: limit))
@@ -137,6 +146,7 @@ public final class Cam4Adapter: SiteAdapter, @unchecked Sendable {
         return page
     }
 
+    @_optimize(size)
     private func filtered(_ page: CatalogPage, query: CatalogQuery) -> CatalogPage {
         var rooms = page.rooms
         if let gender = query.gender {
@@ -149,6 +159,7 @@ public final class Cam4Adapter: SiteAdapter, @unchecked Sendable {
         return CatalogPage(rooms: rooms, total: page.total, nextOffset: page.nextOffset)
     }
 
+    @_optimize(size)
     private func remember(_ rooms: [Room], offset: Int, at date: Date) {
         lock.lock()
         defer { lock.unlock() }
@@ -166,12 +177,14 @@ public final class Cam4Adapter: SiteAdapter, @unchecked Sendable {
         }
     }
 
+    @_optimize(size)
     private func lookup(_ name: String) -> Entry? {
         lock.lock()
         defer { lock.unlock() }
         return index[name]
     }
 
+    @_optimize(size)
     private func drop(_ name: String) {
         lock.lock()
         defer { lock.unlock() }
@@ -179,10 +192,12 @@ public final class Cam4Adapter: SiteAdapter, @unchecked Sendable {
         order.removeAll { $0 == name }
     }
 
+    @_optimize(size)
     private func fresh(_ entry: Entry, ttl: TimeInterval, now: Date) -> Bool {
         now.timeIntervalSince(entry.fetchedAt) <= ttl
     }
 
+    @_optimize(size)
     private func ticket(_ entry: Entry, url: URL?) -> SourcedTicket {
         if entry.geo {
             return SourcedTicket(ticket: StreamTicket(success: true, url: nil, status: .publicShow), origin: .cam4Directory)

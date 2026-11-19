@@ -11,6 +11,7 @@ public final class SiteDirectory: @unchecked Sendable {
     private var cursors: [Int: MixedCursor] = [:]
     private var failed: [SiteID] = []
 
+    @_optimize(size)
     public init(mode: SiteMode, registry: SiteRegistry, chaturbate: CatalogAPI) {
         self.mode = mode
         self.registry = registry
@@ -20,6 +21,7 @@ public final class SiteDirectory: @unchecked Sendable {
     /// 混合模式最近一次取页时失败的站（只记日志用）。
     public var lastFailedSites: [SiteID] { lock.withLock { failed } }
 
+    @_optimize(size)
     public func fetch(_ query: CatalogQuery) async throws -> CatalogPage {
         switch mode {
         case .chaturbate:
@@ -33,11 +35,13 @@ public final class SiteDirectory: @unchecked Sendable {
     }
 
     /// 与 `CatalogAPI.fetchPages` 同一循环：没取满、上一页是满页、游标没到底就接着取。
+    @_optimize(size)
     public func fetchPages(_ query: CatalogQuery, pages: Int) async throws -> CatalogPage {
         if mode == .chaturbate { return try await chaturbate.fetchPages(query, pages: pages) }
         return try await CatalogWindow.collect(query, pages: pages, fetch: fetch)
     }
 
+    @_optimize(size)
     private func fetchMixed(_ query: CatalogQuery) async throws -> CatalogPage {
         let sites = mode.sites
         let cursor: MixedCursor = lock.withLock {
@@ -56,6 +60,7 @@ public final class SiteDirectory: @unchecked Sendable {
 
 extension RoomKey {
     /// 内存 ref 属于哪个站：带已知站点前缀的按前缀，其余（裸名、测试房间）一律是 cb。
+    @_optimize(size)
     public static func site(ofRef ref: String) -> SiteID {
         guard let colon = ref.firstIndex(of: ":"),
               let site = SiteID(rawValue: ref[..<colon].lowercased()) else { return .chaturbate }
@@ -65,6 +70,7 @@ extension RoomKey {
 
 extension Room {
     /// 此刻能用的缩略图：带过期时刻且离过期不足 `Cam4Adapter.thumbnailMargin` 时为 nil（界面用模糊占位，不为它单独请求）。
+    @_optimize(size)
     public func usableThumbnail(now: Date = Date()) -> URL? {
         guard let expires = thumbnailExpires else { return thumbnailURL }
         return expires.timeIntervalSince(now) < Cam4Adapter.thumbnailMargin ? nil : thumbnailURL
