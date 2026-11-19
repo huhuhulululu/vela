@@ -19,6 +19,9 @@ fun interface Sleeper {
 interface LanePlayerListener {
     fun onPlaying(playing: Boolean)
     fun onPlaybackError(reset: Boolean, chain: List<FailureCode>)
+
+    /** 播放点落到直播窗口外面。不是加载失败，也不要当成序号回退。 */
+    fun onBehindLiveWindow()
     fun onFirstFrame()
     fun onVideoSize(width: Int, height: Int)
 }

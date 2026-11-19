@@ -31,6 +31,15 @@ public struct StreamTicket: Equatable, Sendable {
         success && url != nil && status.isPlayable
     }
 
+    /// 接口实测确认的非公开状态：只有 private / group / hidden / password / offline 才算，
+    /// 接口失败带来的 unknown、暂时离开、公开但没地址（地区受限）都不是，不能据此把房间从列表筛掉。
+    public var delistedShow: ShowState? {
+        switch status {
+        case .privateShow, .group, .hidden, .password, .offline: return status
+        case .publicShow, .away, .unknown: return nil
+        }
+    }
+
     public var failure: StreamFailure? {
         if isPlayable { return nil }
         if status == .publicShow && url == nil { return .geo }

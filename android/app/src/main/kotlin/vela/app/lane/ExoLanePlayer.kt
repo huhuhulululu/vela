@@ -7,6 +7,7 @@ import androidx.media3.common.C
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.BehindLiveWindowException
 import vela.app.playback.LaneEngine
 import vela.app.playback.LaneHub
 import vela.app.playback.VelaLoadErrorPolicy
@@ -40,6 +41,11 @@ internal class ExoLanePlayer(
 
         override fun onPlayerError(error: PlaybackException) {
             if (!current()) return
+            // 慢机器解码跟不上直播边时会掉出窗口。这不是分片加载失败，单独交回去跳回直播边。
+            if (isBehindLiveWindow(error)) {
+                listener?.onBehindLiveWindow()
+                return
+            }
             val chain = listOf(
                 FailureCode(PlaybackFailureClassifier.media3ErrorDomain, error.errorCode),
             )
@@ -162,6 +168,17 @@ internal class ExoLanePlayer(
 
     override fun setListener(listener: LanePlayerListener?) {
         this.listener = listener
+    }
+
+    private fun isBehindLiveWindow(error: PlaybackException): Boolean {
+        if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) return true
+        val seen = HashSet<Throwable>()
+        var cause = error.cause
+        while (cause != null && seen.add(cause)) {
+            if (cause is BehindLiveWindowException) return true
+            cause = cause.cause
+        }
+        return false
     }
 
     private fun reportTrackVideoSize(tracks: androidx.media3.common.Tracks) {

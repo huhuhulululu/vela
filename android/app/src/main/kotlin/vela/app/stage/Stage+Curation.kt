@@ -195,15 +195,30 @@ internal suspend fun StageViewModel.refreshLastBroadcastsIfStale() {
 }
 
 internal suspend fun StageViewModel.resolveFavorites(): FavoriteResolution {
+    val epoch = beginFavoriteCheck()
+    try {
+        val result = favoriteRunner.run { id -> runFavoriteBatch(id) }
+        noteFavoriteOutcome(result)
+        return result
+    } finally {
+        finishFavoriteCheck(epoch)
+    }
+}
+
+private fun StageViewModel.beginFavoriteCheck(): Int {
+    favoriteCheckEpoch += 1
+    val epoch = favoriteCheckEpoch
     favoritesChecking = true
     publish()
-    val result = favoriteRunner.run { id -> runFavoriteBatch(id) }
-    if (!favoriteRunner.isRunning) {
-        favoritesChecking = false
-        publish()
-    }
-    noteFavoriteOutcome(result)
-    return result
+    return epoch
+}
+
+/** 只有这一批仍是最新一批、且没有下一批在跑时，才放下「查询中」。 */
+private fun StageViewModel.finishFavoriteCheck(epoch: Int) {
+    if (epoch != favoriteCheckEpoch || favoriteRunner.isRunning) return
+    if (!favoritesChecking) return
+    favoritesChecking = false
+    publish()
 }
 
 private fun StageViewModel.noteFavoriteOutcome(result: FavoriteResolution) {

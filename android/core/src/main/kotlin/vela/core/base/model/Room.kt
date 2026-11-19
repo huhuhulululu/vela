@@ -39,6 +39,9 @@ data class Room private constructor(
     val id: String
         get() = username
 
+    /** 只改演出状态。目录筛除用它改写列表里的公开房间。 */
+    fun withShow(state: ShowState): Room = copy(show = state)
+
     constructor(
         username: String,
         displayName: String? = null,

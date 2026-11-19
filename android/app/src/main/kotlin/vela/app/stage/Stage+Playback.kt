@@ -300,7 +300,7 @@ private suspend fun StageViewModel.playTarget(username: String, cap: Double, tok
     val address = ticket.url
     if (!ticket.isPlayable || address == null) {
         playbackSink?.stop()
-        noteUnplayable(ticket.failure, username, token)
+        noteUnplayable(ticket.failure, ticket.delistedShow, username, token)
         return null
     }
     val master = loopbackSharedMaster(address)
@@ -310,7 +310,24 @@ private suspend fun StageViewModel.playTarget(username: String, cap: Double, tok
     return PlayTarget(master = master, playable = playable)
 }
 
-private fun StageViewModel.noteUnplayable(failure: StreamFailure?, username: String, token: Int) {
+internal fun StageViewModel.noteUnplayable(
+    failure: StreamFailure?,
+    delist: ShowState?,
+    username: String,
+    token: Int,
+) {
+    if (delist != null && feed.canDelist(username)) {
+        dwell.markFailed()
+        showPlaybackNote(text.failure(failure), failed = true)
+        autoSkip()
+        // 没跳成（列表尽头、连续跳过到上限）就留在这间并保留原因，不筛；跳成了才拿掉。
+        if (feed.currentUsername?.stageLower() == username.stageLower()) return
+        clearDelistNote()
+        updateFeed { store ->
+            store.delist(username, delist, protecting = inUseNames())
+        }
+        return
+    }
     if (failure != StreamFailure.away) {
         showPlaybackNote(text.failure(failure), failed = true)
         scheduleSkip(token)
@@ -472,7 +489,7 @@ internal suspend fun StageViewModel.selectRendition(master: URI, cap: Double): S
     return StreamRendition.select(text, master, cap) ?: StreamRendition.unselected(master)
 }
 
-private suspend fun StageViewModel.prefetchAhead(token: Int) {
+internal suspend fun StageViewModel.prefetchAhead(token: Int) {
     val life = lifecycleEpoch.begin() ?: return
     if (!prefetchStillCurrent(life, token)) return
     val cap = playbackCap()
@@ -484,6 +501,15 @@ private suspend fun StageViewModel.prefetchAhead(token: Int) {
     } catch (cancelled: CancellationException) {
         throw cancelled
     } catch (_: Exception) {
+        return
+    }
+    val delist = ticket.delistedShow
+    if (delist != null) {
+        if (!prefetchStillCurrent(life, token)) return
+        // 实测已私密或离线：从列表拿掉，用户就划不到它。正在播的房间不动。
+        updateFeed { store ->
+            store.delist(next, delist, protecting = inUseNames())
+        }
         return
     }
     val address = ticket.url
@@ -580,6 +606,24 @@ private fun StageViewModel.presentPlaybackChallenge(token: Int) {
     chromeVisible = true
     surface = StageSurface.Challenge
     publish()
+}
+
+private fun StageViewModel.clearDelistNote() {
+    if (laneFace.playbackNote == null && playerNote == null && failureNote == null) return
+    playerNote = null
+    failureNote = null
+    val playback = if (laneFace.playback == LanePlayback.Failed) LanePlayback.Idle else laneFace.playback
+    laneFace = laneFace.copy(playback = playback, playbackNote = null)
+    publish()
+}
+
+/** 各路此刻占着的房间。筛除时不能动它们。 */
+private fun StageViewModel.inUseNames(): Set<String> {
+    val names = LinkedHashSet<String>()
+    feed.currentUsername?.let { names.add(it.stageLower()) }
+    laneFace.username?.let { names.add(it.stageLower()) }
+    laneFace.playingUsername?.let { names.add(it.stageLower()) }
+    return names
 }
 
 internal fun StageViewModel.scheduleSkip(token: Int) {

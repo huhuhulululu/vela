@@ -5,6 +5,7 @@ import android.media.AudioManager
 import androidx.activity.ComponentActivity
 import androidx.test.core.app.ApplicationProvider
 import java.nio.file.Files
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -43,6 +44,45 @@ class ColdStartAudioTest {
                 "保存的取消静音没有申请焦点",
                 shadowOf(fixture.audio).lastAudioFocusRequest,
             )
+        } finally {
+            fixture.stage.close()
+            fixture.directory.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun testInactiveActiveKeepsFocusLossMute() {
+        val fixture = open(muted = false)
+        try {
+            fixture.wiring.moveTo(PhoneScenePhase.ACTIVE)
+            assertFalse(fixture.stage.settings.muted)
+            assertFalse(fixture.stage.state.value.muted)
+            val listener = shadowOf(fixture.audio).lastAudioFocusRequest.listener
+            listener.onAudioFocusChange(AudioManager.AUDIOFOCUS_LOSS)
+            assertTrue(fixture.stage.state.value.muted)
+            assertFalse(fixture.stage.settings.muted)
+            fixture.wiring.moveTo(PhoneScenePhase.INACTIVE)
+            fixture.wiring.moveTo(PhoneScenePhase.ACTIVE)
+            assertTrue("普通 ACTIVE 重入把失焦静音冲掉了", fixture.stage.state.value.muted)
+            assertFalse("失焦静音不应写回偏好", fixture.stage.settings.muted)
+        } finally {
+            fixture.stage.close()
+            fixture.directory.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun testBackgroundResumeAppliesStoredUnmuteAfterFocusLoss() {
+        val fixture = open(muted = false)
+        try {
+            fixture.wiring.moveTo(PhoneScenePhase.ACTIVE)
+            val listener = shadowOf(fixture.audio).lastAudioFocusRequest.listener
+            listener.onAudioFocusChange(AudioManager.AUDIOFOCUS_LOSS)
+            assertTrue(fixture.stage.state.value.muted)
+            fixture.wiring.moveTo(PhoneScenePhase.BACKGROUND)
+            fixture.wiring.moveTo(PhoneScenePhase.ACTIVE)
+            assertFalse("挂起后回来应按保存的取消静音重新出声", fixture.stage.state.value.muted)
+            assertFalse(fixture.stage.settings.muted)
         } finally {
             fixture.stage.close()
             fixture.directory.toFile().deleteRecursively()
