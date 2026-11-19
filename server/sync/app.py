@@ -132,6 +132,9 @@ def p256_public_key(pub):
     """Section 10.5. ValueError if pub is not a 65-byte uncompressed P-256 point."""
     if not isinstance(pub, (bytes, bytearray)):
         raise ValueError("pub")
+    # 先查形状：from_encoded_point 也接受 33 字节压缩点，第 9 节只允许 65 字节、首字节 0x04 的未压缩点。
+    if len(pub) != 65 or pub[0] != 0x04:
+        raise ValueError("pub")
     return EllipticCurvePublicKey.from_encoded_point(SECP256R1(), bytes(pub))
 
 

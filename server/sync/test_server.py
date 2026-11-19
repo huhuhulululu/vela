@@ -1572,6 +1572,15 @@ class AuditFixTest(unittest.TestCase):
         self.addCleanup(srv.server_close)
         return srv
 
+    def test_compressed_public_key_is_rejected(self):
+        sk, pub = new_key()
+        x = pub[1:33]
+        compressed = bytes([0x02 + (pub[64] & 1)]) + x
+        with self.assertRaises(ValueError):
+            app.p256_public_key(compressed)
+        with self.assertRaises(ValueError):
+            app.p256_public_key(b"\x04" + pub[1:64])
+
     def test_access_log_memory_is_bounded(self):
         srv = self.make()
         devnull = open(os.devnull, "w")
