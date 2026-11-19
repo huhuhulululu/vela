@@ -259,6 +259,70 @@ final class DualWindowTests: XCTestCase {
         assertDistinct(stage)
     }
 
+    // MARK: 共享「最近划走」：一路划走的房间，另一路向前划时不再落上去
+
+    private let five = ["alice", "bob", "carol", "dave", "erin"]
+
+    func testPrimaryForwardSkipsRoomsTheSecondaryJustLeft() {
+        let stage = makeStage(five)
+        stage.setDual(true)
+        stage.step(1, on: stage.secondary!)
+        stage.step(1, on: stage.secondary!)
+        XCTAssertEqual(names(stage).1, "dave", "副路 bob→carol→dave，离开过 bob、carol")
+        stage.step(1, on: stage.primary)
+        XCTAssertEqual(names(stage).0, "erin", "bob、carol 刚被副路划走，dave 在副路，主路落 erin")
+        assertDistinct(stage)
+    }
+
+    func testSecondaryForwardSkipsRoomsThePrimaryJustLeft() {
+        let stage = makeStage(five)
+        stage.setDual(true)
+        stage.step(1, on: stage.primary)
+        stage.step(1, on: stage.primary)
+        XCTAssertEqual(names(stage).0, "dave", "主路 alice→carol→dave，离开过 alice、carol")
+        stage.step(1, on: stage.secondary!)
+        XCTAssertEqual(names(stage).1, "erin", "carol 刚被主路划走，dave 在主路，副路落 erin")
+        assertDistinct(stage)
+    }
+
+    func testBackSwipeToOwnPreviousRoomIsAllowed() {
+        let stage = makeStage(five)
+        stage.setDual(true)
+        stage.step(1, on: stage.primary)
+        XCTAssertEqual(names(stage).0, "carol")
+        stage.step(-1, on: stage.primary)
+        XCTAssertEqual(names(stage).0, "alice", "alice 是主路自己的上一间，划回允许")
+        assertDistinct(stage)
+    }
+
+    func testRecentSkipExpiresAndDirectRevealIgnoresIt() {
+        let stage = makeStage(five)
+        stage.setDual(true)
+        stage.recentSkips.record("carol", at: Date().addingTimeInterval(-31 * 60))
+        stage.recentSkips.record("dave", at: Date())
+        stage.step(1, on: stage.primary)
+        XCTAssertEqual(names(stage).0, "carol", "carol 的记录已过 30 分钟")
+        stage.updateFeed(intent: .reveal("dave")) { $0.select("dave") }
+        XCTAssertEqual(names(stage).0, "dave", "直达不受最近划走限制")
+        assertDistinct(stage)
+    }
+
+    func testSingleWindowSwipesAreNotRecorded() {
+        let stage = makeStage(five)
+        stage.step(1)
+        stage.step(1)
+        XCTAssertEqual(stage.recentSkips.count, 0)
+        XCTAssertEqual(names(stage).0, "carol")
+    }
+
+    func testRecentSkipsSurviveListReload() {
+        let stage = makeStage(five)
+        stage.setDual(true)
+        stage.step(1, on: stage.secondary!)
+        install(stage, five)
+        XCTAssertEqual(stage.recentSkips.count, 1, "重载不清记录")
+    }
+
     // MARK: S9：副路有焦点时，操作只作用于副路
 
     func testFavoriteOnSecondaryTargetsSecondaryRoomOnly() {

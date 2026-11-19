@@ -160,7 +160,7 @@ extension StageModel {
         updateFeed(intent: .reveal(room.username)) { _ = $0.reveal(room) }
         if siteSearch == nil, feed.query.text != searchText { searchText = feed.query.text }
         // 目标正在副路播放时只切了焦点（§4.1），主路不重新起播。
-        if secondary == nil || feed.currentUsername != before { requestPlay() }
+        if lanes.count == 1 || feed.currentUsername != before { requestPlay() }
     }
 
     /// 收藏夹弹窗与菜单栏共用的数据：收藏名单、状态缓存、当前目录整理成的看板。

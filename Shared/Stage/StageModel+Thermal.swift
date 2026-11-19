@@ -1,16 +1,38 @@
 import Foundation
 import os
 
-/// 设备热状态下的画质（§4.4，裁决 3）。两路平时都用最高档、不封顶；热状态到 `.serious` 及以上时，
-/// 每一路按自己画面实际显示的高度（`displaySize`，不是窗格高度）降档；回到 `.fair` 及以下并持续 60 秒后回升。
-/// macOS 不订阅热状态，`laneQuality` 恒为未降档，所有路的上限恒为 `.infinity`。
+/// 多路画质上限（§4.4，裁决 3，ios-triple 修订 v2 H2）：最终上限 = min(尺寸上限, 热上限)。
+/// 显示 1、2 路时尺寸上限不限；3 路时按每格画面实际显示的高度（`displaySize`，还没出画面时按格子里 16:9 画面估算）。
+/// 热状态 `.serious` 降一档、`.critical` 降两档，以尺寸上限为基准；回到 `.fair` 及以下并持续 60 秒后回升到尺寸上限。
+/// macOS 不订阅热状态、只有一路，所有路的上限恒为 `.infinity`。
 @MainActor
 extension StageModel {
     static let thermalLog = Logger(subsystem: "com.vela.stage", category: "thermal")
 
-    /// 这一路的热状态上限。未降档为 `.infinity`；降档时按画面实际显示高度乘显示倍率查档，还没有画面尺寸时落到下限。
-    func thermalCap(for lane: PlaybackLane) -> Double {
-        laneQuality.peakBitrate(displayHeight: Double(lane.displaySize.height), screenScale: screenScale)
+    /// 这一路的画质上限：min(尺寸上限, 热上限)。
+    func laneCap(for lane: PlaybackLane) -> Double {
+        laneQuality.cap(displayHeight: estimatedDisplayHeight(lane), screenScale: screenScale, shownLanes: shownLaneCount)
+    }
+
+    /// 此刻竖屏同时显示几格：横屏与画中画只显示焦点路。
+    var shownLaneCount: Int { landscape || pipSolo ? 1 : lanes.count }
+
+    /// 画面显示高度（点）：已出画面用 `videoRect`；还没有就按格子尺寸里 16:9 画面的高度估算；
+    /// 格子还没布局（列表刚到就起播）时按舞台尺寸推算格子；都没有为 0。
+    func estimatedDisplayHeight(_ lane: PlaybackLane) -> Double {
+        if lane.displaySize.height > 0 { return Double(lane.displaySize.height) }
+        var pane = lane.paneSize
+        if pane.width <= 0 || pane.height <= 0, portraitStageSize.width > 0 {
+            let height = LaneLayout.paneHeight(stage: Double(portraitStageSize.height), lanes: lanes.count)
+            pane = CGSize(width: portraitStageSize.width, height: CGFloat(height))
+        }
+        guard pane.width > 0, pane.height > 0 else { return 0 }
+        return Double(min(pane.height, pane.width * 9 / 16))
+    }
+
+    /// 布局变了（路数、旋转、画中画进出、格子尺寸）：上限变了的在播路原地换档，没有播放项的路下次起播带新上限。
+    func syncLaneCaps() {
+        for lane in lanes where needsCapSync(lane) { retier(lane) }
     }
 
     /// 开始订阅系统热状态（只有支持双窗的平台）。启动时已经过热也要按当前状态起算。
@@ -24,9 +46,10 @@ extension StageModel {
         noteThermal(PhoneThermalState(ProcessInfo.processInfo.thermalState))
     }
 
-    /// 收到一次热状态。降档与否变了就让各路按新上限换档；降档后回到 fair 只排一次性的回升检查，不留空转定时器。
+    /// 收到一次热状态。降几档变了（含 serious 升到 critical）就让各路按新上限换档；降档后回到 fair 只排一次性的回升检查，不留空转定时器。
     func noteThermal(_ state: PhoneThermalState, now: Date = Date()) {
         let wasLimited = laneQuality.isLimited
+        let wasSteps = laneQuality.stepsDown
         laneQuality.observe(state, now: now)
         thermalState = state
         thermalRecoveryTask?.cancel()
@@ -39,9 +62,10 @@ extension StageModel {
                 self.noteThermal(self.thermalState)
             }
         }
-        guard laneQuality.isLimited != wasLimited else { return }
-        let word = laneQuality.isLimited ? "limit" : "recover"
-        Self.thermalLog.info("thermal \(word, privacy: .public) state=\(state.rawValue)")
+        // 降几档变了就换档：serious 升到 critical 时 isLimited 不翻转，但上限还要再降一档（审计 high）。
+        guard laneQuality.stepsDown != wasSteps else { return }
+        let word = laneQuality.isLimited == wasLimited ? "step" : (laneQuality.isLimited ? "limit" : "recover")
+        Self.thermalLog.info("thermal \(word, privacy: .public) state=\(state.rawValue) steps=\(self.laneQuality.stepsDown)")
         for lane in lanes {
             let cap = playbackCap(on: lane)
             Self.thermalLog.info("thermal-cap lane=\(Self.label(lane.id.role), privacy: .public) cap=\(cap.isFinite ? Int(cap) : -1)")
@@ -107,12 +131,23 @@ extension StageModel {
         retargetCap(for: lane) != nil
     }
 
-    /// 播放层回报画面实际显示尺寸。降档期间尺寸变化会改变档位（旋转、副路先落到下限再量到真实高度），
-    /// 下一个主线程回合再补换档，不在布局回调里直接动播放器。
+    /// 播放层回报画面实际显示尺寸。三格或降档期间尺寸变化会改变档位（旋转、新路先按估算再量到真实高度），
+    /// 下一个主线程回合再补换档，不在布局回调里直接动播放器。上限没变什么都不做。
     func noteDisplaySize(_ size: CGSize, on lane: PlaybackLane) {
         guard lane.displaySize != size else { return }
         lane.displaySize = size
-        guard laneQuality.isLimited, needsCapSync(lane) else { return }
+        scheduleCapSync(lane)
+    }
+
+    /// 界面回报这一格的尺寸（点）。同值不动，不发布。
+    func notePaneSize(_ size: CGSize, on lane: PlaybackLane) {
+        guard lane.paneSize != size else { return }
+        lane.paneSize = size
+        scheduleCapSync(lane)
+    }
+
+    private func scheduleCapSync(_ lane: PlaybackLane) {
+        guard needsCapSync(lane) else { return }
         DispatchQueue.main.async { [weak self, weak lane] in
             guard let self, let lane, self.needsCapSync(lane) else { return }
             self.retier(lane)
