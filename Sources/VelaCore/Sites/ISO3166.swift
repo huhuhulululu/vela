@@ -55,7 +55,6 @@ enum ISO3166 {
     }()
 
     /// 数字码（`"4"` / `"004"` / `"643"`）→ alpha-2。认不出返回 nil。
-    @_optimize(size)
     static func alpha2(numeric raw: String) -> String? {
         let digits = raw.filter(\.isNumber)
         guard !digits.isEmpty, digits.count == raw.count, let value = Int(digits) else { return nil }

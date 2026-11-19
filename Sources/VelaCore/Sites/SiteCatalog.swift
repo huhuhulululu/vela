@@ -14,7 +14,6 @@ public enum SiteMode: String, CaseIterable, Codable, Sendable {
         }
     }
 
-    @_optimize(size)
     public static func restore(_ raw: String?) -> SiteMode {
         guard let raw, let mode = SiteMode(rawValue: raw) else { return .chaturbate }
         return mode
@@ -27,7 +26,6 @@ public struct MixedCursor: Equatable, Sendable {
     public var totals: [SiteID: Int]
     public var ended: Set<SiteID>
 
-    @_optimize(size)
     public init(sites: [SiteID]) {
         offsets = Dictionary(uniqueKeysWithValues: sites.map { ($0, 0) })
         totals = Dictionary(uniqueKeysWithValues: sites.map { ($0, 0) })
@@ -45,7 +43,6 @@ public enum SiteCatalog {
     /// `total` 是各站 total 之和，`nextOffset` 是各站 offset 之和。
     /// 混合模式一站失败另一站成功：返回成功那站，并在 `failures` 里记下失败站。全失败抛第一站的错误。
     /// 单站模式的页与直接调那一站的 `fetchDirectory` 相同。
-    @_optimize(size)
     public static func fetch(
         mode: SiteMode,
         query: CatalogQuery,
@@ -106,7 +103,6 @@ public enum SiteCatalog {
         return (CatalogPage(rooms: merged, total: total, nextOffset: nextOffset), next, failures)
     }
 
-    @_optimize(size)
     private static func queryFor(_ site: SiteID, mode: SiteMode, query: CatalogQuery, cursor: MixedCursor) -> CatalogQuery {
         var copy = query
         if mode == .mixed {
@@ -116,7 +112,6 @@ public enum SiteCatalog {
     }
 
     /// 各站顺序不变，轮流各取一间；同一 ref 只留先出现的。
-    @_optimize(size)
     static func interleave(_ lists: [[Room]]) -> [Room] {
         var merged: [Room] = []
         var seen = Set<String>()

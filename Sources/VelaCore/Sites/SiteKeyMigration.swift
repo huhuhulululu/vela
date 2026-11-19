@@ -10,7 +10,6 @@ public enum SiteKeyMigration {
         public var skipped: [URL]
         public var failed: [URL]
 
-        @_optimize(size)
         public init(migrated: [URL] = [], skipped: [URL] = [], failed: [URL] = []) {
             self.migrated = migrated
             self.skipped = skipped
@@ -21,7 +20,6 @@ public enum SiteKeyMigration {
     public typealias Writer = (Data, URL) throws -> Void
 
     /// 依次处理 curation、taste、watch-ledger。`write` 仅测试注入失败用。
-    @_optimize(size)
     public static func run(
         curation: URL,
         taste: URL,
@@ -44,7 +42,6 @@ public enum SiteKeyMigration {
     }
 
     /// 用 `.pre-sites` 备份覆盖回原文件。没有备份的记入 `failed`。
-    @_optimize(size)
     public static func rollback(
         curation: URL,
         taste: URL,
@@ -71,14 +68,12 @@ public enum SiteKeyMigration {
         return report
     }
 
-    @_optimize(size)
     public static func backupURL(for file: URL) -> URL {
         file.deletingLastPathComponent().appendingPathComponent(file.lastPathComponent + ".pre-sites")
     }
 
     /// 「清除全部偏好数据」时一并删掉三份备份。文件不在也算成功。
     @discardableResult
-    @_optimize(size)
     public static func removeBackups(
         curation: URL, taste: URL, ledger: URL, fileManager: FileManager = .default
     ) -> Bool {
@@ -94,7 +89,6 @@ public enum SiteKeyMigration {
     private enum Kind { case curation, taste, ledger }
     private enum Outcome { case migrated, skipped, failed }
 
-    @_optimize(size)
     private static func migrate(
         _ url: URL, kind: Kind, fileManager: FileManager, write: Writer, copy: (URL, URL) throws -> Void
     ) -> Outcome {
@@ -120,7 +114,6 @@ public enum SiteKeyMigration {
         }
     }
 
-    @_optimize(size)
     private static func hasPayload(_ object: [String: Any], kind: Kind) -> Bool {
         let keys: Set<String>
         switch kind {
@@ -131,7 +124,6 @@ public enum SiteKeyMigration {
         return object.keys.contains { keys.contains($0) }
     }
 
-    @_optimize(size)
     private static func encode(_ data: Data, kind: Kind) -> Data? {
         let decoder = JSONDecoder()
         let encoder = JSONEncoder()
@@ -149,7 +141,6 @@ public enum SiteKeyMigration {
         }
     }
 
-    @_optimize(size)
     private static func intValue(_ raw: Any?) -> Int? {
         if let value = raw as? Int { return value }
         if let value = raw as? Double { return Int(value) }
@@ -157,7 +148,6 @@ public enum SiteKeyMigration {
         return nil
     }
 
-    @_optimize(size)
     private static func fileSize(_ url: URL, fileManager: FileManager) -> Int? {
         guard let raw = try? fileManager.attributesOfItem(atPath: url.path)[.size] else { return nil }
         if let value = raw as? Int { return value }

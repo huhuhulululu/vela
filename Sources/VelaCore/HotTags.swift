@@ -8,7 +8,6 @@ public struct HotTag: Equatable, Sendable {
     public var name: String
     public var rooms: Int
 
-    @_optimize(size)
     public init(name: String, rooms: Int) {
         self.name = name
         self.rooms = rooms
@@ -20,7 +19,6 @@ public struct HotTag: Equatable, Sendable {
 public enum HotTags {
     public static let limit = 20
 
-    @_optimize(size)
     public static func url(limit: Int = limit) -> URL {
         var components = URLComponents()
         components.scheme = "https"
@@ -35,7 +33,6 @@ public enum HotTags {
         return components.url!
     }
 
-    @_optimize(size)
     public static func request() -> URLRequest {
         var request = URLRequest(url: url())
         request.httpMethod = "GET"
@@ -43,7 +40,6 @@ public enum HotTags {
         return request
     }
 
-    @_optimize(size)
     public static func decode(status: Int, data: Data) throws -> [HotTag] {
         if status == 403 || status == 503 || looksLikeChallenge(data) { throw CatalogFailure.challenge }
         guard (200..<300).contains(status) else { throw CatalogFailure.status(status) }
@@ -61,7 +57,6 @@ public enum HotTags {
     }
 
     /// 去掉 #、首尾空白，转小写；空的或超过名字长度上限的丢弃。
-    @_optimize(size)
     static func normalized(_ raw: String?) -> String? {
         guard let raw else { return nil }
         let name = String(raw.trimmingCharacters(in: .whitespacesAndNewlines).drop { $0 == "#" }).lowercased()
@@ -70,7 +65,6 @@ public enum HotTags {
     }
 
     /// 筛选面板的标签提示：有全站热门标签用它，否则退到当前在线房间里最常见的标签。
-    @_optimize(size)
     public static func filterHints(hot: [HotTag]?, rooms: [Room], limit: Int = 8) -> [String] {
         if let hot, !hot.isEmpty { return Array(hot.prefix(limit).map(\.name)) }
         return Taste().suggestedTags(from: rooms, limit: limit)
@@ -100,18 +94,15 @@ public struct HotTagCache: Equatable, Sendable {
     private var fetchedAt: Date?
     private var failedAt: Date?
 
-    @_optimize(size)
     public init() {}
 
     /// 6 小时内取回的热门标签；没有或已过期返回 nil（调用方回退）。
-    @_optimize(size)
     public func fresh(now: Date) -> [HotTag]? {
         guard let fetchedAt, now.timeIntervalSince(fetchedAt) <= Self.ttl, !tags.isEmpty else { return nil }
         return tags
     }
 
     /// 没有新鲜结果，且不在失败冷却期内，才需要发请求。
-    @_optimize(size)
     public func needsFetch(now: Date) -> Bool {
         guard fresh(now: now) == nil else { return false }
         guard let failedAt else { return true }
@@ -119,7 +110,6 @@ public struct HotTagCache: Equatable, Sendable {
     }
 
     /// 空列表按失败处理（不覆盖已有的结果）。
-    @_optimize(size)
     public func storing(_ tags: [HotTag], at date: Date) -> HotTagCache {
         guard !tags.isEmpty else { return recordingFailure(at: date) }
         var next = self
@@ -129,7 +119,6 @@ public struct HotTagCache: Equatable, Sendable {
         return next
     }
 
-    @_optimize(size)
     public func recordingFailure(at date: Date) -> HotTagCache {
         var next = self
         next.failedAt = date
@@ -140,7 +129,6 @@ public struct HotTagCache: Equatable, Sendable {
 extension Taste {
     /// 冷启动整理的候选：有全站热门标签时取其中画像里还没有的；没有或全都已在画像里时，
     /// 退到当前在线房间里最常见、画像里还没有的标签。
-    @_optimize(size)
     public func suggestedTags(hot: [HotTag]?, fallback rooms: [Room], limit: Int = 12) -> [String] {
         let fromHot = (hot ?? []).map(\.name).filter { beliefs[Self.tagKey($0)] == nil }
         if !fromHot.isEmpty { return Array(fromHot.prefix(limit)) }
