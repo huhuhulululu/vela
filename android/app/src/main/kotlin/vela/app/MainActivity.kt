@@ -14,9 +14,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.lifecycle.lifecycleScope
+import java.io.File
+import java.io.IOException
 import java.io.InputStream
 import java.nio.file.Paths
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import vela.app.infra.AtomicFile
 import vela.app.infra.HttpClientImpl
 import vela.app.infra.Settings
 import vela.app.lane.LaneSurface
@@ -55,10 +61,7 @@ class MainActivity : ComponentActivity() {
     private val createFavorites = registerForActivityResult(
         ActivityResultContracts.CreateDocument("application/json"),
     ) { uri ->
-        val bytes = pendingExport
-        pendingExport = null
-        if (uri == null || bytes == null) return@registerForActivityResult
-        contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
+        onFavoriteExportResult(uri)
     }
 
     private val openFavorites = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -69,14 +72,58 @@ class MainActivity : ComponentActivity() {
         openFavorites.launch(arrayOf("application/json", "text/plain", "*/*"))
     }
 
+    internal fun onFavoriteExportResult(uri: Uri?) {
+        val bytes = pendingExport
+        pendingExport = null
+        if (uri == null) {
+            deleteExportSnapshot()
+            return
+        }
+        if (bytes == null) {
+            deleteExportSnapshot()
+            notifyTransferFailure(exporting = true)
+            return
+        }
+        lifecycleScope.launch {
+            val ok = runDocument {
+                val stream = contentResolver.openOutputStream(uri) ?: throw IOException("unavailable")
+                stream.use { it.write(bytes) }
+            }
+            deleteExportSnapshot()
+            if (!ok) notifyTransferFailure(exporting = true)
+        }
+    }
+
     internal fun importFavoritesFrom(uri: Uri) {
         if (!this::stage.isInitialized) return
-        val bytes = contentResolver.openInputStream(uri)?.use { readLimited(it, Prefs.maxFileBytes + 1) } ?: return
-        stage.dispatch(StageIntent.ImportFavorites(bytes))
+        val stage = this.stage
+        lifecycleScope.launch {
+            val bytes = try {
+                withContext(Dispatchers.IO) {
+                    contentResolver.openInputStream(uri)?.use { readLimited(it, Prefs.maxFileBytes + 1) }
+                        ?: throw IOException("unavailable")
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
+            if (bytes == null) {
+                notifyTransferFailure(exporting = false)
+                return@launch
+            }
+            stage.dispatch(StageIntent.ImportFavorites(bytes))
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (savedInstanceState?.getBoolean(EXPORT_PENDING) == true) {
+            pendingExport = savedInstanceState.getByteArray(EXPORT_BYTES)
+                ?: AtomicFile.read(exportSnapshot(), limit = Prefs.maxFileBytes)
+        } else if (savedInstanceState == null) {
+            deleteExportSnapshot()
+        }
         installDebugHooks(applicationContext)
         if (!debugAllowsStageBoot()) return
         val directory = Paths.get(filesDir.absolutePath, "Vela")
@@ -103,7 +150,7 @@ class MainActivity : ComponentActivity() {
         )
         lifecycleScope.launch {
             for (bytes in stage.favoriteExports) {
-                pendingExport = bytes
+                stashExport(bytes)
                 createFavorites.launch("vela-favorites.json")
             }
         }
@@ -111,6 +158,13 @@ class MainActivity : ComponentActivity() {
         val host = FrameLayout(this)
         addContentView(host, ViewGroup.LayoutParams(1, 1))
         session.webHost = host
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        val bytes = pendingExport ?: return
+        outState.putBoolean(EXPORT_PENDING, true)
+        if (bytes.size <= EXPORT_INLINE_LIMIT) outState.putByteArray(EXPORT_BYTES, bytes)
     }
 
     override fun onStart() {
@@ -175,6 +229,36 @@ class MainActivity : ComponentActivity() {
         composeView?.disposeComposition()
         composed = false
     }
+
+    private fun stashExport(bytes: ByteArray) {
+        pendingExport = bytes
+        try {
+            AtomicFile.write(exportSnapshot(), bytes)
+        } catch (_: IOException) {
+        }
+    }
+
+    private fun exportSnapshot(): File = AtomicFile.resolve(filesDir, "pending-favorite-export")
+
+    private fun deleteExportSnapshot() {
+        exportSnapshot().delete()
+    }
+
+    private suspend fun runDocument(block: () -> Unit): Boolean =
+        try {
+            withContext(Dispatchers.IO) { block() }
+            true
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            false
+        }
+
+    private fun notifyTransferFailure(exporting: Boolean) {
+        if (!this::stage.isInitialized) return
+        val message = getString(if (exporting) R.string.ui_export_failed else R.string.ui_import_failed)
+        stage.showNotice(message)
+    }
 }
 
 internal fun installDebugHooks(context: Context) {
@@ -199,6 +283,10 @@ internal fun readLimited(input: InputStream, limit: Int): ByteArray {
     }
     return if (off == buf.size) buf else buf.copyOf(off)
 }
+
+private const val EXPORT_PENDING = "vela.pendingExport"
+private const val EXPORT_BYTES = "vela.pendingExportBytes"
+private const val EXPORT_INLINE_LIMIT = 400_000
 
 /** release 没有 StageHost，真实启动一律起舞台。hooks 自己出错也放行，避免把正式路径停掉。 */
 internal fun debugAllowsStageBoot(): Boolean {
