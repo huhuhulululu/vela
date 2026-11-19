@@ -197,7 +197,8 @@ enum ServiceFixture {
 
     static func service(_ transport: ScriptedTransport, store: MemoryStateStore = MemoryStateStore(), keys: MemoryKeyStore = MemoryKeyStore()) -> SyncService {
         SyncService(env: SyncService.Environment(stateStore: store, keyStore: keys, makeTransport: { _, _ in transport },
-                                                 wallClock: { 1_800_000_000_000 }))
+                                                 wallClock: { 1_800_000_000_000 },
+                                                 random: { n in n == 32 ? key : [UInt8](repeating: 1, count: n) }))
     }
 }
 #endif

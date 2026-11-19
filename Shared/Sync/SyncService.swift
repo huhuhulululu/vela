@@ -102,6 +102,9 @@ final class SyncService: @unchecked Sendable {
     private(set) var keys: SyncKeyMaterial?
     private var origin: String?
     private let gate = DispatchSemaphore(value: 1)
+    /// 周期单飞：一个周期从 GET 到最后一次落盘结束前，第二个周期（例如退出前补推）只能排队。
+    /// `gate` 在等网络时会放开给本地操作，所以不能用它代替。
+    private let flight = DispatchSemaphore(value: 1)
     /// 文档变化（本地操作或合并）：在任意线程调用，接收方自己回主线程重建投影。
     var onDocumentChanged: ((SyncDocument) -> Void)?
 
@@ -184,6 +187,8 @@ final class SyncService: @unchecked Sendable {
     // MARK: 同步周期与本地操作
 
     func runCycle() async -> SyncCycleResult? {
+        Self.acquire(flight)
+        defer { flight.signal() }
         guard let c = coordinator else { return nil }
         Self.acquire(gate)
         let result = await c.runCycle()
