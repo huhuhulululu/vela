@@ -74,14 +74,15 @@ internal fun unavailableWebResponse(): WebResourceResponse =
     )
 
 /**
- * 主框架和子资源都先看来源。允许的 GET/HEAD 子资源自己跟随重定向，
- * 每一跳都要仍在允许的来源里；WebView 不会把重定向后的地址交回来。
- * 其它方法留回 WebView，这样 POST 正文不会丢。
+ * 子资源 GET/HEAD 自己跟随重定向，每一跳都要仍在允许的来源里。
+ * POST 和其它方法拿不到正文，不能在这里重放；只有网络层代理已经按主机拦下重定向时才交回 WebView。
+ * 代理没接上时明确拒绝，不再把 307/308 和 fetch/XHR 交给 WebView 自己跟。
  */
 internal fun interceptWhitelisted(
     view: WebView?,
     request: WebResourceRequest?,
     allows: (String) -> Boolean,
+    delegateUnvalidatedMethods: Boolean = true,
 ): WebResourceResponse? {
     if (request == null) return blockedWebResponse()
     val url = request.url?.toString() ?: return blockedWebResponse()
@@ -89,14 +90,19 @@ internal fun interceptWhitelisted(
         if (request.isForMainFrame) view?.post { view.stopLoading() }
         return blockedWebResponse()
     }
-    if (request.isForMainFrame) return null
     val method = request.method?.uppercase(Locale.ROOT) ?: "GET"
-    if (method != "GET" && method != "HEAD") return null
-    return try {
-        loadGuardedSubresource(url, method, request.requestHeaders ?: emptyMap(), allows)
-    } catch (_: Exception) {
-        unavailableWebResponse()
+    if (!request.isForMainFrame && (method == "GET" || method == "HEAD")) {
+        return try {
+            loadGuardedSubresource(url, method, request.requestHeaders ?: emptyMap(), allows)
+        } catch (_: Exception) {
+            unavailableWebResponse()
+        }
     }
+    if (method != "GET" && method != "HEAD" && !delegateUnvalidatedMethods) {
+        if (request.isForMainFrame) view?.post { view.stopLoading() }
+        return blockedWebResponse()
+    }
+    return null
 }
 
 internal fun loadGuardedSubresource(
@@ -256,7 +262,12 @@ internal open class OriginWebViewClient(
     private val onFinished: (String?) -> Unit = {},
     private val onMainFrameError: () -> Unit = {},
     private val onOriginRejected: () -> Unit = {},
+    private val delegateUnvalidatedMethods: Boolean = true,
 ) : WebViewClient() {
+    init {
+        WebNetworkGate.watch(siteRoot)
+    }
+
     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
         if (!request.isForMainFrame) return false
         val url = request.url?.toString() ?: return true
@@ -269,7 +280,12 @@ internal open class OriginWebViewClient(
     }
 
     override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
-        return interceptWhitelisted(view, request) { WebOriginPolicy.allows(it, siteRoot) }
+        return interceptWhitelisted(
+            view,
+            request,
+            { WebOriginPolicy.allows(it, siteRoot) },
+            delegateUnvalidatedMethods,
+        )
     }
 
     override fun onPageFinished(view: WebView?, url: String?) {

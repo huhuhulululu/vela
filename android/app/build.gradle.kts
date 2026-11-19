@@ -140,6 +140,7 @@ dependencies {
     implementation(libs.coroutines.core)
     implementation(libs.coroutines.android)
     implementation(libs.serialization.json)
+    implementation(libs.webkit)
 
     testImplementation(platform(libs.compose.bom))
     testImplementation(libs.robolectric)

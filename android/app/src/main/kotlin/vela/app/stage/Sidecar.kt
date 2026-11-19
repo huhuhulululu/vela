@@ -25,6 +25,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import org.json.JSONObject
 import vela.app.infra.OriginWebViewClient
+import vela.app.infra.WebNetworkGate
 import vela.app.infra.applyFirstPartyCookiesOnly
 import vela.core.base.net.HTTPClient
 import vela.core.base.net.HTTPRequest
@@ -385,7 +386,14 @@ class WebSidecarPage(
                 view.addJavascriptInterface(SidecarJsBridge(hub), BRIDGE)
                 val gate = CompletableDeferred<Unit>()
                 loadGate = gate
-                view.loadUrl(url)
+                WebNetworkGate.watch(root)
+                WebNetworkGate.ensure(view)
+                WebNetworkGate.runWhenReady {
+                    if (destroyed) return@runWhenReady
+                    bindClient(view, WebNetworkGate.isEnforcing())
+                    view.addJavascriptInterface(SidecarJsBridge(hub), BRIDGE)
+                    view.loadUrl(url)
+                }
                 withTimeout(LOAD_TIMEOUT_MS) { gate.await() }
                 loaded = true
             }
@@ -467,6 +475,13 @@ class WebSidecarPage(
         // 桥在第一次 loadUrl 之前挂上。WebView 要到下一次页面加载才把注入对象交给 JavaScript，
         // 加载完成后再 addJavascriptInterface，当前页的 deliver/fail 调不到。
         view.addJavascriptInterface(SidecarJsBridge(hub), BRIDGE)
+        bindClient(view, delegateUnvalidatedMethods = false)
+        addOffscreen(view)
+        webView = view
+        return view
+    }
+
+    private fun bindClient(view: WebView, delegateUnvalidatedMethods: Boolean) {
         view.webViewClient = OriginWebViewClient(
             siteRoot = root,
             onFinished = { loadGate?.complete(Unit) },
@@ -480,10 +495,8 @@ class WebSidecarPage(
                     current.removeJavascriptInterface(BRIDGE)
                 }
             },
+            delegateUnvalidatedMethods = delegateUnvalidatedMethods,
         )
-        addOffscreen(view)
-        webView = view
-        return view
     }
 
     private fun addOffscreen(view: WebView) {
