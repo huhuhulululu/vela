@@ -1,8 +1,13 @@
 package vela.app.stage
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import vela.core.base.lane.RoomTarget
+import vela.core.base.net.HTTPClient
+import vela.core.base.net.HTTPRequest
+import vela.core.base.net.HTTPResult
+import vela.core.lifecycle.LifecycleEpoch
 import vela.core.base.model.FeedSource
 import vela.core.base.model.Room
 import vela.core.lifecycle.ChallengeResume
@@ -207,20 +212,24 @@ private fun StageViewModel.noteFavoriteOutcome(result: FavoriteResolution) {
 }
 
 private suspend fun StageViewModel.runFavoriteBatch(id: Int): FavoriteResolution {
+    val token = lifecycleEpoch.begin()
+        ?: return FavoriteResolution(emptyMap(), challenged = false, incomplete = true)
     val plan = FavoriteResolver.plan(curation.favorites, knownCatalog, favoriteStatus, now())
     val statuses = LinkedHashMap(plan.resolved)
     var challenged = false
     val fetched = if (plan.pending.isEmpty()) {
         emptyMap()
+    } else if (!lifecycleEpoch.allows(LifecycleEpoch.Gate.BEFORE_REQUEST, token)) {
+        return FavoriteResolution(statuses, challenged, incomplete = true)
     } else {
-        val result = fetchFavoriteStatuses(plan.pending)
+        val result = fetchFavoriteStatuses(plan.pending, token)
         challenged = result.challenged
         statuses.putAll(result.statuses)
         result.statuses
     }
     val incomplete = FavoriteResolver.hasUnresolved(plan.pending, fetched)
-    if (!favoriteRunner.isCurrent(id)) {
-        return FavoriteResolution(statuses, challenged, incomplete)
+    if (!favoriteRunner.isCurrent(id) || !lifecycleEpoch.allows(LifecycleEpoch.Gate.BEFORE_COMMIT, token)) {
+        return FavoriteResolution(statuses, challenged, incomplete || !lifecycleEpoch.allows(LifecycleEpoch.Gate.BEFORE_COMMIT, token))
     }
     favoriteStatus = favoriteStatus
         .storing(plan.fromCatalog)
@@ -229,8 +238,19 @@ private suspend fun StageViewModel.runFavoriteBatch(id: Int): FavoriteResolution
     return FavoriteResolution(statuses, challenged, incomplete)
 }
 
-private suspend fun StageViewModel.fetchFavoriteStatuses(names: List<String>): FavoriteFetchResult {
-    return FavoriteFetcher(http, now = { now() }, backoff = backoff).fetch(names)
+private suspend fun StageViewModel.fetchFavoriteStatuses(
+    names: List<String>,
+    token: LifecycleEpoch.Token,
+): FavoriteFetchResult {
+    val gated = object : HTTPClient {
+        override suspend fun send(request: HTTPRequest): HTTPResult {
+            if (!lifecycleEpoch.allows(LifecycleEpoch.Gate.BEFORE_REQUEST, token)) {
+                throw CancellationException("favorite epoch")
+            }
+            return http.send(request)
+        }
+    }
+    return FavoriteFetcher(gated, now = { now() }, backoff = backoff).fetch(names)
 }
 
 internal suspend fun StageViewModel.fetchFavoritesPage(): CatalogPage {

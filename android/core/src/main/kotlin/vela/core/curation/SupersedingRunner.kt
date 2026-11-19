@@ -10,6 +10,7 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.isActive
 
 /**
@@ -26,6 +27,7 @@ class SupersedingRunner<Value> {
     private var latestId = 0
     private var latest: Deferred<Value>? = null
     private var latestDone = true
+    private var closed = false
 
     /** 最新一批还没跑完。 */
     val isRunning: Boolean
@@ -33,11 +35,30 @@ class SupersedingRunner<Value> {
 
     fun isCurrent(id: Int): Boolean = lock.withLock { latestId == id }
 
+    /** 停掉在途批次。调用方的等待会以取消结束；之后仍可以再 [run]。 */
+    fun cancel() {
+        lock.withLock {
+            latest?.cancel()
+            latest = null
+            latestDone = true
+            latestId = -1
+        }
+    }
+
+    /** 停掉在途批次并关掉作用域。之后 [run] 直接取消。 */
+    fun close() {
+        lock.withLock { closed = true }
+        cancel()
+        scope.cancel()
+    }
+
     suspend fun run(work: suspend (Int) -> Value): Value {
+        if (closed) throw CancellationException("runner closed")
         val gate = CompletableDeferred<Unit>()
         val mine: Deferred<Value>
         val id: Int
         lock.withLock {
+            if (closed) throw CancellationException("runner closed")
             seq += 1
             id = seq
             val previous = latest

@@ -277,6 +277,7 @@ class StageViewModel(
         if (!playerReleased) playbackSink?.stop()
         sidecarHolder?.close()
         sidecarHolder = null
+        favoriteRunner.close()
         scope.cancel()
         tasteSaver.flush()
         curationSaver.flush()
@@ -612,6 +613,7 @@ class StageViewModel(
         favoriteSuggestWakeJob = null
         relatedJob?.cancel()
         relatedJob = null
+        favoriteRunner.cancel()
         cancelTrackedLoads()
         if (loading) {
             loading = false
