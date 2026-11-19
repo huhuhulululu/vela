@@ -97,7 +97,7 @@ internal fun StageViewModel.playFavorite(name: String) {
 }
 
 internal fun StageViewModel.exportFavorites() {
-    exportedFavorites = FavoriteExchange.encode(curation.favorites)
+    favoriteExports.trySend(FavoriteExchange.encode(curation.favorites))
 }
 
 internal fun StageViewModel.importFavorites(bytes: ByteArray) {

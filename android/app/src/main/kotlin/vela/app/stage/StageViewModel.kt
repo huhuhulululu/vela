@@ -13,6 +13,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -170,7 +171,9 @@ class StageViewModel(
     internal var skipDelayMillis: Long = (SkipTracker.noticeSeconds * 1000.0).toLong()
     internal var awayDelayOverrideMillis: Long? = null
     internal var quitRequested: Boolean = false
-    internal var exportedFavorites: ByteArray? = null
+
+    /** 导出字节只发一次。界面取走后就没有了，不留在状态里。 */
+    internal val favoriteExports = Channel<ByteArray>(Channel.CONFLATED)
 
     /** 单窗恒为 null。双窗再装上副路游标。 */
     internal var secondaryCursor: LaneCursor? = null
@@ -278,6 +281,7 @@ class StageViewModel(
         sidecarHolder?.close()
         sidecarHolder = null
         favoriteRunner.close()
+        favoriteExports.close()
         scope.cancel()
         tasteSaver.flush()
         curationSaver.flush()
