@@ -114,10 +114,16 @@ final class SyncHub: ObservableObject {
     }
 
     /// 设置里的「实验：跨设备同步」开关。同步已开启时不能直接关（先关闭同步，免得之后再开时本机改动被投影覆盖）。
+    /// 启动恢复、开启、加入等流程没结束，或上次加入待修复时，同样拒绝关闭（第 23 节第 14 条：选「拒绝」而不是
+    /// 「关的同时停协调器」，停了之后磁盘上仍是已开启，再打开时投影会覆盖期间的本机改动）。
     func setExperiment(_ on: Bool) {
         guard let model, on != experimentEnabled else { return }
-        if !on, phase == .active || committing {
+        if !on, phase == .active || service.isActive {
             set(\.notice, "请先关闭同步，再关闭实验开关。")
+            return
+        }
+        if !on, phase == .loading || starting || busy || committing || service.joinRepairPending {
+            set(\.notice, "同步正在处理中，请等它结束（或先关闭同步）再关闭实验开关。")
             return
         }
         model.settings.experimentSync = on
@@ -142,13 +148,27 @@ final class SyncHub: ObservableObject {
             model.$showTaste.removeDuplicates().filter { $0 }.sink { [weak self] _ in self?.trigger(.panel) },
         ]
         observeLifecycle()
-        Task { await start() }
+        startTask = Task { await start() }
+    }
+
+    /// 启动恢复的任务：摘线时取消。
+    private var startTask: Task<Void, Never>?
+
+    /// 流程在等待之后发现已摘线（实验开关已关）：不 apply、不激活；服务里若已挂上协调器就摘掉（磁盘不动）。
+    private func abandonedAfterAwait() -> Bool {
+        guard wired, !Task.isCancelled else {
+            if service.isActive { service.suspend() }
+            return true
+        }
+        return false
     }
 
     private func unwire() {
         guard wired else { return }
         wired = false
         cancelJoin()
+        startTask?.cancel()
+        startTask = nil
         editTask?.cancel()
         editTask = nil
         for o in observers { NotificationCenter.default.removeObserver(o) }
@@ -197,6 +217,7 @@ final class SyncHub: ObservableObject {
         defer { starting = false }
         let local = model.syncLocalData()
         let result = await service.start(local: { local }, sink: sink)
+        if abandonedAfterAwait() { return }
         apply(result)
     }
 
@@ -250,7 +271,7 @@ final class SyncHub: ObservableObject {
 
     func trigger(_ trigger: SyncScheduler.Trigger) {
         if SyncScheduler.retriesStartup(unavailable: phase == .unavailable, on: trigger), !starting {
-            Task { await start() }
+            startTask = Task { await start() }
             return
         }
         guard isOn, service.isActive, scheduler.allows(trigger, now: nowMillis) else { return }
@@ -359,6 +380,7 @@ final class SyncHub: ObservableObject {
         busy = true
         defer { busy = false }
         let result = await service.create(origin: origin, local: model.syncLocalData())
+        if abandonedAfterAwait() { return }
         switch result {
         case .created(let code, _, _, let first):
             savedCode = code
@@ -395,7 +417,13 @@ final class SyncHub: ObservableObject {
             return
         }
         joinStage = .checking
-        switch await service.prepareJoin(text.trimmingCharacters(in: .whitespacesAndNewlines), local: model.syncLocalData()) {
+        let prepared = await service.prepareJoin(text.trimmingCharacters(in: .whitespacesAndNewlines), local: model.syncLocalData())
+        if abandonedAfterAwait() {
+            if case .preview(let ticket) = prepared { ticket.cancel() }
+            joinStage = .idle
+            return
+        }
+        switch prepared {
         case .invalidCode: joinStage = .failed("同步码无效")
         case .notFound(let code): joinStage = .notFound(code)
         case .gone: joinStage = .failed("这个同步码对应的空间已被清除")
@@ -418,6 +446,10 @@ final class SyncHub: ObservableObject {
             // 在协作线程上调用：回主线程取（主线程此时空闲，在等这次提交）。
             DispatchQueue.main.sync { MainActor.assumeIsolated { model?.syncLocalData() ?? SyncLocalData() } }
         }, sink: sink)
+        if abandonedAfterAwait() {
+            joinStage = .idle
+            return
+        }
         switch result {
         case .joined:
             joinStage = .idle
@@ -446,6 +478,7 @@ final class SyncHub: ObservableObject {
         busy = true
         defer { busy = false }
         let result = await service.createWithCode(code, local: model.syncLocalData())
+        if abandonedAfterAwait() { return }
         joinStage = .idle
         switch result {
         case .created(_, _, _, let first):
@@ -483,7 +516,9 @@ final class SyncHub: ObservableObject {
         busy = true
         defer { busy = false }
         editTask?.cancel()
-        finishFlow(await service.clear(sink: sink))
+        let result = await service.clear(sink: sink)
+        if abandonedAfterAwait() { return }
+        finishFlow(result)
     }
 
     private func finishFlow(_ result: SyncFlowResult) {

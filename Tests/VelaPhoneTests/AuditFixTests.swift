@@ -443,6 +443,47 @@ final class SyncJoinWiringTests: XCTestCase {
         return tracker.finish(now: t0.addingTimeInterval(seconds))!
     }
 
+    // MARK: H5 实验开关关闭后不得留下活动同步
+
+    /// 启动恢复还在跑时关闭实验开关：要么拒绝关闭，要么之后绝不激活。
+    func testH5_turningExperimentOffWhileStartingNeverLeavesActiveSync() async throws {
+        let stage = makeStage()
+        let store = StateStore(), keys = KeyStore(), transport = SlowTransport()
+        let material = try SyncCrypto.derive(Self.key)
+        var state = SyncState(phase: .active, origin: Self.origin, blobID: material.blobID, clock: SyncClock(dev: 7))
+        state.epoch = "0123456789abcdef0123456789abcdef"
+        store.stored = state
+        keys.entry = SyncKeychainEntry(key: Self.key, dev: 7, blobID: material.blobID)
+        let (hub, service) = hub(stage, store: store, keys: keys, transport: transport)
+        hub.setExperiment(false)
+        try? await Task.sleep(nanoseconds: 500_000_000)
+        XCTAssertFalse(!hub.experimentEnabled && (hub.phase == .active || service.isActive),
+                       "实验已关却有活动同步：phase=\(hub.phase) active=\(service.isActive)")
+        if hub.experimentEnabled { XCTAssertNotNil(hub.notice, "拒绝关闭要说明原因") }
+    }
+
+    /// 「仍用此码创建」在等首个周期时关闭实验开关：同上。
+    func testH5_turningExperimentOffDuringCreateNeverLeavesActiveSync() async throws {
+        let stage = makeStage()
+        let store = StateStore(), keys = KeyStore(), transport = SlowTransport()
+        transport.delay = 10_000_000
+        let (hub, service) = hub(stage, store: store, keys: keys, transport: transport)
+        await waitUntil { hub.phase == .off }
+        XCTAssertEqual(hub.phase, .off)
+        transport.script(gets: [.notFound(epoch: "0123456789abcdef0123456789abcdef", now: 1_800_000_000_000)])
+        let code = try XCTUnwrap(SyncCrypto.formatCode(key: Self.key, origin: Self.origin))
+        await hub.prepareJoin(code)
+        guard case .notFound = hub.joinStage else { return XCTFail("前提：404 可用此码创建，实际 \(hub.joinStage)") }
+        transport.delay = 600_000_000
+        let create = Task { await hub.createFromJoin() }
+        await waitUntil { service.isActive }
+        XCTAssertTrue(hub.busy, "前提：创建还在等首个周期")
+        hub.setExperiment(false)
+        await create.value
+        XCTAssertFalse(!hub.experimentEnabled && (hub.phase == .active || service.isActive),
+                       "实验已关却有活动同步：phase=\(hub.phase) active=\(service.isActive)")
+    }
+
     // MARK: M7 停留记账不绕过提交锁
 
     /// 加入提交中：停留结算不改口味、不排保存；锁一放开照常记账。
