@@ -7,6 +7,7 @@ public struct FeedStore: Equatable, Sendable {
     public private(set) var query: RoomQuery {
         didSet { refreshVisible() }
     }
+    /// 当前房间的 ref（`cb` 房间就是用户名）。参数名沿用 username。
     public private(set) var currentUsername: String? {
         // 当前房间一旦换走，搜索输入期间的「保留」就此失效。
         didSet { if retained != nil, currentUsername != retained { retained = nil } }
@@ -43,7 +44,7 @@ public struct FeedStore: Equatable, Sendable {
             visible = catalog.filter(query.matches)
             return
         }
-        visible = catalog.filter { query.matches($0) || $0.username == retained }
+        visible = catalog.filter { query.matches($0) || $0.ref == retained }
     }
 
     public static func == (lhs: FeedStore, rhs: FeedStore) -> Bool {
@@ -64,7 +65,7 @@ public struct FeedStore: Equatable, Sendable {
         let list = rooms
         guard !list.isEmpty else { return 0 }
         guard let currentUsername else { return 0 }
-        return list.firstIndex { $0.username == currentUsername } ?? 0
+        return list.firstIndex { $0.ref == currentUsername } ?? 0
     }
 
     public var current: Room? {
@@ -78,10 +79,10 @@ public struct FeedStore: Equatable, Sendable {
         catalog = dedupeRooms(page.rooms)
         total = page.total
         reachedEnd = page.rooms.isEmpty || page.nextOffset >= page.total
-        if let keep, rooms.contains(where: { $0.username == keep }) {
+        if let keep, rooms.contains(where: { $0.ref == keep }) {
             currentUsername = keep
         } else {
-            currentUsername = rooms.first?.username
+            currentUsername = rooms.first?.ref
         }
     }
 
@@ -89,8 +90,8 @@ public struct FeedStore: Equatable, Sendable {
     /// 是否到底只由常规分页本身决定：空页、游标走到 `total`，或游标没有前进（防止原地重复请求）。
     /// 整页都是已有房间（例如定向候选提前进了目录）不算到底：游标仍在前进，后面的页还有新房间。
     public mutating func append(_ page: CatalogPage, from offset: Int? = nil) {
-        let existing = Set(catalog.map { $0.username.lowercased() })
-        let fresh = page.rooms.filter { !existing.contains($0.username.lowercased()) }
+        let existing = Set(catalog.map(\.identity))
+        let fresh = page.rooms.filter { !existing.contains($0.identity) }
         catalog.append(contentsOf: fresh)
         total = max(total, page.total)
         let stalled = offset.map { page.nextOffset <= $0 } ?? false
@@ -98,7 +99,7 @@ public struct FeedStore: Equatable, Sendable {
             reachedEnd = true
         }
         if currentUsername == nil {
-            currentUsername = rooms.first?.username
+            currentUsername = rooms.first?.ref
         }
     }
 
@@ -109,7 +110,7 @@ public struct FeedStore: Equatable, Sendable {
         let folded = PageMerge.keepingCurrent(existing: catalog, incoming: extra, current: currentUsername, order: order)
         guard folded.added > 0 else { return 0 }
         catalog = folded.rooms
-        if currentUsername == nil { currentUsername = rooms.first?.username }
+        if currentUsername == nil { currentUsername = rooms.first?.ref }
         return folded.added
     }
 
@@ -130,10 +131,11 @@ public struct FeedStore: Equatable, Sendable {
             currentUsername = nil
             return
         }
-        guard let match = rooms.first(where: { $0.username.lowercased() == username.lowercased() }) else {
+        let key = RoomKey.normalizeRef(username)
+        guard let match = rooms.first(where: { $0.identity == key }) else {
             return
         }
-        currentUsername = match.username
+        currentUsername = match.ref
     }
 
     @discardableResult
@@ -148,27 +150,28 @@ public struct FeedStore: Equatable, Sendable {
         let list = rooms
         guard !list.isEmpty, delta != 0 else { return current }
         let landed = LanePaging.landingIndex(
-            from: index, delta: delta, names: list.map(\.username), skipping: skipping
+            from: index, delta: delta, names: list.map(\.ref), skipping: skipping
         )
-        currentUsername = list[landed].username
+        currentUsername = list[landed].ref
         return current
     }
 
     /// 「仅公开」下，列表里标着公开的房间才可能因实测状态而筛除（直达、收藏等本就非公开的不动）。
     public func canDelist(_ username: String) -> Bool {
-        let key = username.lowercased()
-        return query.publicOnly && catalog.contains { $0.username.lowercased() == key && $0.show == .publicShow }
+        let key = RoomKey.normalizeRef(username)
+        return query.publicOnly && catalog.contains { $0.identity == key && $0.show == .publicShow }
     }
 
     /// 实测发现列表里的公开房间已是私密 / 离线等：改写目录里的状态，让「仅公开」过滤把它筛掉，
     /// 直到下一次目录刷新带回公开。当前房间与 `protecting`（各路在播的房间）不动。返回是否真的筛掉。
+    /// 比较一律用站点键（ref 归一化）：同名的 Chaturbate 与 Cam4 房间互不影响。
     @discardableResult
     public mutating func delist(_ username: String, as state: ShowState, protecting: Set<String> = []) -> Bool {
-        let key = username.lowercased()
+        let key = RoomKey.normalizeRef(username)
         guard canDelist(username), state != .publicShow, state != .away,
-              currentUsername?.lowercased() != key,
-              !protecting.contains(where: { $0.lowercased() == key }),
-              let at = catalog.firstIndex(where: { $0.username.lowercased() == key })
+              currentUsername.map(RoomKey.normalizeRef) != key,
+              !protecting.contains(where: { RoomKey.normalizeRef($0) == key }),
+              let at = catalog.firstIndex(where: { $0.identity == key })
         else { return false }
         catalog[at].show = state
         return true
@@ -176,7 +179,8 @@ public struct FeedStore: Equatable, Sendable {
 
     @discardableResult
     public mutating func focus(_ username: String) -> Bool {
-        guard rooms.contains(where: { $0.username.lowercased() == username.lowercased() }) else {
+        let key = RoomKey.normalizeRef(username)
+        guard rooms.contains(where: { $0.identity == key }) else {
             return false
         }
         select(username)
@@ -184,15 +188,15 @@ public struct FeedStore: Equatable, Sendable {
     }
 
     public mutating func insertDirect(_ room: Room) {
-        catalog.removeAll { $0.username.lowercased() == room.username.lowercased() }
+        catalog.removeAll { $0.identity == room.identity }
         let insertIndex: Int
-        if let currentUsername, let currentCatalogIndex = catalog.firstIndex(where: { $0.username == currentUsername }) {
+        if let currentUsername, let currentCatalogIndex = catalog.firstIndex(where: { $0.ref == currentUsername }) {
             insertIndex = catalog.index(after: currentCatalogIndex)
         } else {
             insertIndex = 0
         }
         catalog.insert(room, at: min(insertIndex, catalog.count))
-        currentUsername = room.username
+        currentUsername = room.ref
     }
 
     /// 把指定房间挪到当前房间之后紧接着的位置（保持给定顺序）。只动当前之后的房间，当前及之前不变。
@@ -203,25 +207,25 @@ public struct FeedStore: Equatable, Sendable {
     /// 把指定房间挪到 `anchor` 之后紧接着的位置。锚点及之前不动；锚点不在目录里则什么都不做。
     public mutating func promoteAfter(anchor: String?, _ usernames: [String]) {
         guard let anchor,
-              let at = catalog.firstIndex(where: { $0.username == anchor }) else { return }
+              let at = catalog.firstIndex(where: { $0.ref == anchor }) else { return }
         let tail = catalog[(at + 1)...]
         var taken = Set<String>()
         var moved: [Room] = []
-        for name in usernames.map({ $0.lowercased() }) where !taken.contains(name) {
-            if let room = tail.first(where: { $0.username.lowercased() == name }) {
+        for name in usernames.map(RoomKey.normalizeRef) where !taken.contains(name) {
+            if let room = tail.first(where: { $0.identity == name }) {
                 taken.insert(name)
                 moved.append(room)
             }
         }
         guard !moved.isEmpty else { return }
-        let rest = tail.filter { !taken.contains($0.username.lowercased()) }
+        let rest = tail.filter { !taken.contains($0.identity) }
         catalog = Array(catalog[...at]) + moved + rest
     }
 
     /// 对当前房间之后的部分整体重排；当前及之前的位置不动。
     public mutating func reorderAfterCurrent(_ order: ([Room]) -> [Room]) {
         let start = currentUsername
-            .flatMap { name in catalog.firstIndex { $0.username == name } }
+            .flatMap { name in catalog.firstIndex { $0.ref == name } }
             .map { $0 + 1 } ?? 0
         guard start < catalog.count else { return }
         catalog = Array(catalog[..<start]) + order(Array(catalog[start...]))
@@ -237,8 +241,8 @@ public struct FeedStore: Equatable, Sendable {
         retained = nil
         self.query = query
         let list = rooms
-        if let currentUsername, list.contains(where: { $0.username == currentUsername }) { return }
-        self.currentUsername = list.first?.username
+        if let currentUsername, list.contains(where: { $0.ref == currentUsername }) { return }
+        self.currentUsername = list.first?.ref
     }
 
     /// 更新屏蔽名单。若当前房间被屏蔽，立刻换到它之后的下一个（没有则取之前的一个）。
@@ -255,9 +259,9 @@ public struct FeedStore: Equatable, Sendable {
         next.only = only
         if let hidden { next.hidden = hidden }
         let list = rooms
-        if let currentUsername, let at = list.firstIndex(where: { $0.username == currentUsername }), !next.matches(list[at]) {
+        if let currentUsername, let at = list.firstIndex(where: { $0.ref == currentUsername }), !next.matches(list[at]) {
             query = next
-            self.currentUsername = (list[(at + 1)...].first(where: next.matches) ?? list[..<at].last(where: next.matches))?.username
+            self.currentUsername = (list[(at + 1)...].first(where: next.matches) ?? list[..<at].last(where: next.matches))?.ref
             return
         }
         setQuery(next)
@@ -272,8 +276,8 @@ public struct FeedStore: Equatable, Sendable {
             cleared.text = ""
             if cleared.matches(room) { query = cleared }
         }
-        if !focus(room.username) { insertDirect(room) }
-        return current?.username.lowercased() == room.username.lowercased()
+        if !focus(room.ref) { insertDirect(room) }
+        return current?.identity == room.identity
     }
 
     /// 可见列表为空（已加载的页全被屏蔽或过滤）时翻页的上限，防止无限请求。
@@ -291,7 +295,7 @@ public struct FeedStore: Equatable, Sendable {
         guard !reachedEnd else { return false }
         if list.isEmpty { return blankPages < Self.maxBlankPages }
         let position: Int
-        if let username, let found = list.firstIndex(where: { $0.username == username }) {
+        if let username, let found = list.firstIndex(where: { $0.ref == username }) {
             position = found
         } else {
             position = 0
@@ -305,6 +309,6 @@ public struct FeedStore: Equatable, Sendable {
         let start = index + 1
         guard start < list.count else { return [] }
         let end = min(list.count, start + ahead)
-        return list[start..<end].map(\.username)
+        return list[start..<end].map(\.ref)
     }
 }

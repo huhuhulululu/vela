@@ -88,6 +88,7 @@ struct RoomCaption: View {
 
     private var meta: String {
         var parts: [String] = []
+        if room.site != .chaturbate { parts.append(room.site.displayName) }
         if let gender = room.gender { parts.append(Copy.gender(gender)) }
         if let age = room.age { parts.append("\(age)") }
         if let clock = BroadcastClock.string(seconds: room.secondsOnline) { parts.append(clock) }

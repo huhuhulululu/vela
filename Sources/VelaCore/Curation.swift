@@ -1,7 +1,8 @@
 import Foundation
 
-/// 本机收藏与屏蔽：按用户名（不分大小写）记录，各有数量上限，超出丢最旧的。
-/// 同一个用户名只会在其中一边。纯值类型，所有更新返回新值。
+/// 本机收藏与屏蔽：按 ref（不分大小写）记录，各有数量上限，超出丢最旧的。
+/// 同一个 ref 只会在其中一边。纯值类型，所有更新返回新值。
+/// 内存里 cb 保留输入时的大小写（无前缀），其他站点存 ref；编码一律写 raw。
 public struct Curation: Codable, Equatable, Sendable {
     public static let maxEntries = 300
 
@@ -16,8 +17,25 @@ public struct Curation: Codable, Equatable, Sendable {
         self.favorites = Self.clean(favorites).filter { !blockedKeys.contains(Self.key($0)) }
     }
 
+    /// 裸名、`cb:x`、`c4:x` 都归一到小写 ref。参数名沿用，存的是 ref。
     public static func key(_ name: String) -> String {
-        name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        RoomKey.normalizeRef(name)
+    }
+
+    private enum CodingKeys: String, CodingKey { case favorites, blocked, keyVersion }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(SiteKeyMigration.version, forKey: .keyVersion)
+        try container.encode(favorites.map(SiteKeys.disk), forKey: .favorites)
+        try container.encode(blocked.map(SiteKeys.disk), forKey: .blocked)
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let favorites = try container.decodeIfPresent([String].self, forKey: .favorites) ?? []
+        let blocked = try container.decodeIfPresent([String].self, forKey: .blocked) ?? []
+        self.init(favorites: favorites.map(SiteKeys.memory), blocked: blocked.map(SiteKeys.memory))
     }
 
     public var favoriteSet: Set<String> { Set(favorites.map(Self.key)) }
@@ -72,8 +90,9 @@ public struct Curation: Codable, Equatable, Sendable {
         var out: [String] = []
         for name in names {
             let trimmed = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(Preferences.maxNameLength))
-            guard !trimmed.isEmpty, seen.insert(trimmed.lowercased()).inserted else { continue }
-            out.append(trimmed)
+            guard !trimmed.isEmpty, seen.insert(Self.key(trimmed)).inserted else { continue }
+            // cb 保留名字原样（无前缀）；其他站点落成 ref，大小写不再来回变。
+            out.append(SiteKeys.memory(trimmed))
             if out.count == maxEntries { break }
         }
         return out

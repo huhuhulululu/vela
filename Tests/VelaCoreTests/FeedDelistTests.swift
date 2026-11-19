@@ -86,4 +86,33 @@ final class FeedDelistTests: XCTestCase {
         XCTAssertNil(ticket(.publicShow).delistedShow)
         XCTAssertNil(ticket(.publicShow, success: true, url: URL(string: "https://x.test/a.m3u8")).delistedShow)
     }
+
+    // MARK: 站点（docs/plans/sites.md）：同名的 Chaturbate 与 Cam4 房间各算各的
+
+    private func mixed() -> FeedStore {
+        var feed = FeedStore(query: RoomQuery(publicOnly: true))
+        let rooms = [room("a"), room("alice"), Room(username: "alice", show: .publicShow, site: .cam4), room("c")]
+        feed.replace(with: CatalogPage(rooms: rooms, total: 4, nextOffset: 4))
+        return feed
+    }
+
+    func testDelistCam4RoomLeavesChaturbateNamesake() {
+        var feed = mixed()
+        XCTAssertTrue(feed.canDelist("c4:alice"))
+        XCTAssertTrue(feed.delist("c4:alice", as: .privateShow))
+        XCTAssertEqual(feed.rooms.map(\.ref), ["a", "alice", "c"])
+    }
+
+    func testDelistChaturbateRoomLeavesCam4Namesake() {
+        var feed = mixed()
+        XCTAssertTrue(feed.delist("ALICE", as: .offline))
+        XCTAssertEqual(feed.rooms.map(\.ref), ["a", "c4:alice", "c"])
+    }
+
+    func testProtectingUsesSiteKeys() {
+        var feed = mixed()
+        XCTAssertFalse(feed.delist("c4:alice", as: .privateShow, protecting: ["C4:Alice"]), "在播的 Cam4 房间不筛")
+        XCTAssertTrue(feed.delist("alice", as: .privateShow, protecting: ["c4:alice"]), "保护 Cam4 同名房间不挡 cb 房间")
+        XCTAssertEqual(feed.rooms.map(\.ref), ["a", "c4:alice", "c"])
+    }
 }

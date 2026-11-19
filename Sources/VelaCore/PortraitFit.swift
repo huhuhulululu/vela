@@ -20,7 +20,7 @@ public struct PortraitFit: Equatable, Sendable {
 
     /// 某个房间出画面了：竖屏就记下它，横屏或尺寸未知时撤掉它之前的记录。换到别的房间时清掉手动撤销。
     public mutating func noteReady(_ username: String, width: Double, height: Double) {
-        let key = username.lowercased()
+        let key = RoomKey.normalizeRef(username)
         if dismissed != key { dismissed = nil }
         if Self.isPortrait(width: width, height: height) {
             if dismissed != key { room = key }
@@ -32,14 +32,14 @@ public struct PortraitFit: Equatable, Sendable {
     /// 当前房间实际用不用铺满：全局铺满且当前房间被判为竖屏时改用完整画面。
     public func fill(global: Bool, current: String?) -> Bool {
         guard global, let room, let current else { return global }
-        return current.lowercased() != room
+        return RoomKey.normalizeRef(current) != room
     }
 
     /// 用户按了「铺满 / 完整画面」切换：正处在自动完整画面里时只撤掉这次自动（返回 true，不动全局设置）；
     /// 否则返回 false，由调用方照常切换全局设置。
     public mutating func dismiss(global: Bool, current: String?) -> Bool {
         guard fill(global: global, current: current) != global, let current else { return false }
-        dismissed = current.lowercased()
+        dismissed = RoomKey.normalizeRef(current)
         room = nil
         return true
     }

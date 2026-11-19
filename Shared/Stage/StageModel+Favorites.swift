@@ -49,7 +49,10 @@ extension StageModel {
             statuses.merge(fetched) { _, new in new }
             challenged = result.challenged
         }
-        let incomplete = FavoriteResolver.hasUnresolved(pending: plan.pending, statuses: fetched)
+        // 非 cb 收藏只查目录索引，查不到是「未查询」而不是失败，不计入补查冷却。
+        let incomplete = FavoriteResolver.hasUnresolved(
+            pending: plan.pending.filter { RoomKey.site(ofRef: $0) == .chaturbate }, statuses: fetched
+        )
         guard favoriteRunner.isCurrent(id), !Task.isCancelled, lifecycleAllows(.beforeCommit, life) else {
             return FavoriteResolution(statuses: statuses, challenged: challenged, incomplete: incomplete)
         }
@@ -63,7 +66,15 @@ extension StageModel {
 
     /// 先走普通网络；被站点拦截后改经侧车（浏览器里已通过确认的会话）重查没答案的那部分。
     /// 侧车也被拦截才算 `challenged`，交给确认页；确认完成后由 `retryAfterChallenge` 重跑。
-    private func fetchFavoriteStatuses(_ names: [String]) async -> FavoriteFetchResult {
+    private func fetchFavoriteStatuses(_ all: [String]) async -> FavoriteFetchResult {
+        let others = await otherSiteStatuses(all)
+        let names = all.filter { RoomKey.site(ofRef: $0) == .chaturbate }
+        guard !names.isEmpty else { return FavoriteFetchResult(statuses: others, challenged: false) }
+        let cb = await fetchChaturbateStatuses(names)
+        return FavoriteFetchResult(statuses: cb.statuses.merging(others) { old, _ in old }, challenged: cb.challenged)
+    }
+
+    private func fetchChaturbateStatuses(_ names: [String]) async -> FavoriteFetchResult {
         let viaSidecar = Date() < sidecarUntil
         let first = await FavoriteFetcher(client: viaSidecar ? SidecarHTTPClient(sidecar: sidecar) : http).fetch(names)
         guard first.challenged, !viaSidecar else { return first }
@@ -74,7 +85,7 @@ extension StageModel {
     }
 
     func fetchFavoritesPage() async throws -> CatalogPage {
-        let names = curation.favorites
+        let names = favoritesInMode(curation.favorites)
         let result = await resolveFavorites()
         if result.challenged { throw CatalogFailure.challenge }
         let rooms = FavoriteResolver.onlineRooms(favorites: names, statuses: result.statuses)
@@ -129,7 +140,10 @@ extension StageModel {
 
     private func refreshLastBroadcastsTracked() async {
         let now = Date()
-        let offline = curation.favorites.filter { favoriteStatus.status(for: $0) == .offline }
+        // 上次开播只有 cb 能查。
+        let offline = curation.favorites.filter {
+            RoomKey.site(ofRef: $0) == .chaturbate && favoriteStatus.status(for: $0) == .offline
+        }
         let pending = lastBroadcasts.pending(offline, now: now)
         guard !lastBroadcastChecking, !pending.isEmpty, lastBroadcastRetry.allowsAutoCheck(now: now),
               let life = sharedToken() else { return }
@@ -151,13 +165,13 @@ extension StageModel {
         // 状态缓存里没有时退到当前目录（收藏夹的在线判断也用同样的回退）。
         let key = Curation.key(name)
         let room = favoriteStatus.status(for: name)?.room
-            ?? feed.catalog.first { Curation.key($0.username) == key && $0.show.isPlayable }
+            ?? feed.catalog.first { $0.identity == key && $0.show.isPlayable }
         guard let room else { return }
         cancelSiteSearch()
         dismissSurfaces()
         // 搜索条件会挡住目标时清掉它，确保播放的就是点击的房间。
         let before = feed.currentUsername
-        updateFeed(intent: .reveal(room.username)) { _ = $0.reveal(room) }
+        updateFeed(intent: .reveal(room.ref)) { _ = $0.reveal(room) }
         if siteSearch == nil, feed.query.text != searchText { searchText = feed.query.text }
         // 目标正在副路播放时只切了焦点（§4.1），主路不重新起播。
         if lanes.count == 1 || feed.currentUsername != before { requestPlay() }
@@ -174,8 +188,7 @@ extension StageModel {
 
     /// 按用户名手动添加。返回错误文案，成功返回 nil。
     func addFavorite(_ raw: String) -> String? {
-        let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard Room.isValidUsername(name) else { return "用户名只含字母、数字、下划线，2 到 30 位" }
+        guard let name = RoomKey(parsing: raw)?.ref else { return "用户名只含字母、数字、下划线，2 到 30 位；Cam4 写成 c4:名字" }
         if curation.isFavorite(name) { return "已经在收藏里了" }
         commit(curation.favoriting(name), nil)
         if source != .favorites { Task { await checkFavorites() } }

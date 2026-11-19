@@ -4,24 +4,24 @@ import os
 @MainActor
 extension StageModel {
     var currentIsFavorite: Bool {
-        focusRoom.map { curation.isFavorite($0.username) } ?? false
+        focusRoom.map { curation.isFavorite($0.ref) } ?? false
     }
 
     /// 收藏或取消收藏当前房间。收藏时再给它的标签与性别一次「关注」级加权。
     func toggleFavorite(_ target: RoomTarget?) {
         guard let lane = matchedLane(target), let room = room(of: lane) else { return }
-        log.info("favorite-toggle \(self.curation.isFavorite(room.username) ? "off" : "on", privacy: .public)")
-        if curation.isFavorite(room.username) {
+        log.info("favorite-toggle \(self.curation.isFavorite(room.ref) ? "off" : "on", privacy: .public)")
+        if curation.isFavorite(room.ref) {
             commit(
-                curation.unfavoriting(room.username),
+                curation.unfavoriting(room.ref),
                 "已取消收藏 \(room.displayName)",
                 toastSeconds: Theme.unfavoriteToastSeconds,
-                undoFavorite: room.username
+                undoFavorite: room.ref
             )
         } else {
             taste = taste.following(room: room, now: Date(), rarity: tagRarity)
             tasteSaver.schedule(taste)
-            commit(curation.favoriting(room.username), nil)
+            commit(curation.favoriting(room.ref), nil)
         }
     }
 
@@ -29,7 +29,7 @@ extension StageModel {
     func blockCurrent(_ target: RoomTarget?) {
         guard let lane = matchedLane(target), let room = room(of: lane) else { return }
         lane.manuallyPaused = false
-        commit(curation.blocking(room.username), "已屏蔽 \(room.displayName)，可在收藏与屏蔽列表里取消")
+        commit(curation.blocking(room.ref), "已屏蔽 \(room.displayName)，可在收藏与屏蔽列表里取消")
     }
 
     func removeFavorite(_ name: String) { commit(curation.unfavoriting(name), nil) }
@@ -44,13 +44,13 @@ extension StageModel {
         curation = next
         curationSaver.schedule(next)
         if next.favorites != previous.favorites { refreshReasons() }
-        let before = feed.current?.username
+        let before = feed.current?.ref
         // 屏蔽当前房间导致的换房不记正向信号：停留作废，免得给它的标签加分。双窗时两路各查各的。
         for lane in lanes {
             if let username = name(of: lane), next.isBlocked(username) { lane.dwell.discard() }
         }
         updateFeed { $0.setFilters(blocked: next.blockedSet, only: self.allowedNames(for: next)) }
-        if feed.current?.username != before {
+        if feed.current?.ref != before {
             // 名单变化换了（或清空了、或恢复了）当前房间：同步播放，playCurrent 会让旧的跳过任务与请求失效。
             requestPlay()
             Task { await loadMoreIfNeeded() }

@@ -19,6 +19,8 @@ enum PerfStream {
         else { return nil }
         return url
     }()
+
+    static func isTestRoom(_ username: String) -> Bool { username.hasPrefix(Self.username) }
 }
 
 extension StageModel {

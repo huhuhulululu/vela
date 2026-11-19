@@ -85,7 +85,7 @@ public enum Recommender {
     }
 
     public static func seenPenalty(_ room: Room, taste: Taste, now: Date) -> Double {
-        guard let last = taste.lastSeen(room.username) else { return 0 }
+        guard let last = taste.lastSeen(room.ref) else { return 0 }
         let age = now.timeIntervalSince(last)
         guard age >= 0, age < seenWindow else { return 0 }
         return seenWeight * (1 - age / seenWindow)
@@ -151,14 +151,14 @@ public enum Recommender {
 
     /// 收藏加分与主播亲和度不叠加：收藏的取 `favoriteBoost`，其余取亲和度（上限 `StreamerAffinity.cap` 小于收藏加分）。
     static func bonus(_ room: Room, favorites: Set<String>, signals: RankSignals) -> Double {
-        if favorites.contains(room.username.lowercased()) { return favoriteBoost }
+        if favorites.contains(room.identity) { return favoriteBoost }
         guard let ledger = signals.ledger else { return 0 }
-        return StreamerAffinity.score(ledger: ledger, username: room.username, blocked: signals.blocked)
+        return StreamerAffinity.score(ledger: ledger, username: room.ref, blocked: signals.blocked)
     }
 
     /// 推荐理由，单行短句：收藏的主播；有足够依据时取该房间命中率最高的 1 到 2 个标签；否则「试试新口味」。
     public static func reason(for room: Room, taste: Taste, favorites: Set<String>, now: Date) -> String {
-        if favorites.contains(room.username.lowercased()) { return "你收藏的主播" }
+        if favorites.contains(room.identity) { return "你收藏的主播" }
         var liked: [(name: String, mean: Double)] = []
         for tag in room.tags.prefix(Preferences.maxTagsPerRoom) {
             let key = Taste.tagKey(tag)
@@ -177,8 +177,8 @@ public enum Recommender {
         let mine = Set(room.tags.map { $0.lowercased() })
         guard !mine.isEmpty, limit > 0 else { return [] }
         let scored: [(room: Room, sim: Double)] = candidates.compactMap { other in
-            guard other.username.lowercased() != room.username.lowercased(),
-                  taste.lastSeen(other.username) == nil else { return nil }
+            guard other.identity != room.identity,
+                  taste.lastSeen(other.ref) == nil else { return nil }
             let theirs = Set(other.tags.map { $0.lowercased() })
             let shared = mine.intersection(theirs).count
             guard shared > 0 else { return nil }
@@ -188,6 +188,6 @@ public enum Recommender {
         return scored
             .sorted { $0.sim != $1.sim ? $0.sim > $1.sim : ($0.room.viewers, $1.room.username) > ($1.room.viewers, $0.room.username) }
             .prefix(limit)
-            .map(\.room.username)
+            .map(\.room.ref)
     }
 }

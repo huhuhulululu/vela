@@ -21,14 +21,14 @@ extension StageModel {
     func index(of lane: PlaybackLane) -> Int {
         if lane.id == .primary { return feed.index }
         guard let name = lane.username?.lowercased() else { return 0 }
-        return feed.rooms.firstIndex { $0.username.lowercased() == name } ?? 0
+        return feed.rooms.firstIndex { $0.identity == name } ?? 0
     }
 
     /// 翻页要不要加载下一页：以各路里排得最靠后的房间为锚（单窗就是主路）。
     var furthestLaneUsername: String? {
         lanes.compactMap { name(of: $0) }.max { lhs, rhs in
-            let left = feed.rooms.firstIndex { $0.username.lowercased() == lhs.lowercased() } ?? 0
-            let right = feed.rooms.firstIndex { $0.username.lowercased() == rhs.lowercased() } ?? 0
+            let left = feed.rooms.firstIndex { $0.identity == lhs.lowercased() } ?? 0
+            let right = feed.rooms.firstIndex { $0.identity == rhs.lowercased() } ?? 0
             return left < right
         }
     }
@@ -130,7 +130,7 @@ extension StageModel {
         }
         laneCount = lanes.count
         let outcome = LaneSelection.resolve(
-            before: laneSnapshot(of: feed), afterRooms: feed.rooms.map(\.username),
+            before: laneSnapshot(of: feed), afterRooms: feed.rooms.map(\.ref),
             proposedPrimary: feed.currentUsername, intent: .fill
         )
         // `.fill` 给所有空路分房：新开的路与原本就空着的非主路一并提交（有房间的路它不动）。
@@ -284,7 +284,7 @@ extension StageModel {
     /// 不会把它挤成两路同房；其余情况主路改到它。
     func applyDirectSearchHit(_ room: Room) {
         let before = feed.currentUsername
-        updateFeed(intent: .reveal(room.username)) { $0.insertDirect(room) }
+        updateFeed(intent: .reveal(room.ref)) { $0.insertDirect(room) }
         showFilters = false
         if secondary == nil || feed.currentUsername != before { requestPlay() }
     }

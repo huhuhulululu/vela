@@ -72,7 +72,7 @@ extension StageModel {
     ) -> LaneSettlement {
         let focused = min(settled.focusedDwell, settled.dwell)
         return LaneSettlement.settle(
-            lane: lane.id.role, username: settled.room.username, source: lane.dwellSource,
+            lane: lane.id.role, username: settled.room.ref, source: lane.dwellSource,
             spans: [
                 .init(seconds: focused, focused: true),
                 .init(seconds: settled.dwell - focused, focused: false)
@@ -98,7 +98,7 @@ extension StageModel {
         guard settled.ledgerSeconds > 0, let start = settled.start else { return }
         let ratio = settled.dwell > 0 ? result.weightedSeconds / settled.dwell : 1
         watchLedger = watchLedger.recording(
-            username: settled.room.username, seconds: settled.ledgerSeconds * ratio,
+            username: settled.room.ref, seconds: settled.ledgerSeconds * ratio,
             start: start.timeIntervalSince1970, now: instant
         )
         watchLedgerSaver.schedule(watchLedger)
@@ -116,14 +116,14 @@ extension StageModel {
         // 本次停留里已超时消失过的不重复弹。
         guard SuggestRules.canPresent(
             pointerCanClick: !resolvedPresence().ignoresMouseEvents,
-            snoozed: suggestSnoozed.contains(WatchLedger.key(room.username))
+            snoozed: suggestSnoozed.contains(WatchLedger.key(room.ref))
         ) else { return }
         let live = dwell.ledgerDwell(now: now)
         let start = dwell.startedAt?.timeIntervalSince1970
-        let favorited = curation.isFavorite(room.username)
-        let blocked = curation.isBlocked(room.username)
+        let favorited = curation.isFavorite(room.ref)
+        let blocked = curation.isBlocked(room.ref)
         guard watchLedger.shouldSuggest(
-            username: room.username,
+            username: room.ref,
             favorited: favorited,
             blocked: blocked,
             liveSeconds: live,
@@ -140,10 +140,10 @@ extension StageModel {
               let spell = dwell.startedAt else { return }
         let now = Date()
         let live = dwell.ledgerDwell(now: now)
-        let favorited = curation.isFavorite(room.username)
-        let blocked = curation.isBlocked(room.username)
+        let favorited = curation.isFavorite(room.ref)
+        let blocked = curation.isBlocked(room.ref)
         if watchLedger.shouldSuggest(
-            username: room.username,
+            username: room.ref,
             favorited: favorited,
             blocked: blocked,
             liveSeconds: live,
@@ -152,18 +152,18 @@ extension StageModel {
             return
         }
         guard let wait = watchLedger.secondsUntilNextSuggestCheck(
-            username: room.username,
+            username: room.ref,
             favorited: favorited,
             blocked: blocked,
             liveSeconds: live,
             liveStart: spell.timeIntervalSince1970
         ), wait > 0.05 else { return }
-        let name = WatchLedger.key(room.username)
+        let name = WatchLedger.key(room.ref)
         favoriteSuggestWakeTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64((wait + 0.05) * 1_000_000_000))
             guard !Task.isCancelled else { return }
             await MainActor.run {
-                guard let self, WatchLedger.key(self.focusRoom?.username ?? "") == name else { return }
+                guard let self, WatchLedger.key(self.focusRoom?.ref ?? "") == name else { return }
                 self.checkFavoriteSuggest(now: Date())
                 self.scheduleFavoriteSuggestWake()
             }
@@ -177,7 +177,7 @@ extension StageModel {
         toast = nil
         toastUndoName = nil
         // 这里不记账：只有点了「收藏」或关闭才算问过，超时消失不算（`endFavoriteSuggest`）。
-        let key = WatchLedger.key(room.username)
+        let key = WatchLedger.key(room.ref)
         let display = room.displayName.isEmpty ? room.username : room.displayName
         favoriteSuggest = FavoriteSuggestPrompt(username: key, displayName: display)
         favoriteSuggestTask?.cancel()
@@ -193,7 +193,7 @@ extension StageModel {
     }
 
     func dismissFavoriteSuggestIfMismatch() {
-        guard let prompt = favoriteSuggest, let current = focusRoom?.username else {
+        guard let prompt = favoriteSuggest, let current = focusRoom?.ref else {
             favoriteSuggest = nil
             favoriteSuggestTask?.cancel()
             return
@@ -206,12 +206,12 @@ extension StageModel {
 
     func acceptFavoriteSuggest() {
         guard let prompt = favoriteSuggest, let room = focusRoom,
-              WatchLedger.key(room.username) == prompt.username else { return }
+              WatchLedger.key(room.ref) == prompt.username else { return }
         endFavoriteSuggest(.accepted)
-        guard !curation.isFavorite(room.username) else { return }
+        guard !curation.isFavorite(room.ref) else { return }
         taste = taste.following(room: room, now: Date(), rarity: tagRarity)
         tasteSaver.schedule(taste)
-        commit(curation.favoriting(room.username), nil)
+        commit(curation.favoriting(room.ref), nil)
     }
 
     /// 点了提示上的关闭：明确的「不用」，记为问过。
@@ -236,8 +236,8 @@ extension StageModel {
     /// 只在猜你喜欢模式、且焦点路仍停留在原房间时，把相近的未看房间挪到紧随这一间之后；已划过的位置不动。
     /// 双窗里按焦点路的房间与位置来，不是主路的。
     func promoteRelated(to username: String) {
-        guard source == .guess, let room = focusRoom, room.username == username,
-              let at = feed.rooms.firstIndex(where: { $0.username == username }) else { return }
+        guard source == .guess, let room = focusRoom, room.ref == username,
+              let at = feed.rooms.firstIndex(where: { $0.ref == username }) else { return }
         let ahead = Array(feed.rooms.dropFirst(at + 1))
         let names = Recommender.related(to: room, among: ahead, taste: taste)
         guard !names.isEmpty else { return }

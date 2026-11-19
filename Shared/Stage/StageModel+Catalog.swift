@@ -137,7 +137,7 @@ extension StageModel {
         loading = true
         searchEpoch.claimLoading(epoch)
         do {
-            let raw = try await catalogAPI.fetch(SiteSearch.query(keyword))
+            let raw = try await directory.fetch(SiteSearch.query(keyword))
             guard token == loadGeneration, searchEpoch.isCurrent(epoch), lifecycleAllows(.beforeCommit, life) else { return }
             if searchEpoch.releaseLoading(token: epoch) { loading = false }
             challengeGate.reset()
@@ -178,7 +178,7 @@ extension StageModel {
             await reload(keepingSearchTask: true)
         }
         let outcome = SiteSearch.missOutcome(
-            keyword: keyword, fallback: fallback, fallbackBlocked: fallback.map { curation.isBlocked($0.username) } ?? false,
+            keyword: keyword, fallback: fallback, fallbackBlocked: fallback.map { curation.isBlocked($0.ref) } ?? false,
             failed: failed, stillCurrent: searchEpoch.isCurrent(epoch) && !Task.isCancelled
         )
         switch outcome {
@@ -289,7 +289,7 @@ extension StageModel {
             return FetchedPage(page: page, regular: page.rooms)
         }
         let query = catalogQuery(offset: offset)
-        let regular = try await catalogAPI.fetchPages(query, pages: source.pageCount)
+        let regular = try await directory.fetchPages(query, pages: source.pageCount)
         // 只有「猜你喜欢」的首次拉取按口味定向补候选；定向页都是 offset 0，翻页时不重复拉。
         let plan = source == .guess && offset == 0 ? TargetedPlan(base: query, rarity: TagRarity(rooms: regular.rooms)) : nil
         return FetchedPage(page: regular, regular: regular.rooms, targeted: plan)
@@ -301,7 +301,7 @@ extension StageModel {
             return try await fetchPage(offset: 0)
         }
         let query = catalogQuery(offset: 0)
-        let first = try await catalogAPI.fetch(query)
+        let first = try await directory.fetch(query)
         let plan = source == .guess ? TargetedPlan(base: query, rarity: TagRarity(rooms: first.rooms)) : nil
         return FetchedPage(
             page: first, regular: first.rooms, targeted: plan,
@@ -350,7 +350,7 @@ extension StageModel {
             query.offset = last.nextOffset
             let page: CatalogPage
             do {
-                page = try await catalogAPI.fetch(query)
+                page = try await directory.fetch(query)
             } catch {
                 guard !Task.isCancelled, token == loadGeneration else { return }
                 log.error("catalog rest page failed")
@@ -397,7 +397,7 @@ extension StageModel {
         let tags = TasteTargeting.favoriteTags(taste: taste, now: Date(), rarity: plan.rarity)
         let queries = TasteTargeting.queries(for: tags, base: plan.base)
         guard !queries.isEmpty, let life = sharedToken() else { return }
-        let api = catalogAPI
+        let api = directory
         let pages = await TimedFanOut.run(queries, timeout: Self.targetedTimeout) { try await api.fetchPages($0, pages: 1).rooms }
         guard !Task.isCancelled, token == loadGeneration, source == .guess, lifecycleAllows(.beforeCommit, life) else { return }
         for page in pages where page == nil { log.error("targeted page failed") }
@@ -408,7 +408,7 @@ extension StageModel {
         let current = taste
         knownCatalog.record(rooms, firstPage: false, at: now)
         for room in rooms {
-            reasons[room.username.lowercased()] = Recommender.reason(for: room, taste: current, favorites: favorites, now: now)
+            reasons[room.identity] = Recommender.reason(for: room, taste: current, favorites: favorites, now: now)
         }
         updateFeed(intent: .merge) { store in
             store.mergeAfterCurrent(rooms) { self.arranged(CatalogPage(rooms: $0, total: 0, nextOffset: 0)).rooms }

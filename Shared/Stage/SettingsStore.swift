@@ -106,6 +106,18 @@ final class SettingsStore {
         }
     }
 
+    /// 看哪个站点（Chaturbate / Cam4 / 混合），缺省与认不出的值都是 Chaturbate。
+    var siteMode: SiteMode {
+        get { SiteMode.restore(defaults.string(forKey: "siteMode")) }
+        set { defaults.set(newValue.rawValue, forKey: "siteMode") }
+    }
+
+    /// 本机偏好文件的房间键格式已迁移到哪一版（`SiteKeyMigration.version`）；没迁移过是 0。
+    var siteKeyVersion: Int {
+        get { defaults.integer(forKey: "siteKeyVersion") }
+        set { defaults.set(newValue, forKey: "siteKeyVersion") }
+    }
+
     private static let laneCountKey = "laneCount"
     private static let legacyDualKey = "phoneDual"
 

@@ -216,7 +216,7 @@ App 引用 Core，Core 不引用 App。`PlayerController` 与 `StageModel` 的�
 
 ## 4. 外部接口
 
-全部主机为 `chaturbate.com`，除缩略图与 HLS 域名外。请求头统一由 `HTTPHeaders.applyBrowser` 加（固定 Safari UA、Referer、Origin、`X-Requested-With`），超时 12 秒。
+全部主机为 `chaturbate.com`，除缩略图与 HLS 域名、以及 Cam4 访客目录（见 5.11）外。请求头统一由 `HTTPHeaders.applyBrowser` 加（固定 Safari UA、Referer、Origin、`X-Requested-With`），超时 12 秒。
 
 <!-- AUTO-MANAGED:api-table -->
 | 方法 | 路径 | 用途 | 所在文件 |
@@ -354,6 +354,19 @@ App 引用 Core，Core 不引用 App。`PlayerController` 与 `StageModel` 的�
 - **画质**（ADR-006、ADR-008）：最终上限 = min(尺寸上限, 热上限)。1、2 路尺寸上限不限（两路都用最高档）；3 路按每格画面实际显示的像素高度选档（还没出画面按格子里 16:9 画面估算，iPhone 17 Pro 三格约 226 点 × 3 = 678 像素，对应 1.696M 档）。热状态 `.serious` 降一档、`.critical` 降两档，以尺寸上限为基准，最低 896k；回到 `.fair` 以下满 60 秒回升到尺寸上限。路数变化、旋转、画中画进出、格子与画面尺寸变化、解析期间上限变化、热状态变化时只对上限真变了的在播路原地换档。日志：`lane-start lane= cap=`（-1 为不封顶）、`thermal limit|recover`、`thermal-cap lane= cap=`、`thermal-retier`。
 - **失败分类**（H3）：播放失败经 `classifyFailure` 交 `PlaybackFailureClassifier`；焦点路受保护，只有非焦点路命中白名单码（`decoderTemporarilyUnavailable`）才 `degrade`（释放、显示「资源不足」、`degradedHold` 扣住，不计房间失败与重试预算）；焦点路缺解码器时按 T → S 让出一路非焦点路，自己照常按房间重试。恢复入口：用户重试、切房、回前台、焦点切到该路、减少路数（各重试一次），以及 60、120、240 秒的有限次自动重试（资源持续不足时停在降级，不无限循环）。损坏码流（`decodeFailed`、`decoderNotFound` 等）一律是房间失败，走原来的重试与跳过。
 
+### 5.11 站点抽象与 Cam4（docs/plans/sites.md）
+
+- 房间身份是 `RoomKey`（`Sources/VelaCore/Sites/RoomKey.swift`）：磁盘与同步写 raw（`cb:alice`、`c4:bob`），内存用 ref（cb 省略前缀）。`Room.key` / `Room.identity`（小写 ref）在构造与改名时算一次存下，所有身份比较、去重、选房都读它；舞台层与视图层（`readyUsername` / `playingUsername`、`RoomTarget`、路的 `username`、收藏 / 屏蔽、停留与观看账本）一律用 ref。
+- 适配器：`SiteAdapter`（`Sites/SiteAdapter.swift`）与 `SiteRegistry.live`，`ChaturbateAdapter`（包现有目录与起播路径）、`Cam4Adapter`（访客目录 `GET https://www.cam4.com/directoryCams?directoryJson=true&online=true&url=true&page=&resultsPerPage=`，目录索引只在内存，上限 2000 条）。
+- 目录入口 `SiteDirectory`（`Sites/SiteDirectory.swift`）：`StageModel.directory`，cb 模式原样调 `catalogAPI`；Cam4 模式只问 Cam4；混合模式经 `SiteCatalog` 并发取两站、交错合并，`nextOffset` 是各站游标之和，`SiteDirectory` 记住「和 → 各站游标」接着翻页，记不住的偏移从头取。
+- 起播：`resolveSourced` 遇到非 cb 的 ref 走 `resolveOnSite`（适配器，没有侧车与质询），cb 路径不变。选档 `fetchRendition(master:cap:for:)`：cb 只带 Referer、主列表失败仍交给中继；strictMaster 站点（Cam4）带适配器的全部头，主列表 5xx / 403 / 404 判 `.unavailable` 并自动跳过。
+- 请求头：`PlayerController.play(…headers:)` 把房间站点的头交给中继（`PlaylistRelay.localURL(…headers:)`，每个源各自记一份，默认 `PlaylistRelay.defaultHeaders` 即原来写死的 cb 头）与 `AVURLAsset`（分片由 AVPlayer 直连上游）。
+- 收藏：cb 收藏照旧查 `chatvideocontext`；非 cb 收藏只查适配器（Cam4 只看目录索引），查不到是「未查询」，不计入补查冷却；上次开播只查 cb；收藏来源只列当前站点模式里的收藏；手动添加接受 `c4:名字`。
+- 筛除（PR #12 合入后）：`FeedStore.canDelist` / `delist` 与各路保护集合一律按站点键比较，同名的 Chaturbate 与 Cam4 房间互不误筛；是否可筛由 `StageModel.delistState` 定：cb 沿用 `StreamTicket.delistedShow`，Cam4 只认目录明确标的私密，「这页没找到」推断出的离线与 unknown 都不筛、只跳过。
+- 地区屏蔽：观看地区取设备地区（`StageModel.viewerRegions`），Cam4 房间的 `blockedRegions` 命中时判「当前地区不可观看」，不按代理出口判断。
+- 界面：筛选面板顶部站点三段选择（Chaturbate / Cam4 / 混合，`chooseSite`，记住，切换等同切来源）；非 cb 房间在信息行（macOS `RoomCaption`、iOS `PhoneCaption`）显示站点名；Cam4 单站模式下地区、标签、新开播筛选使目录为空时说明「Cam4 不支持按地区、标签或新开播筛选」；搜索框回车 `c4:名字` 直达 Cam4，裸名在 Cam4 模式按 c4。
+- 固定测试流：iOS `--perf-site c4` 让三间测试房间成为 Cam4 房间（`c4:perf_stream…`），走 Cam4 的身份、请求头与中继登记，仍用回环测试流；`PerfStream.isTestRoom` 统一判定，预取、续期、换档不为测试房间发请求。
+
 ## 6. 本地存储
 
 目录 `~/Library/Application Support/Vela/`（`PreferenceStore.defaultURL`；取不到时退回临时目录）。
@@ -362,13 +375,14 @@ App 引用 Core，Core 不引用 App。`PlayerController` 与 `StageModel` 的�
 |---|---|---|
 | `feed-taste.json` | `Taste`：标签 / 性别的命中与落空证据（带时间戳、不想看标记）、最近看过、每日命中率、暂停学习开关 | 标签最多 500 个，看过最多 1000 条且只留 24 小时，每日计数最多 30 天；标签 / 用户名最长 64 字符（写入时截断，读取时丢弃超长键）；读取时文件超过 1,000,000 字节按空画像处理；只存本机，不上传 |
 | `feed-prefs.json` | 旧版 `Preferences`，只在 `feed-taste.json` 不存在时读一次用于迁移，不再写入 | 同上限；清除全部偏好数据时删除 |
-| `feed-curation.json` | `Curation`：收藏与屏蔽名单（用户名） | 各最多 300 个，单名最长 64 字符，超出丢最旧；读取同样受 1,000,000 字节上限约束 |
+| `feed-curation.json` | `Curation`：收藏与屏蔽名单（raw 房间键，顶层 `keyVersion: 2`；旧文件的裸名按 cb 读） | 各最多 300 个，单名最长 64 字符，超出丢最旧；读取同样受 1,000,000 字节上限约束 |
 | `watch-ledger.json` | `WatchLedger`：各主播累计实际观看秒数、有效观看次数、是否已弹过收藏提示 | 最多 500 个用户名，单名最长 64 字符，按最近使用淘汰；读取超过 1,000,000 字节按空处理；「清除全部偏好数据」时一并删除 |
 | `diagnostics.json`（仅 iOS） | MetricKit 每日诊断摘要与截断后的原始 JSON（`DiagnosticDigest`） | 最近 7 天，每份原始 JSON 最多 256 KB；目录已排除 iCloud 备份；不联网、不上传，只在用户点「分享」时经系统分享表由用户决定发送 |
 
+- 房间键迁移（`SiteKeyMigration`）：启动时若 `siteKeyVersion` 小于 2，把收藏、口味、观看账本三个文件一次写成带前缀键，先备份为 `<名>.pre-sites`（已有不覆盖），任何一步失败原文件不动、下次启动再试；三个都成功才记 `siteKeyVersion`。解码同时认新旧格式。「清除全部偏好数据」一并删除三份备份。
 - 写入：`DeferredSaver` 合并为后台串行队列上的一次写，默认延迟 2 秒，原子写入（`.atomic`）；读写失败不抛出，读退回空值，写失败只记日志。退出时 `flushForTermination`（监听 `willTerminateNotification`）同步结算最后一个房间并落盘。
 - 不再使用钥匙串。旧版本遗留的钥匙串条目（service `com.vela.stage`，account `session` 与 `username`）与网页 sessionid cookie 在首次启动时清掉一次（`LegacyLoginCleanup`，标记键 `legacyLoginCleared`）。
-- UserDefaults（suite `com.vela.stage`）：`ageConfirmed`、`pinned`、`conditionalOpacity`、`clickThrough`、`restingOpacity`（默认 0.42）、`engagedOpacity`、`restSavesPower`、`publicOnly`、`fitFill`、`volume`（默认 0.85）、`muted`、`hintSeen`、`layoutRevision`、`gender`、`region`、`tag`、`source`（旧值 `following` 读取时忽略，退回猜你喜欢；旧值 `recommended` 映射为猜你喜欢）、`legacyLoginCleared`。旧版遗留的 `hdOnly`、`campaign` 不再读取，留在文件里无副作用。
+- UserDefaults（suite `com.vela.stage`）：`ageConfirmed`、`pinned`、`conditionalOpacity`、`clickThrough`、`restingOpacity`（默认 0.42）、`engagedOpacity`、`restSavesPower`、`publicOnly`、`fitFill`、`volume`（默认 0.85）、`muted`、`hintSeen`、`layoutRevision`、`gender`、`region`、`tag`、`source`（旧值 `following` 读取时忽略，退回猜你喜欢；旧值 `recommended` 映射为猜你喜欢）、`legacyLoginCleared`、`siteMode`（`chaturbate` / `cam4` / `mixed`，缺省与认不出的值为 Chaturbate）、`siteKeyVersion`。旧版遗留的 `hdOnly`、`campaign` 不再读取，留在文件里无副作用。
 - WKWebView 站点数据存在系统默认数据存储里（确认访问留下的 cookie 在其中）。
 - 全站热门标签只在内存里：`HotTagCache` 缓存 6 小时。
 - 收藏的在线状态只在内存里：`FavoriteCache` 缓存 3 分钟，不落盘。离线收藏的上次开播时间同样只在内存里：`LastBroadcastCache` 缓存 30 分钟。
