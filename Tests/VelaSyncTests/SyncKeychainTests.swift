@@ -119,6 +119,23 @@ final class SyncKeychainTests: XCTestCase {
         XCTAssertEqual(store.write(entry), .unsupported)
     }
 
+    /// 授权文件与代码里的访问组写死在两处，必须一致；签名配置只在配置了团队时才带上它们。
+    func testEntitlementsDeclareTheSyncAccessGroup() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        for path in ["App/Vela.entitlements", "iOS/VelaPhone.entitlements"] {
+            let data = try Data(contentsOf: root.appendingPathComponent(path))
+            let plist = try XCTUnwrap(try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any], path)
+            XCTAssertEqual(plist["keychain-access-groups"] as? [String], ["$(AppIdentifierPrefix)" + SyncKeychainStore.accessGroupSuffix], path)
+            XCTAssertEqual(plist.count, 1, "\(path) 只加钥匙串授权，不新增沙盒等其他授权")
+        }
+        XCTAssertEqual(SyncKeychainStore.accessGroupSuffix, SyncKeychainStore.service)
+        let xcconfig = try String(contentsOf: root.appendingPathComponent("Config/Sync.xcconfig"), encoding: .utf8)
+        XCTAssertTrue(xcconfig.contains("VELA_TEAM_SIGNED = NO"), "默认不带授权，未配置团队的构建照常成功")
+        XCTAssertTrue(xcconfig.contains("VELA_ENTITLEMENTS_YES_macosx = App/Vela.entitlements"))
+        XCTAssertTrue(xcconfig.contains("VELA_ENTITLEMENTS_YES_iphoneos = iOS/VelaPhone.entitlements"))
+        XCTAssertFalse(xcconfig.contains("DEVELOPMENT_TEAM ="), "团队 ID 只来自不入库的 Local.xcconfig")
+    }
+
     /// 系统钥匙串实测：未签名的测试进程在 macOS 数据保护钥匙串上会缺授权，此时跳过并说明。
     func testSystemKeychainRoundTripWhenEntitled() throws {
         let store = SyncKeychainStore(service: "com.vela.sync.test-\(UUID().uuidString)")

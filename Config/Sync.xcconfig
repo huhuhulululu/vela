@@ -1,6 +1,22 @@
 // 入库的基础配置：项目级 Debug、Release、Perf 都以它为基础。
-// 同步服务器地址不进公开仓：真实值写在不入库的 Config/Local.xcconfig 里（模板见 Local.xcconfig.template）。
+// 同步服务器地址与开发团队不进公开仓：真实值写在不入库的 Config/Local.xcconfig 里（模板见 Local.xcconfig.template）。
 // 未配置时 App 隐藏「在这台设备上开启同步」，仍可用同步码「加入」（同步码自带地址）。
 VELA_SYNC_BASE =
+
+// 签名：未配置团队（CI、开源构建）时 macOS 用临时签名、不带授权文件，同步按设计显示「不支持」；
+// Local.xcconfig 设 VELA_TEAM_SIGNED = YES 与 DEVELOPMENT_TEAM 后改为自动签名，并带上钥匙串授权
+// （keychain-access-groups = $(AppIdentifierPrefix)com.vela.sync，见 App/Vela.entitlements 与 iOS/VelaPhone.entitlements）。
+// 没有团队时不能带这份授权：临时签名的 macOS App 声明受限授权会在启动时被系统拒绝。
+VELA_TEAM_SIGNED = NO
+VELA_MAC_IDENTITY_NO = -
+VELA_MAC_IDENTITY_YES = Apple Development
+VELA_MAC_STYLE_NO = Manual
+VELA_MAC_STYLE_YES = Automatic
+VELA_ENTITLEMENTS_YES_macosx = App/Vela.entitlements
+VELA_ENTITLEMENTS_YES_iphoneos = iOS/VelaPhone.entitlements
+VELA_ENTITLEMENTS_YES_iphonesimulator = iOS/VelaPhone.entitlements
+CODE_SIGN_IDENTITY[sdk=macosx*] = $(VELA_MAC_IDENTITY_$(VELA_TEAM_SIGNED))
+CODE_SIGN_STYLE[sdk=macosx*] = $(VELA_MAC_STYLE_$(VELA_TEAM_SIGNED))
+CODE_SIGN_ENTITLEMENTS = $(VELA_ENTITLEMENTS_$(VELA_TEAM_SIGNED)_$(PLATFORM_NAME))
 
 #include? "Local.xcconfig"

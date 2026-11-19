@@ -70,6 +70,10 @@ final class SystemSecItem: SyncSecItem {
 final class SyncKeychainStore: SyncKeychain {
     static let service = "com.vela.sync"
     static let account = "space"
+    /// 授权文件里的钥匙串访问组（`$(AppIdentifierPrefix)` + 本值，见 App/Vela.entitlements 与 iOS/VelaPhone.entitlements）。
+    /// 查询本身不设 `kSecAttrAccessGroup`：系统把条目放进授权里列出的第一个组，即这个本 App 专用的组，不与其他 App 共享。
+    /// 没有这份授权的构建（未配置团队）在 macOS 数据保护钥匙串上得到 `errSecMissingEntitlement`，同步显示「不支持」。
+    static let accessGroupSuffix = "com.vela.sync"
     let service: String
     private let secItem: SyncSecItem
 

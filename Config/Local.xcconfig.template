@@ -2,3 +2,7 @@
 // 同步服务器的规范 origin：https:// + 小写 DNS 名 + 可选非 443 端口，不带路径与末尾斜杠。
 // xcconfig 里 // 起注释，所以协议后的双斜杠要写成 /$()/。
 VELA_SYNC_BASE = https:/$()/sync.example.invalid
+
+// 用自己的开发团队签名，启用钥匙串授权（同步需要）。不配这两行时构建照常成功，只是同步显示「不支持」。
+// VELA_TEAM_SIGNED = YES
+// DEVELOPMENT_TEAM = XXXXXXXXXX

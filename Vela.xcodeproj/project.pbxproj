@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXFileReference section */
+		5C0D5A0000000000000000F1 /* Vela.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Vela.entitlements; sourceTree = "<group>"; };
+		5C0D5A0000000000000000F2 /* VelaPhone.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = VelaPhone.entitlements; sourceTree = "<group>"; };
 		5C0D5A000000000000000001 /* HLC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HLC.swift; sourceTree = "<group>"; };
 		5C0D5A000000000000000004 /* SyncCode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncCode.swift; sourceTree = "<group>"; };
 		5C0D5A000000000000000007 /* SyncCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncCoordinator.swift; sourceTree = "<group>"; };
@@ -281,6 +283,7 @@
 		3C3B0F03DC089F93B8457928 /* App */ = {
 			isa = PBXGroup;
 			children = (
+				5C0D5A0000000000000000F1 /* Vela.entitlements */,
 				5C0D5A000000000000000052 /* Info.plist */,
 				6D7118E8A3C25F19E34481AA /* SidecarHost+Mac.swift */,
 				EAC96C9A604DC39521611610 /* ChallengeSheet+Mac.swift */,
@@ -412,6 +415,7 @@
 		B7A0C0DE0000000000000002 /* iOS */ = {
 			isa = PBXGroup;
 			children = (
+				5C0D5A0000000000000000F2 /* VelaPhone.entitlements */,
 				1E6711CA2612754A46CD8F1E /* ChallengeSheet+Phone.swift */,
 				7476274F8DF0711CBC6DABA7 /* AgeGate+Phone.swift */,
 				780DC2B8683EFC308AE217F5 /* PhoneStageView.swift */,
@@ -1374,8 +1378,6 @@
 				INFOPLIST_FILE = App/Info.plist;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
-				CODE_SIGN_IDENTITY = "-";
-				CODE_SIGN_STYLE = Manual;
 				CODE_SIGNING_REQUIRED = NO;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
@@ -1412,8 +1414,6 @@
 				INFOPLIST_FILE = App/Info.plist;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
-				CODE_SIGN_IDENTITY = "-";
-				CODE_SIGN_STYLE = Manual;
 				CODE_SIGNING_REQUIRED = NO;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
@@ -1531,8 +1531,6 @@
 				INFOPLIST_FILE = App/Info.plist;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
-				CODE_SIGN_IDENTITY = "-";
-				CODE_SIGN_STYLE = Manual;
 				CODE_SIGNING_REQUIRED = NO;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
