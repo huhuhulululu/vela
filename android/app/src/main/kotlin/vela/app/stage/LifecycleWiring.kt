@@ -88,7 +88,13 @@ class LifecycleWiring(
             wasSuspended = true
         }
         for (action in actions) apply(action)
-        if (next == PhoneScenePhase.ACTIVE) wasSuspended = false
+        if (next == PhoneScenePhase.ACTIVE) {
+            // 冷启动没有 EpochResume。进前台、允许出声之前走和恢复同一套焦点与拔耳机保护。
+            if (actions.none { it == PhoneLifecycleAction.EpochResume }) {
+                session.prepareAudio()
+            }
+            wasSuspended = false
+        }
         stage.syncSceneAttentive(PhoneLifecycle.attentive(phase))
         Log.i(TAG, "phase=$phase actions=${actions.size}")
     }
@@ -269,6 +275,7 @@ class AppPlaybackSession(
     }
 
     override fun ensureLane() {
+        if (!audioStarted) prepareAudio()
         if (mutableLane.value != null) return
         if (hub.listeningPort == 0 && hub.allowStart) hub.start()
         val created = PlaybackLane.create(activity, hub = hub)
