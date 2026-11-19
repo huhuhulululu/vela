@@ -12,8 +12,8 @@ import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import java.net.URI
 import java.util.Locale
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
@@ -21,7 +21,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
@@ -214,6 +213,66 @@ class SiteSidecar(
     }
 }
 
+/**
+ * 按请求号把结果交回对应的 evaluate。页面上的脚本不知道别的请求的号，不能串结果。
+ * 号在这一版是递增的；不可猜测的一次性令牌另见后续收紧。
+ */
+internal class SidecarDeliverHub {
+    private val slots = ConcurrentHashMap<String, CompletableDeferred<String>>()
+    private val sequence = AtomicLong()
+
+    fun open(): Pair<String, Deferred<String>> {
+        val token = sequence.incrementAndGet().toString()
+        val gate = CompletableDeferred<String>()
+        slots[token] = gate
+        return token to gate
+    }
+
+    fun deliver(token: String, payload: String): Boolean {
+        val gate = slots.remove(token) ?: return false
+        gate.complete(payload)
+        return true
+    }
+
+    fun fail(token: String): Boolean {
+        val gate = slots.remove(token) ?: return false
+        gate.completeExceptionally(SidecarError.Script)
+        return true
+    }
+
+    fun discard(token: String) {
+        slots.remove(token)?.cancel()
+    }
+}
+
+/** 包一层局部桥，把页面脚本里的 deliver/fail 绑到这次请求的号上。 */
+internal fun wrapSidecarScript(script: String, token: String): String {
+    val quoted = JSONObject.quote(token)
+    return """
+        (function() {
+          var bridge = window.VelaSidecar;
+          var VelaSidecar = {
+            deliver: function(payload) { bridge.deliver($quoted, String(payload)); },
+            fail: function(message) { bridge.fail($quoted, String(message)); }
+          };
+          $script
+        })();
+    """.trimIndent()
+}
+
+/** 页面世界里的稳定桥。只注册一次，不在每次求值时换同名接口。 */
+internal class SidecarJsBridge(private val hub: SidecarDeliverHub) {
+    @JavascriptInterface
+    fun deliver(token: String, payload: String) {
+        hub.deliver(token, payload)
+    }
+
+    @JavascriptInterface
+    fun fail(token: String, message: String) {
+        hub.fail(token)
+    }
+}
+
 /** 把参数绑成常量，再跑一段会 return 结果的异步脚本。 */
 internal fun sidecarScript(body: String, arguments: Map<String, String>): String {
     val bindings = arguments.entries.joinToString("\n") { (key, value) ->
@@ -298,6 +357,7 @@ class WebSidecarPage(
     private var webView: WebView? = null
     private var destroyed = false
     private var loadGate: CompletableDeferred<Unit>? = null
+    private val hub = SidecarDeliverHub()
 
     override suspend fun load(url: String) {
         if (destroyed) throw SidecarError.Unavailable
@@ -319,29 +379,19 @@ class WebSidecarPage(
     override suspend fun evaluate(script: String): String = try {
         withContext(Dispatchers.Main) {
             val view = webView ?: throw SidecarError.Unavailable
-            withTimeout(EVAL_TIMEOUT_MS) {
-                suspendCancellableCoroutine { continuation ->
-                    val bridge = DeliverBridge(
-                        onDeliver = { payload ->
-                            if (continuation.isActive) continuation.resume(payload)
-                        },
-                        onFail = {
-                            if (continuation.isActive) {
-                                continuation.resumeWithException(SidecarError.Script)
-                            }
-                        },
-                    )
-                    view.removeJavascriptInterface(BRIDGE)
-                    view.addJavascriptInterface(bridge, BRIDGE)
-                    continuation.invokeOnCancellation {
-                        view.removeJavascriptInterface(BRIDGE)
-                    }
-                    view.evaluateJavascript(script, null)
+            val (token, gate) = hub.open()
+            try {
+                withTimeout(EVAL_TIMEOUT_MS) {
+                    view.evaluateJavascript(wrapSidecarScript(script, token), null)
+                    gate.await()
                 }
+            } finally {
+                hub.discard(token)
             }
         }
-    } catch (_: TimeoutCancellationException) {
-        throw SidecarError.TimedOut
+    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+        if (cancelled is TimeoutCancellationException) throw SidecarError.TimedOut
+        throw cancelled
     }
 
     override fun detach() {
@@ -387,6 +437,9 @@ class WebSidecarPage(
         view.settings.userAgentString = UserAgent.safari
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(view, true)
+        // 桥在第一次 loadUrl 之前挂上。WebView 要到下一次页面加载才把注入对象交给 JavaScript，
+        // 加载完成后再 addJavascriptInterface，当前页的 deliver/fail 调不到。
+        view.addJavascriptInterface(SidecarJsBridge(hub), BRIDGE)
         view.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 loadGate?.complete(Unit)
@@ -411,21 +464,6 @@ class WebSidecarPage(
             view,
             FrameLayout.LayoutParams(800, 600).apply { topMargin = -4200 },
         )
-    }
-
-    private class DeliverBridge(
-        private val onDeliver: (String) -> Unit,
-        private val onFail: (String) -> Unit,
-    ) {
-        @JavascriptInterface
-        fun deliver(payload: String) {
-            onDeliver(payload)
-        }
-
-        @JavascriptInterface
-        fun fail(message: String) {
-            onFail(message)
-        }
     }
 
     companion object {

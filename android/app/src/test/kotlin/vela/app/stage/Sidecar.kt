@@ -73,6 +73,21 @@ class SidecarResolveTest {
     }
 
     @Test
+    fun testDeliverHubRoutesByRequestAndIgnoresUnknown() = runBlocking {
+        val hub = SidecarDeliverHub()
+        val (first, firstGate) = hub.open()
+        val (second, secondGate) = hub.open()
+        assertTrue(first != second)
+        assertTrue(hub.deliver(second, "bee"))
+        assertFalse(firstGate.isCompleted)
+        assertEquals("bee", secondGate.await())
+        assertFalse(hub.deliver(second, "again"))
+        assertFalse(hub.deliver("0", "forged"))
+        assertTrue(hub.deliver(first, "ay"))
+        assertEquals("ay", firstGate.await())
+    }
+
+    @Test
     fun testScriptQuotesUsername() {
         val script = sidecarScript("return username;", mapOf("username" to "a\"b"))
         assertTrue(script.contains("const username = \"a\\\"b\";"))
