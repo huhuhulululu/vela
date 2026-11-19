@@ -173,17 +173,40 @@ final class SyncLifecycleTests: XCTestCase {
         XCTAssertEqual(keychain.entry, .none)
     }
 
-    /// 审计 medium：离线开启、空间从未创建（没有 epoch、水位为 0、没有在途请求）时，清除云端直接做本机关闭，不发 delete。
-    func testClearWithoutEverReachingServerFinishesLocally() async {
+    /// 复审 medium：还没有 epoch 不能证明空间不存在（另一台设备可能已用同一码创建）。先 GET 核实：
+    /// 404 或 410 才本机关闭；空间存在就取它的 epoch 与版本签名删除；网络失败保持 clearing。
+    func testClearWithoutEpochChecksServerFirst() async {
         let s = state(.active, doc: sampleDoc())
         XCTAssertNil(s.epoch)
-        let store = MemoryStateStore(s), keychain = MemoryKeychain(.present(blobID: blob)), sink = MemorySink()
-        let transport = MemoryTransport(MemoryServer())
-        let result = await SyncLifecycle.clear(s, store: store, keychain: keychain, sink: sink, transport: transport)
-        XCTAssertEqual(result, .done)
-        XCTAssertEqual(transport.deletes, [])
-        XCTAssertNil(store.stored)
-        XCTAssertEqual(keychain.entry, .none)
+        // 云端没有：GET 404，不发 delete，本机关闭。
+        do {
+            let store = MemoryStateStore(s), keychain = MemoryKeychain(.present(blobID: blob)), transport = MemoryTransport(MemoryServer())
+            let result = await SyncLifecycle.clear(s, store: store, keychain: keychain, sink: MemorySink(), transport: transport)
+            XCTAssertEqual(result, .done)
+            XCTAssertEqual(transport.deletes, [])
+            XCTAssertNil(store.stored)
+        }
+        // 云端有（别的设备创建的）：按 GET 到的版本签名删除。
+        do {
+            let server = MemoryServer()
+            server.ver = 5
+            server.pub = "PUB"
+            server.data = PlainCodec.envelope(.empty, ver: 5)
+            let store = MemoryStateStore(s), keychain = MemoryKeychain(.present(blobID: blob)), transport = MemoryTransport(server)
+            let result = await SyncLifecycle.clear(s, store: store, keychain: keychain, sink: MemorySink(), transport: transport)
+            XCTAssertEqual(result, .done)
+            XCTAssertEqual(transport.deletes, [5])
+            XCTAssertNotNil(server.deletedAt)
+        }
+        // 网络失败：保持 clearing，钥匙串不动。
+        do {
+            let store = MemoryStateStore(s), keychain = MemoryKeychain(.present(blobID: blob)), transport = MemoryTransport(MemoryServer())
+            transport.scriptedGets = [.transient]
+            let result = await SyncLifecycle.clear(s, store: store, keychain: keychain, sink: MemorySink(), transport: transport)
+            XCTAssertEqual(result, .remotePending)
+            XCTAssertEqual(store.stored?.phase, .clearing)
+            XCTAssertEqual(keychain.entry, .present(blobID: blob))
+        }
     }
 
     func testClearKeepsClearingWhenNetworkFails() async {

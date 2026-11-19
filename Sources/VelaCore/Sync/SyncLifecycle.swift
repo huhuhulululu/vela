@@ -133,16 +133,26 @@ public enum SyncLifecycle {
     }
 
     static func finishClear(_ state: SyncState, store: SyncStateStore, keychain: SyncKeychain, transport: SyncTransport) async -> SyncFlowResult {
-        // 从没联系上服务端（没有 epoch、水位为 0、没有在途请求）：空间不可能存在，delete 也签不了名，直接做本机关闭的剩余步骤。
-        if state.epoch == nil, state.lastSeenVer == 0, state.inflight == nil {
-            var disabling = state
-            disabling.phase = .disabling
-            guard store.save(disabling) else { return .storageFailed }
-            return finishDisable(store: store, keychain: keychain)
-        }
+        var epoch = state.epoch
         var base = state.lastSeenVer
+        // 还没有 epoch：不能证明空间不存在（别的设备可能已用同一码创建），先 GET 核实（复审 medium）。
+        // 404 或 410 才本机关闭；空间存在就用它的 epoch 与版本签名删除；网络失败保持 clearing。
+        if epoch == nil {
+            switch await transport.get() {
+            case .notFound, .gone:
+                var disabling = state
+                disabling.phase = .disabling
+                guard store.save(disabling) else { return .storageFailed }
+                return finishDisable(store: store, keychain: keychain)
+            case .blob(let ver, _, _, let e, _), .conflict(let ver, _, _, let e, _):
+                epoch = e
+                base = ver
+            default:
+                return .remotePending
+            }
+        }
         for _ in 0...SyncCoordinator.conflictRetries {
-            switch await transport.delete(base: base, epoch: state.epoch) {
+            switch await transport.delete(base: base, epoch: epoch) {
             case .deleted, .gone, .notFound:
                 var disabling = state
                 disabling.phase = .disabling
