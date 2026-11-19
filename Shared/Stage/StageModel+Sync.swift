@@ -356,11 +356,9 @@ final class SyncHub: ObservableObject {
     }
 
     func cancelJoin() {
-        if case .preview = joinStage, phase == .off, let sink {
-            // 启动时恢复的加入（已有 joinPlan 与钥匙串条目）取消即本机关闭；首次加入的确认前没有写过钥匙串。
-            _ = service.disable(sink: sink)
-        } else {
-            service.cancelJoin()
+        if let sink {
+            let result = service.cancelJoin(sink: sink)
+            if result != .done { set(\.notice, Self.flowText(result)) }
         }
         joinStage = .idle
     }

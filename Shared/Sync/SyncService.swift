@@ -310,9 +310,18 @@ final class SyncService: @unchecked Sendable {
         return await runCycle()
     }
 
-    /// 加入流程中途取消：删除 `joining` 状态（钥匙串在确认前从未写过）。
-    func cancelJoin() {
-        if case .present(let s) = env.stateStore.load(), s.phase == .joining, s.joinPlan == nil { _ = env.stateStore.delete() }
+    /// 加入流程中途取消（首次预览，或启动恢复时的重新确认）：只删 `joining` 状态与对应的钥匙串条目。
+    /// 不跑投影屏障：加入完成之前本机文件才是事实来源，`joining` 状态里的文档是空的，拿它投影会覆盖本机数据。
+    func cancelJoin(sink: SyncLocalSink) -> SyncFlowResult {
+        guard case .present(let s) = env.stateStore.load(), s.phase == .joining else { return .done }
+        return abandonJoin(s)
+    }
+
+    private func abandonJoin(_ s: SyncState) -> SyncFlowResult {
+        if case .present(let entry) = env.keyStore.readEntry(), entry.blobID == s.blobID {
+            guard env.keyStore.delete() else { return .storageFailed }
+        }
+        return env.stateStore.delete() ? .done : .storageFailed
     }
 
     /// 启动时 `joining` 且有 `joinPlan`：重新 GET 并重算计数（第 12.4 节第 7 步）。
@@ -357,6 +366,8 @@ final class SyncService: @unchecked Sendable {
             // 只有钥匙串条目（「同步状态丢失」时的关闭）：删条目即可。
             return env.keyStore.delete() ? .done : .storageFailed
         }
+        // 加入尚未完成：本机文件才是事实来源，按取消加入处理，不跑屏障。
+        if current.phase == .joining { return abandonJoin(current) }
         let result = SyncLifecycle.disable(current, store: env.stateStore, keychain: env.keyStore, sink: sink)
         // 屏障失败：同步状态与钥匙串都没动，恢复原样。
         if result == .localSaveFailed, let live { activate(live.state, keys: live.keys) }

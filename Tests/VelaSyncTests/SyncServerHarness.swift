@@ -108,8 +108,18 @@ final class TestDevice {
 final class MemoryStateStore: SyncStateStore {
     private let lock = NSLock()
     private var stored: SyncState?
+    /// 从第几次保存起失败（nil 表示不失败）。
+    var failFromSave: Int?
+    private(set) var saves = 0
     func load() -> SyncStateRead { lock.withLock { stored.map { .present($0) } ?? .none } }
-    func save(_ state: SyncState) -> Bool { lock.withLock { stored = state }; return true }
+    func save(_ state: SyncState) -> Bool {
+        lock.withLock {
+            saves += 1
+            if let n = failFromSave, saves >= n { return false }
+            stored = state
+            return true
+        }
+    }
     func delete() -> Bool { lock.withLock { stored = nil }; return true }
 }
 
@@ -125,10 +135,69 @@ final class MemorySink: SyncLocalSink {
     var curation = Curation()
     var taste = Taste()
     var settings: [String: Bool] = [:]
+    private(set) var saveCount = 0
     func cancelPendingSaves() {}
     func currentTaste() -> Taste { taste }
-    func saveCuration(_ c: Curation) -> Bool { curation = c; return true }
-    func saveTaste(_ t: Taste) -> Bool { taste = t; return true }
+    func saveCuration(_ c: Curation) -> Bool { saveCount += 1; curation = c; return true }
+    func saveTaste(_ t: Taste) -> Bool { saveCount += 1; taste = t; return true }
     func applySettings(_ s: [String: Bool]) { settings.merge(s) { $1 } }
+}
+/// 不经网络的服务端替身：按顺序返回脚本里的响应，记录请求，可在请求里插入等待。
+final class ScriptedTransport: SyncTransport, @unchecked Sendable {
+    private let lock = NSLock()
+    var gets: [SyncServerResponse] = []
+    var puts: [SyncServerResponse] = []
+    var deletes: [SyncServerResponse] = []
+    var fallback: SyncServerResponse = .transient
+    private(set) var log: [String] = []
+    private(set) var inFlight = 0
+    private(set) var maxInFlight = 0
+    /// 每个请求在返回前睡眠的纳秒数（模拟慢网络）。
+    var delay: UInt64 = 0
+
+    private func next(_ list: ReferenceWritableKeyPath<ScriptedTransport, [SyncServerResponse]>, _ name: String) async -> SyncServerResponse {
+        let r: SyncServerResponse = lock.withLock {
+            log.append(name)
+            inFlight += 1
+            maxInFlight = max(maxInFlight, inFlight)
+            return self[keyPath: list].isEmpty ? fallback : self[keyPath: list].removeFirst()
+        }
+        if delay > 0 { try? await Task.sleep(nanoseconds: delay) }
+        lock.withLock { inFlight -= 1 }
+        return r
+    }
+
+    func get() async -> SyncServerResponse { await next(\.gets, "GET") }
+    func put(_ request: SyncPutRequest) async -> SyncServerResponse { await next(\.puts, "PUT \(request.base)") }
+    func delete(base: UInt64, epoch: String?) async -> SyncServerResponse { await next(\.deletes, "DELETE \(base)") }
+}
+
+enum ServiceFixture {
+    static let origin = "https://sync.example"
+    static let epoch = "0123456789abcdef0123456789abcdef"
+    static let key = [UInt8](repeating: 5, count: 32)
+    static var code: String { SyncCrypto.formatCode(key: key, origin: origin)! }
+    static var keys: SyncKeyMaterial { try! SyncCrypto.derive(key) }
+
+    /// 用真实加密封好的远端文档响应。
+    static func blob(_ doc: SyncDocument, ver: UInt64, epoch: String = epoch, conflict: Bool = false) -> SyncServerResponse {
+        let codec = SyncCryptoCodec(keys: keys)
+        let data = codec.seal(doc.encoded(), ver: ver)!
+        return conflict ? .conflict(ver: ver, pub: keys.publicKeyText, data: data, epoch: epoch, now: 1_800_000_000_000)
+            : .blob(ver: ver, pub: keys.publicKeyText, data: data, epoch: epoch, now: 1_800_000_000_000)
+    }
+
+    static func remoteDoc(favorites: [String]) -> SyncDocument {
+        var doc = SyncDocument()
+        for (i, name) in favorites.enumerated() {
+            doc.rooms["cb:" + name] = SyncRoom(f: SyncRegister(hlc: HLC(l: 1_799_999_000_000 + UInt64(i), c: 0, dev: 9), payload: "+"))
+        }
+        return doc
+    }
+
+    static func service(_ transport: ScriptedTransport, store: MemoryStateStore = MemoryStateStore(), keys: MemoryKeyStore = MemoryKeyStore()) -> SyncService {
+        SyncService(env: SyncService.Environment(stateStore: store, keyStore: keys, makeTransport: { _, _ in transport },
+                                                 wallClock: { 1_800_000_000_000 }))
+    }
 }
 #endif
