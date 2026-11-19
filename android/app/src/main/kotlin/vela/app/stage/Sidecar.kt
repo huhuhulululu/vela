@@ -3,17 +3,12 @@ package vela.app.stage
 import android.annotation.SuppressLint
 import android.content.Context
 import android.os.Looper
-import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
-import android.webkit.WebResourceError
-import android.webkit.WebResourceRequest
 import android.webkit.WebView
-import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import java.net.URI
 import java.util.Locale
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
@@ -21,7 +16,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
@@ -30,6 +24,8 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import org.json.JSONObject
+import vela.app.infra.OriginWebViewClient
+import vela.app.infra.applyFirstPartyCookiesOnly
 import vela.core.base.net.HTTPClient
 import vela.core.base.net.HTTPRequest
 import vela.core.base.net.HTTPResult
@@ -67,6 +63,11 @@ interface SidecarPage {
     fun detach()
 
     fun attach()
+
+    /** 空闲拆掉视图。默认等同 [destroy]；真网页可以之后再 [load]。 */
+    fun releaseIdle() {
+        destroy()
+    }
 
     fun destroy()
 }
@@ -111,7 +112,7 @@ class SiteSidecar(
     }
 
     suspend fun resolve(username: String): StreamTicket {
-        val raw = evaluate(RESOLVE_JS, mapOf("username" to username))
+        val raw = evaluate(resolveBody(), mapOf("username" to username))
         val (status, data) = sidecarPayload(raw)
         return try {
             StreamDecoder.decode(status, data).withRecoveredUrl(jsonStringField(data, "url"))
@@ -179,13 +180,13 @@ class SiteSidecar(
     private fun tearDown() {
         idle = null
         loading = null
-        page.destroy()
+        page.releaseIdle()
     }
 
-    companion object {
-        private val RESOLVE_JS =
-            """
-            const response = await fetch(new URL("/get_edge_hls_url_ajax/", location.href).toString(), {
+    private fun resolveBody(): String {
+        val url = sidecarAjaxUrl(entryUrl)
+        return """
+            const response = await fetch("$url", {
               method: "POST",
               credentials: "include",
               headers: {
@@ -196,8 +197,10 @@ class SiteSidecar(
               body: "room_slug=" + encodeURIComponent(username)
             });
             return { status: response.status, body: await response.text() };
-            """.trimIndent()
+        """.trimIndent()
+    }
 
+    companion object {
         private val GET_JS =
             """
             const controller = new AbortController();
@@ -211,6 +214,66 @@ class SiteSidecar(
               return { status: response.status, body: await response.text() };
             } finally { clearTimeout(timer); }
             """.trimIndent()
+    }
+}
+
+/**
+ * 按请求号把结果交回对应的 evaluate。页面上的脚本不知道别的请求的号，不能串结果。
+ * 令牌是一次性的，页面上别的脚本猜不到。
+ */
+internal class SidecarDeliverHub {
+    private val slots = ConcurrentHashMap<String, CompletableDeferred<String>>()
+
+    fun open(): Pair<String, Deferred<String>> {
+        val token = java.util.UUID.randomUUID().toString()
+        val gate = CompletableDeferred<String>()
+        slots[token] = gate
+        return token to gate
+    }
+
+    fun deliver(token: String, payload: String): Boolean {
+        if (!sidecarPayloadOk(payload)) return false
+        val gate = slots.remove(token) ?: return false
+        gate.complete(payload)
+        return true
+    }
+
+    fun fail(token: String): Boolean {
+        val gate = slots.remove(token) ?: return false
+        gate.completeExceptionally(SidecarError.Script)
+        return true
+    }
+
+    fun discard(token: String) {
+        slots.remove(token)?.cancel()
+    }
+}
+
+/** 包一层局部桥，把页面脚本里的 deliver/fail 绑到这次请求的号上。 */
+internal fun wrapSidecarScript(script: String, token: String): String {
+    val quoted = JSONObject.quote(token)
+    return """
+        (function() {
+          var bridge = window.VelaSidecar;
+          var VelaSidecar = {
+            deliver: function(payload) { bridge.deliver($quoted, String(payload)); },
+            fail: function(message) { bridge.fail($quoted, String(message)); }
+          };
+          $script
+        })();
+    """.trimIndent()
+}
+
+/** 页面世界里的稳定桥。只注册一次，不在每次求值时换同名接口。 */
+internal class SidecarJsBridge(private val hub: SidecarDeliverHub) {
+    @JavascriptInterface
+    fun deliver(token: String, payload: String) {
+        hub.deliver(token, payload)
+    }
+
+    @JavascriptInterface
+    fun fail(token: String, message: String) {
+        hub.fail(token)
     }
 }
 
@@ -232,6 +295,14 @@ internal fun sidecarScript(body: String, arguments: Map<String, String>): String
         })();
         """.trimIndent()
 }
+
+internal fun sidecarPayloadOk(raw: String?): Boolean =
+    try {
+        sidecarPayload(raw)
+        true
+    } catch (_: Exception) {
+        false
+    }
 
 internal fun sidecarPayload(raw: String?): Pair<Int, ByteArray> {
     if (raw.isNullOrBlank()) throw SidecarError.Script
@@ -273,11 +344,15 @@ internal class SidecarAwareClient(
     companion object {
         fun routesViaSidecar(request: HTTPRequest): Boolean {
             if (!request.method.equals("GET", ignoreCase = true)) return false
-            val path = try {
-                URI(request.url).path ?: return false
+            val uri = try {
+                URI(request.url)
             } catch (_: Exception) {
                 return false
             }
+            val host = uri.host?.lowercase(localeRoot) ?: return false
+            val site = hostOf(vela.app.infra.Endpoints.siteRoot()) ?: return false
+            if (host != site) return false
+            val path = uri.path ?: return false
             return path.contains("/api/chatvideocontext/") || path.contains("/api/biocontext/")
         }
     }
@@ -298,6 +373,7 @@ class WebSidecarPage(
     private var webView: WebView? = null
     private var destroyed = false
     private var loadGate: CompletableDeferred<Unit>? = null
+    private val hub = SidecarDeliverHub()
 
     override suspend fun load(url: String) {
         if (destroyed) throw SidecarError.Unavailable
@@ -319,29 +395,19 @@ class WebSidecarPage(
     override suspend fun evaluate(script: String): String = try {
         withContext(Dispatchers.Main) {
             val view = webView ?: throw SidecarError.Unavailable
-            withTimeout(EVAL_TIMEOUT_MS) {
-                suspendCancellableCoroutine { continuation ->
-                    val bridge = DeliverBridge(
-                        onDeliver = { payload ->
-                            if (continuation.isActive) continuation.resume(payload)
-                        },
-                        onFail = {
-                            if (continuation.isActive) {
-                                continuation.resumeWithException(SidecarError.Script)
-                            }
-                        },
-                    )
-                    view.removeJavascriptInterface(BRIDGE)
-                    view.addJavascriptInterface(bridge, BRIDGE)
-                    continuation.invokeOnCancellation {
-                        view.removeJavascriptInterface(BRIDGE)
-                    }
-                    view.evaluateJavascript(script, null)
+            val (token, gate) = hub.open()
+            try {
+                withTimeout(EVAL_TIMEOUT_MS) {
+                    view.evaluateJavascript(wrapSidecarScript(script, token), null)
+                    gate.await()
                 }
+            } finally {
+                hub.discard(token)
             }
         }
-    } catch (_: TimeoutCancellationException) {
-        throw SidecarError.TimedOut
+    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+        if (cancelled is TimeoutCancellationException) throw SidecarError.TimedOut
+        throw cancelled
     }
 
     override fun detach() {
@@ -361,8 +427,17 @@ class WebSidecarPage(
         }
     }
 
+    override fun releaseIdle() {
+        if (destroyed) return
+        dropView()
+    }
+
     override fun destroy() {
         destroyed = true
+        dropView()
+    }
+
+    private fun dropView() {
         loaded = false
         val view = webView
         webView = null
@@ -385,19 +460,18 @@ class WebSidecarPage(
         view.settings.domStorageEnabled = true
         view.settings.mediaPlaybackRequiresUserGesture = true
         view.settings.userAgentString = UserAgent.safari
-        CookieManager.getInstance().setAcceptCookie(true)
-        CookieManager.getInstance().setAcceptThirdPartyCookies(view, true)
-        view.webViewClient = object : WebViewClient() {
-            override fun onPageFinished(view: WebView?, url: String?) {
-                loadGate?.complete(Unit)
-            }
-
-            override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
-                if (request?.isForMainFrame != true) return
-                val gate = loadGate ?: return
+        applyFirstPartyCookiesOnly(view)
+        // 桥在第一次 loadUrl 之前挂上。WebView 要到下一次页面加载才把注入对象交给 JavaScript，
+        // 加载完成后再 addJavascriptInterface，当前页的 deliver/fail 调不到。
+        view.addJavascriptInterface(SidecarJsBridge(hub), BRIDGE)
+        view.webViewClient = OriginWebViewClient(
+            siteRoot = root,
+            onFinished = { loadGate?.complete(Unit) },
+            onMainFrameError = {
+                val gate = loadGate ?: return@OriginWebViewClient
                 if (!gate.isCompleted) gate.completeExceptionally(SidecarError.Unavailable)
-            }
-        }
+            },
+        )
         addOffscreen(view)
         webView = view
         return view
@@ -411,21 +485,6 @@ class WebSidecarPage(
             view,
             FrameLayout.LayoutParams(800, 600).apply { topMargin = -4200 },
         )
-    }
-
-    private class DeliverBridge(
-        private val onDeliver: (String) -> Unit,
-        private val onFail: (String) -> Unit,
-    ) {
-        @JavascriptInterface
-        fun deliver(payload: String) {
-            onDeliver(payload)
-        }
-
-        @JavascriptInterface
-        fun fail(message: String) {
-            onFail(message)
-        }
     }
 
     companion object {
@@ -473,3 +532,20 @@ internal fun hostOf(url: String): String? =
     } catch (_: Exception) {
         null
     }
+
+/** 取流地址钉在入口根上，不跟当前页（登录跳转、质询页）走。 */
+internal fun sidecarAjaxUrl(entryUrl: String): String {
+    val uri = try {
+        URI(entryUrl)
+    } catch (_: Exception) {
+        return "https://chaturbate.com/get_edge_hls_url_ajax/"
+    }
+    val scheme = uri.scheme
+    val host = uri.host
+    if (scheme.isNullOrBlank() || host.isNullOrBlank()) {
+        return "https://chaturbate.com/get_edge_hls_url_ajax/"
+    }
+    val port = if (uri.port > 0) ":${uri.port}" else ""
+    return "$scheme://$host$port/get_edge_hls_url_ajax/"
+}
+

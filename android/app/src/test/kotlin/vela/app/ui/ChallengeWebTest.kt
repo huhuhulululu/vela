@@ -26,7 +26,6 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
-import vela.app.stage.ChallengeSheet
 import vela.core.base.net.UserAgent
 
 /**
@@ -90,18 +89,6 @@ class ChallengeWebTest {
         assertTrue(shadowOf(web).wasDestroyCalled())
     }
 
-    @Test
-    fun testStageChallengeSheetUsesTheSameWebPolicy() {
-        compose.setContent {
-            Box(Modifier.requiredSize(360.dp, 800.dp)) {
-                ChallengeSheet(url = "https://chaturbate.com/", onDone = {}, onClose = {})
-            }
-        }
-        compose.waitForIdle()
-        val web = findWeb(resumedActivity().findViewById(android.R.id.content))
-        assertWebConfigured(web)
-    }
-
     private fun resumedActivity(): Activity =
         ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(Stage.RESUMED).single()
 
@@ -112,10 +99,14 @@ class ChallengeWebTest {
         assertTrue(view.settings.domStorageEnabled)
         assertTrue(view.settings.javaScriptEnabled)
         assertTrue(view.settings.mediaPlaybackRequiresUserGesture)
+        assertFalse(view.settings.allowFileAccess)
+        assertFalse(view.settings.allowContentAccess)
         val client = view.webViewClient
         assertTrue(client.shouldOverrideUrlLoading(view, request("https://evil.example/steal")))
         assertFalse(client.shouldOverrideUrlLoading(view, request("https://chaturbate.com/room")))
+        assertFalse(client.shouldOverrideUrlLoading(view, request("https://static.chaturbate.com/a.js")))
         assertFalse(client.shouldOverrideUrlLoading(view, request("https://challenges.cloudflare.com/cdn-cgi")))
+        assertTrue(client.shouldOverrideUrlLoading(view, request("http://chaturbate.com/")))
     }
 
     private fun request(url: String): WebResourceRequest = object : WebResourceRequest {

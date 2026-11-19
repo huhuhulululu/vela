@@ -73,6 +73,82 @@ class SidecarResolveTest {
     }
 
     @Test
+    fun testResolvePostsToEntryRootNotTheCurrentPage() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob())
+        val page = FakeSidecarPage(ticketPayload())
+        val sidecar = SiteSidecar(page, "https://chaturbate.com/auth/login/?next=/", scope)
+        sidecar.resolve("ann")
+        val script = page.lastScript ?: error("没有脚本")
+        assertTrue(script.contains("https://chaturbate.com/get_edge_hls_url_ajax/"))
+        assertFalse(script.contains("location.href"))
+        scope.coroutineContext[Job]?.cancel()
+        Unit
+    }
+
+    @Test
+    fun testSidecarGetRequiresSiteHost() {
+        assertTrue(
+            SidecarAwareClient.routesViaSidecar(
+                HTTPRequest(url = "https://chaturbate.com/api/chatvideocontext/ann/"),
+            ),
+        )
+        assertTrue(
+            SidecarAwareClient.routesViaSidecar(
+                HTTPRequest(url = "https://chaturbate.com/api/biocontext/ann/"),
+            ),
+        )
+        assertFalse(
+            SidecarAwareClient.routesViaSidecar(
+                HTTPRequest(url = "https://evil.example/api/chatvideocontext/ann/"),
+            ),
+        )
+        assertFalse(
+            SidecarAwareClient.routesViaSidecar(
+                HTTPRequest(url = "https://chaturbate.com/api/chatvideocontext/ann/", method = "POST"),
+            ),
+        )
+    }
+
+    @Test
+    fun testDeliverTokenIsUnguessableAndSingleUse() = runBlocking {
+        val hub = SidecarDeliverHub()
+        val (token, gate) = hub.open()
+        assertFalse(hub.deliver("1", """{"status":200,"body":"forged"}"""))
+        assertFalse(gate.isCompleted)
+        assertTrue(token.length > 8)
+        assertTrue(hub.deliver(token, """{"status":200,"body":"ok"}"""))
+        assertEquals("""{"status":200,"body":"ok"}""", gate.await())
+        assertFalse(hub.deliver(token, """{"status":200,"body":"again"}"""))
+    }
+
+    @Test
+    fun testDeliverRejectsMalformedPayload() = runBlocking {
+        val hub = SidecarDeliverHub()
+        val (token, gate) = hub.open()
+        assertFalse(hub.deliver(token, "not-json"))
+        assertFalse(gate.isCompleted)
+        assertFalse(hub.deliver(token, """{"status":200}"""))
+        assertFalse(gate.isCompleted)
+        assertTrue(hub.deliver(token, """{"status":200,"body":"ok"}"""))
+        assertEquals("""{"status":200,"body":"ok"}""", gate.await())
+    }
+
+    @Test
+    fun testDeliverHubRoutesByRequestAndIgnoresUnknown() = runBlocking {
+        val hub = SidecarDeliverHub()
+        val (first, firstGate) = hub.open()
+        val (second, secondGate) = hub.open()
+        assertTrue(first != second)
+        assertTrue(hub.deliver(second, """{"status":200,"body":"bee"}"""))
+        assertFalse(firstGate.isCompleted)
+        assertEquals("""{"status":200,"body":"bee"}""", secondGate.await())
+        assertFalse(hub.deliver(second, """{"status":200,"body":"again"}"""))
+        assertFalse(hub.deliver("0", """{"status":200,"body":"forged"}"""))
+        assertTrue(hub.deliver(first, """{"status":200,"body":"ay"}"""))
+        assertEquals("""{"status":200,"body":"ay"}""", firstGate.await())
+    }
+
+    @Test
     fun testScriptQuotesUsername() {
         val script = sidecarScript("return username;", mapOf("username" to "a\"b"))
         assertTrue(script.contains("const username = \"a\\\"b\";"))

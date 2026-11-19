@@ -83,7 +83,7 @@ private fun ChallengeWeb(url: String, modifier: Modifier = Modifier) {
             modifier = Modifier.fillMaxSize(),
             factory = { context ->
                 WebView(context).apply {
-                    configureChallengeWeb(this) { progress = it }
+                    configureChallengeWeb(this, url) { progress = it }
                     tag = url
                     loadUrl(url)
                 }
