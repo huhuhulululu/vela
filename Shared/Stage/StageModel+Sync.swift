@@ -111,7 +111,9 @@ final class SyncHub: ObservableObject {
         })
         observers.append(center.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.pushBeforeExit() }
+            SyncPasteboard.expireNow()
         })
+        SyncPasteboard.expireLeftover()
         #elseif os(iOS)
         observers.append(center.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.trigger(.foreground) }

@@ -27,4 +27,15 @@ final class SyncSourceGuardTests: XCTestCase {
         XCTAssertTrue(source.contains("SyncPasteboard.expirySeconds"))
         XCTAssertTrue(source.contains("board.changeCount == stamp"))
     }
+
+    /// 复审 medium：macOS 剪贴板过期不能只靠进程内延时。明文与 ConcealedType 一次写入（同一个 NSPasteboardItem），
+    /// 退出时清掉仍属于本次写入的内容，下次启动也检查一次。
+    func testMacPasteboardExpirySurvivesProcessExit() throws {
+        let panel = try text("Shared/Stage/SyncPanel.swift")
+        XCTAssertTrue(panel.contains("NSPasteboardItem()"))
+        XCTAssertFalse(panel.contains("board.setString(text, forType: .string)"), "不再先单独写明文")
+        let hub = try text("Shared/Stage/StageModel+Sync.swift")
+        XCTAssertTrue(hub.contains("SyncPasteboard.expireLeftover()"), "启动时检查")
+        XCTAssertTrue(hub.contains("SyncPasteboard.expireNow()"), "退出时清掉")
+    }
 }

@@ -292,25 +292,43 @@ struct SyncCodeCard: View {
     }
 }
 
-/// 复制同步码时标记敏感（第 4.3 节）：iOS 限本机且 120 秒过期；macOS 同时写 `org.nspasteboard.ConcealedType`，
-/// 并在 120 秒后若剪贴板仍是这次写入（changeCount 未变）就清空。一次性延时，不是常驻定时器。
+/// 复制同步码时标记敏感（第 4.3 节）：iOS 限本机且 120 秒过期（系统执行）；macOS 用同一个 `NSPasteboardItem`
+/// 同时写明文与 `org.nspasteboard.ConcealedType`（剪贴板管理器不会先看到没有敏感标记的版本），
+/// 120 秒后、App 退出时、下次启动时，只要剪贴板仍是这次写入（changeCount 未变）就清空。一次性延时，不是常驻定时器。
 enum SyncPasteboard {
     static let expirySeconds: TimeInterval = 120
+    #if os(macOS)
+    private static let stampKey = "syncPasteboardChangeCount"
+    private static let concealed = NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")
+    #endif
 
     static func copySensitive(_ text: String) {
         #if os(macOS)
         let board = NSPasteboard.general
         board.clearContents()
-        board.declareTypes([.string, NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")], owner: nil)
-        board.setString(text, forType: .string)
-        board.setString("", forType: NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType"))
+        let item = NSPasteboardItem()
+        item.setString(text, forType: .string)
+        item.setString("", forType: concealed)
+        board.writeObjects([item])
         let stamp = board.changeCount
-        DispatchQueue.main.asyncAfter(deadline: .now() + SyncPasteboard.expirySeconds) {
-            if board.changeCount == stamp { board.clearContents() }
-        }
+        UserDefaults.standard.set(stamp, forKey: stampKey)
+        DispatchQueue.main.asyncAfter(deadline: .now() + SyncPasteboard.expirySeconds) { expireNow() }
         #else
         UIPasteboard.general.setItems([[UTType.plainText.identifier: text]],
                                       options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(SyncPasteboard.expirySeconds)])
         #endif
     }
+
+    /// 剪贴板仍是本 App 写入的同步码就清空（到期、退出时调用）。
+    static func expireNow() {
+        #if os(macOS)
+        guard let stamp = UserDefaults.standard.object(forKey: stampKey) as? Int else { return }
+        let board = NSPasteboard.general
+        if board.changeCount == stamp { board.clearContents() }
+        UserDefaults.standard.removeObject(forKey: stampKey)
+        #endif
+    }
+
+    /// 启动时：上次进程留下、没来得及清的同步码（崩溃、被杀）。changeCount 在一次登录会话内跨进程有效。
+    static func expireLeftover() { expireNow() }
 }
