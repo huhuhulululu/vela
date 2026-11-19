@@ -265,7 +265,7 @@ struct SyncCodeCard: View {
             SectionTitle(title, note: fingerprint.map { "指纹 \($0)" })
             Text(code)
                 .font(.system(size: 12, design: .monospaced))
-                .textSelection(.enabled)
+                // 不开系统文本选择：复制只能走下面带敏感标记的按钮（第 4.3 节）。
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(8)
                 .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
