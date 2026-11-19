@@ -137,8 +137,9 @@ public final class Cam4Adapter: SiteAdapter, @unchecked Sendable {
         return page
     }
 
+    /// 观看地区被主播屏蔽的房间不进目录（只留在索引里供状态与直达起播判 geo）；总数与游标仍按原页。
     private func filtered(_ page: CatalogPage, query: CatalogQuery) -> CatalogPage {
-        var rooms = page.rooms
+        var rooms = page.rooms.filter { !geoBlocked($0) }
         if let gender = query.gender {
             rooms = rooms.filter { $0.gender == gender }
         }
@@ -154,9 +155,7 @@ public final class Cam4Adapter: SiteAdapter, @unchecked Sendable {
         defer { lock.unlock() }
         for room in rooms {
             let name = room.key.name.lowercased()
-            let geo = room.show == .publicShow && room.stream == nil && !room.blockedRegions.isEmpty
-                && Cam4Regions.isBlocked(room.blockedRegions, viewer: viewerRegions)
-            index[name] = Entry(room: room, offset: offset, fetchedAt: date, geo: geo)
+            index[name] = Entry(room: room, offset: offset, fetchedAt: date, geo: geoBlocked(room))
             order.removeAll { $0 == name }
             order.append(name)
         }
@@ -164,6 +163,11 @@ public final class Cam4Adapter: SiteAdapter, @unchecked Sendable {
             let oldest = order.removeFirst()
             index.removeValue(forKey: oldest)
         }
+    }
+
+    private func geoBlocked(_ room: Room) -> Bool {
+        room.show == .publicShow && room.stream == nil && !room.blockedRegions.isEmpty
+            && Cam4Regions.isBlocked(room.blockedRegions, viewer: viewerRegions)
     }
 
     private func lookup(_ name: String) -> Entry? {

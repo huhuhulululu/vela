@@ -67,8 +67,8 @@ final class Cam4StreamTests: XCTestCase {
         ])
         let adapter = Cam4Adapter(client: script, backoff: EndpointBackoffBox(), viewerRegions: ["RU"], clock: { Date() })
         let page = try await adapter.fetchDirectory(CatalogQuery())
-        XCTAssertNil(page.rooms[0].stream)
-        let geo = try await adapter.resolveStream(page.rooms[0])
+        XCTAssertTrue(page.rooms.isEmpty, "被地区屏蔽的房间不进目录")
+        let geo = try await adapter.resolveStream(Room.direct(key: RoomKey(site: .cam4, name: "sample_one")!))
         XCTAssertEqual(geo.ticket.failure, .geo)
         XCTAssertEqual(script.requests.count, 1)
         let missing = try await adapter.resolveStream(Room(username: "never_seen", site: .cam4))
@@ -86,12 +86,36 @@ final class Cam4StreamTests: XCTestCase {
         }
     }
 
+    /// 盲审 PR #13：观看地区被主播屏蔽的房间不进入目录（不出现在列表里），索引仍记着它，
+    /// 收藏状态给「当前地区不可观看」、直达起播给 geo。观看地区为空时不过滤。
+    func testGeoBlockedRoomsStayOutOfTheDirectory() async throws {
+        let script = ScriptClient(results: [
+            page(users: [user("sample_one", hls: hls, blocked: ["643"]), user("sample_two", hls: hls)])
+        ])
+        let adapter = Cam4Adapter(client: script, backoff: nil, viewerRegions: ["RU"], clock: { Date() })
+        let listed = try await adapter.fetchDirectory(CatalogQuery())
+        XCTAssertEqual(listed.rooms.map(\.username), ["sample_two"])
+        XCTAssertEqual(listed.total, 100, "游标与总数仍按原页计，翻页不受影响")
+        let key = RoomKey(site: .cam4, name: "sample_one")!
+        let status = await adapter.status(of: [key], now: Date())
+        XCTAssertEqual(status[key], .restricted)
+        let direct = try await adapter.resolveStream(Room.direct(key: key))
+        XCTAssertEqual(direct.ticket.failure, .geo)
+        XCTAssertEqual(script.requests.count, 1)
+
+        let open = ScriptClient(results: [page(users: [user("sample_one", hls: hls, blocked: ["643"])])])
+        let anywhere = Cam4Adapter(client: open, backoff: nil, viewerRegions: [])
+        let all = try await anywhere.fetchDirectory(CatalogQuery())
+        XCTAssertEqual(all.rooms.map(\.username), ["sample_one"], "观看地区为空不过滤")
+    }
+
     func testStaleStatusIsOmittedAndBlockedIsRestricted() async throws {
         let script = ScriptClient(results: [page(users: [user("sample_one", hls: hls, blocked: ["840"])])])
         let clock = Clock(Date(timeIntervalSince1970: 8_000))
         let adapter = Cam4Adapter(client: script, backoff: nil, viewerRegions: ["US"], clock: { clock.date })
         let listed = try await adapter.fetchDirectory(CatalogQuery())
-        let key = listed.rooms[0].key
+        XCTAssertTrue(listed.rooms.isEmpty)
+        let key = RoomKey(site: .cam4, name: "sample_one")!
         let fresh = await adapter.status(of: [key], now: clock.date)
         XCTAssertEqual(fresh[key], .restricted)
         let stale = await adapter.status(of: [key], now: clock.date.addingTimeInterval(Cam4Adapter.statusTTL + 1))
