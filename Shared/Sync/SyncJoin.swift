@@ -202,7 +202,6 @@ extension SyncService {
         state.migrated = true
         guard env.stateStore.save(state) else { return rollback(restoreFiles: false) }
         guard SyncLifecycle.barrier(state.doc, sink: sink) else { return rollback(restoreFiles: true) }
-        noteReport(t.report)
         activate(state, keys: t.keys)
         onDocumentChanged?(state.doc)
         return .joined

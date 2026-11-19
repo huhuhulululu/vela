@@ -64,18 +64,6 @@ final class SyncService: @unchecked Sendable {
     /// 周期单飞：一个周期从 GET 到最后一次落盘结束前，第二个周期（例如退出前补推）只能排队。
     /// `gate` 在等网络时会放开给本地操作，所以不能用它代替。
     private let flight = DispatchSemaphore(value: 1)
-    /// 刚开启（创建、加入、恢复）时超过 50 个、要在本机取消的本机专用「不想看」（第 6.6 节），界面层取走一次。
-    private var localOnlyDrops: [String] = []
-
-    func takeLocalOnlyDrops() -> [String] {
-        defer { localOnlyDrops = [] }
-        return localOnlyDrops
-    }
-
-    func noteReport(_ report: SyncMigrationReport) {
-        localOnlyDrops = report.droppedLocalOnlyVetoes
-    }
-
     /// 文档变化（本地操作或合并）：在任意线程调用，接收方自己回主线程重建投影。
     var onDocumentChanged: ((SyncDocument) -> Void)?
 
@@ -119,7 +107,6 @@ final class SyncService: @unchecked Sendable {
             }
             if action == .resumeCreating {
                 state = SyncLifecycle.completeCreate(state, local: local(), pt: env.wallClock()).state
-                noteReport(SyncMigration.stampCreator(local(), clock: state.clock, pt: env.wallClock()).report)
                 guard env.stateStore.save(state) else { return .failed(.storageFailed) }
             }
             activate(state, keys: keys)
@@ -196,7 +183,6 @@ final class SyncService: @unchecked Sendable {
         let completed = SyncLifecycle.completeCreate(state, local: local, pt: env.wallClock())
         state = completed.state
         guard env.stateStore.save(state) else { return .failed("本机保存失败") }
-        noteReport(completed.report)
         activate(state, keys: keys)
         let first = await runCycle() ?? .transient
         if case .halted(.gone) = first {

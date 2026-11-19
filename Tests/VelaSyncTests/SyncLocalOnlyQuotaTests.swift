@@ -5,30 +5,28 @@ import VelaCore
 @testable import VelaSync
 #endif
 
-/// 审计 medium：加入与中断恢复的创建也要落实本机专用「不想看」50 个的额度（第 6.6 节），由界面层取走并取消多出的。
+/// 本机专用「不想看」50 个额度（第 6.6 节）：每次同步开启（创建、加入、启动时已开启）都按当前本机数据重算超额键，
+/// 不靠进程内一次性记账，所以激活后中断、重启也会落实（复审 medium）。
 final class SyncLocalOnlyQuotaTests: XCTestCase {
-    let local = SyncLocalData(vetoedKeys: (0..<60).map { "t:😀\($0)" })
+    let keys = (0..<60).map { "t:😀\($0)" }
 
-    func testJoinReportsLocalOnlyVetoesBeyondFifty() async {
+    func testExcessIsRecomputedFromCurrentVetoes() {
+        let excess = SyncQuota.localOnlyExcess(vetoedKeys: Set(keys + ["t:asian", "g:m"]))
+        XCTAssertEqual(excess.count, 10, "同步域内的键不计入本机专用额度")
+        XCTAssertFalse(excess.contains("t:asian"))
+        let kept = Set(keys).subtracting(excess)
+        XCTAssertEqual(kept.count, 50)
+        // 按 UTF-8 字节升序保留前 50 个：被取消的都排在保留的之后。
+        XCTAssertTrue(excess.allSatisfy { e in kept.allSatisfy { Array($0.utf8).lexicographicallyPrecedes(Array(e.utf8)) } })
+        XCTAssertEqual(SyncQuota.localOnlyExcess(vetoedKeys: Set(keys).subtracting(excess)), [], "落实之后再算为空（幂等）")
+    }
+
+    func testJoinTicketListsExcessForConfirmPage() async {
         let t = ScriptedTransport()
         t.gets = [ServiceFixture.blob(ServiceFixture.remoteDoc(favorites: ["zed"]), ver: 3)]
         let service = ServiceFixture.service(t)
-        guard case .preview(let ticket) = await service.prepareJoin(ServiceFixture.code, local: local) else { return XCTFail() }
-        XCTAssertEqual(ticket.report.droppedLocalOnlyVetoes.count, 10, "确认页要能写出将被取消的数量")
-        t.puts = [.stored(ver: 4, epoch: ServiceFixture.epoch, now: 1_800_000_000_000)]
-        _ = await service.commitJoin(ticket, local: local, sink: MemorySink())
-        XCTAssertEqual(service.takeLocalOnlyDrops().count, 10)
-        XCTAssertEqual(service.takeLocalOnlyDrops(), [], "只交一次")
-    }
-
-    func testResumedCreateReportsLocalOnlyVetoesBeyondFifty() async {
-        let store = MemoryStateStore(), keys = MemoryKeyStore()
-        _ = store.save(SyncState(phase: .creating, origin: ServiceFixture.origin, blobID: ServiceFixture.keys.blobID, clock: SyncClock(dev: 7)))
-        keys.entry = SyncKeychainEntry(key: ServiceFixture.key, dev: 7, blobID: ServiceFixture.keys.blobID)
-        let service = ServiceFixture.service(ScriptedTransport(), store: store, keys: keys)
-        let result = await service.start(local: { self.local }, sink: MemorySink())
-        XCTAssertEqual(result, .active)
-        XCTAssertEqual(service.takeLocalOnlyDrops().count, 10)
+        guard case .preview(let ticket) = await service.prepareJoin(ServiceFixture.code, local: SyncLocalData(vetoedKeys: keys)) else { return XCTFail() }
+        XCTAssertEqual(ticket.report.droppedLocalOnlyVetoes.count, 10)
     }
 }
 #endif

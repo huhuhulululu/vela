@@ -152,7 +152,8 @@ final class SyncHub: ObservableObject {
     private func activated() {
         set(\.phase, .active)
         // 创建、加入、中断恢复统一在这里落实本机专用「不想看」的 50 个额度（第 6.6 节）。
-        model?.dropLocalOnlyVetoes(service.takeLocalOnlyDrops())
+        // 按当前本机数据重算，不靠一次性记账：激活后中断、重启也会落实。
+        if let model { model.dropLocalOnlyVetoes(SyncQuota.localOnlyExcess(vetoedKeys: model.taste.vetoedKeys)) }
         if let doc = service.state?.doc { documentChanged(doc) }
         refreshStatus()
     }

@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXFileReference section */
+		5C0D5A000000000000000201 /* SyncQuota.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncQuota.swift; sourceTree = "<group>"; };
 		5C0D5A000000000000000101 /* SyncJoin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncJoin.swift; sourceTree = "<group>"; };
 		5C0D5A0000000000000000F1 /* Vela.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Vela.entitlements; sourceTree = "<group>"; };
 		5C0D5A0000000000000000F2 /* VelaPhone.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = VelaPhone.entitlements; sourceTree = "<group>"; };
@@ -246,6 +247,7 @@
 		5C0D5A000000000000000056 /* Sync */ = {
 			isa = PBXGroup;
 			children = (
+				5C0D5A000000000000000201 /* SyncQuota.swift */,
 				5C0D5A000000000000000101 /* SyncJoin.swift */,
 				5C0D5A000000000000000031 /* SyncBackupExcludedStore.swift */,
 				5C0D5A000000000000000034 /* SyncCrypto.swift */,
@@ -649,6 +651,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5C0D5A000000000000000202 /* SyncQuota.swift in Sources (Vela) */,
 				5C0D5A000000000000000102 /* SyncJoin.swift in Sources (Vela) */,
 				5C0D5A000000000000000002 /* HLC.swift in Sources (Vela) */,
 				5C0D5A000000000000000005 /* SyncCode.swift in Sources (Vela) */,
@@ -801,6 +804,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5C0D5A000000000000000203 /* SyncQuota.swift in Sources (VelaPhone) */,
 				5C0D5A000000000000000103 /* SyncJoin.swift in Sources (VelaPhone) */,
 				5C0D5A000000000000000003 /* HLC.swift in Sources (VelaPhone) */,
 				5C0D5A000000000000000006 /* SyncCode.swift in Sources (VelaPhone) */,
@@ -987,6 +991,8 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXBuildFile section */
+		5C0D5A000000000000000202 /* SyncQuota.swift in Sources (Vela) */ = {isa = PBXBuildFile; fileRef = 5C0D5A000000000000000201 /* SyncQuota.swift */; };
+		5C0D5A000000000000000203 /* SyncQuota.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 5C0D5A000000000000000201 /* SyncQuota.swift */; };
 		5C0D5A000000000000000102 /* SyncJoin.swift in Sources (Vela) */ = {isa = PBXBuildFile; fileRef = 5C0D5A000000000000000101 /* SyncJoin.swift */; };
 		5C0D5A000000000000000103 /* SyncJoin.swift in Sources (VelaPhone) */ = {isa = PBXBuildFile; fileRef = 5C0D5A000000000000000101 /* SyncJoin.swift */; };
 		5C0D5A000000000000000002 /* HLC.swift in Sources (Vela) */ = {isa = PBXBuildFile; fileRef = 5C0D5A000000000000000001 /* HLC.swift */; };
