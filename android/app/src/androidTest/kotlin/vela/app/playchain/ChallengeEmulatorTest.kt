@@ -29,7 +29,7 @@ import vela.app.infra.HttpClientImpl
 import vela.app.infra.Settings
 import vela.app.lane.LaneSurface
 import vela.app.lane.PlaybackLane
-import vela.app.stage.ChallengeSheet
+import vela.app.ui.ChallengeSheet
 import vela.app.stage.StageIntent
 import vela.app.stage.StageSurface
 import vela.app.stage.StageViewModel
@@ -102,9 +102,9 @@ class ChallengeEmulatorTest {
                     val state by stage.state.collectAsState()
                     if (state.surface == StageSurface.Challenge) {
                         ChallengeSheet(
-                            url = challengeEntryUrl(),
                             onDone = { stage.dispatch(StageIntent.RetryAfterChallenge) },
                             onClose = { stage.dispatch(StageIntent.DismissChallenge) },
+                            pageUrl = challengeEntryUrl(),
                             modifier = Modifier.fillMaxSize(),
                         )
                     } else {
