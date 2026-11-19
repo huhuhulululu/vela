@@ -4,17 +4,21 @@ import android.annotation.SuppressLint
 import android.net.Uri
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import java.net.URI
 import vela.app.BuildConfig
 import vela.app.infra.Endpoints
+import vela.app.infra.applyFirstPartyCookiesOnly
+import vela.app.infra.blockedWebResponse
 import vela.core.base.net.UserAgent
 
 /**
  * 质询页只有这一份 WebView 配置，和 iOS SiteWebView 对齐：
  * Safari UA、DOM storage、媒体需手势、离开时由调用方 destroy。
- * 导航只留站点根、质询 CDN，debug/perf 再加回环与模拟器宿主机。
+ * 主框架导航和子资源只留站点根、质询 CDN，debug/perf 再加回环与模拟器宿主机。
+ * 不读本地文件或 content URI，第三方 Cookie 关掉。
  */
 @SuppressLint("SetJavaScriptEnabled")
 internal fun configureChallengeWeb(view: WebView, onProgress: (Float) -> Unit) {
@@ -22,6 +26,9 @@ internal fun configureChallengeWeb(view: WebView, onProgress: (Float) -> Unit) {
     view.settings.domStorageEnabled = true
     view.settings.mediaPlaybackRequiresUserGesture = true
     view.settings.userAgentString = UserAgent.safari
+    view.settings.allowFileAccess = false
+    view.settings.allowContentAccess = false
+    applyFirstPartyCookiesOnly(view)
     view.webViewClient = ChallengeNavigationClient()
     view.webChromeClient = object : WebChromeClient() {
         override fun onProgressChanged(web: WebView?, newProgress: Int) {
@@ -38,6 +45,13 @@ internal class ChallengeNavigationClient : WebViewClient() {
     @Deprecated("旧 WebView 仍会走字符串重载")
     override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean {
         return !challengeNavigationAllowed(url)
+    }
+
+    override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
+        if (request == null || request.isForMainFrame) return null
+        val url = request.url?.toString() ?: return blockedWebResponse()
+        if (!challengeNavigationAllowed(url)) return blockedWebResponse()
+        return null
     }
 }
 

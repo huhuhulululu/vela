@@ -16,6 +16,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import java.util.Collections
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -26,7 +27,6 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
-import vela.app.stage.ChallengeSheet
 import vela.core.base.net.UserAgent
 
 /**
@@ -92,9 +92,14 @@ class ChallengeWebTest {
 
     @Test
     fun testStageChallengeSheetUsesTheSameWebPolicy() {
+        // 舞台包里那份没有 destroy 的质询页已删。共享配置仍是 configureChallengeWeb，正式页走同一套。
         compose.setContent {
             Box(Modifier.requiredSize(360.dp, 800.dp)) {
-                ChallengeSheet(url = "https://chaturbate.com/", onDone = {}, onClose = {})
+                AndroidView(
+                    factory = { context ->
+                        WebView(context).also { configureChallengeWeb(it) {} }
+                    },
+                )
             }
         }
         compose.waitForIdle()
@@ -112,6 +117,8 @@ class ChallengeWebTest {
         assertTrue(view.settings.domStorageEnabled)
         assertTrue(view.settings.javaScriptEnabled)
         assertTrue(view.settings.mediaPlaybackRequiresUserGesture)
+        assertFalse(view.settings.allowFileAccess)
+        assertFalse(view.settings.allowContentAccess)
         val client = view.webViewClient
         assertTrue(client.shouldOverrideUrlLoading(view, request("https://evil.example/steal")))
         assertFalse(client.shouldOverrideUrlLoading(view, request("https://chaturbate.com/room")))

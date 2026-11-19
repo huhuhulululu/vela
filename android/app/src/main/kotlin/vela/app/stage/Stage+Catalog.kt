@@ -93,7 +93,7 @@ internal suspend fun StageViewModel.reload(keepingSearchTask: Boolean = false) {
                 failReload(text.challengeLater())
             }
         } else {
-            Log.w(LOG, "catalog failed", error)
+            Log.w(LOG, "catalog failed ${error.javaClass.simpleName}")
             failReload(catalogMessage(error))
         }
     }
@@ -263,7 +263,7 @@ private suspend fun StageViewModel.searchSite(keyword: String, fallback: Room?, 
         } catch (error: Exception) {
             if (token != loadGeneration || !searchEpoch.isCurrent(epoch)) return
             if (searchEpoch.releaseLoading(epoch)) loading = false
-            Log.w(LOG, "site search failed", error)
+            Log.w(LOG, "site search failed ${error.javaClass.simpleName}")
             siteSearchMissed(keyword, fallback, failed = true, epoch = epoch)
         }
     } finally {
@@ -341,7 +341,7 @@ internal suspend fun StageViewModel.loadPage(): PageOutcome {
             throw cancelled
         } catch (error: Exception) {
             if (token != loadGeneration) return PageOutcome.Skipped
-            Log.w(LOG, "page failed", error)
+            Log.w(LOG, "page failed ${error.javaClass.simpleName}")
             showToast(text.moreFailed())
             PageOutcome.Failed
         }
@@ -439,7 +439,7 @@ private suspend fun StageViewModel.followCatalogRest(rest: CatalogRest, pageSize
                 throw cancelled
             } catch (error: Exception) {
                 if (!coroutineContext.isActive || token != loadGeneration) return
-                Log.w(LOG, "catalog rest page failed", error)
+                Log.w(LOG, "catalog rest page failed ${error.javaClass.simpleName}")
                 break
             }
             if (!coroutineContext.isActive || token != loadGeneration) return

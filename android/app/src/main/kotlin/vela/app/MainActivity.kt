@@ -1,25 +1,32 @@
 package vela.app
 
 import android.content.Context
+import android.net.Uri
 import android.os.Bundle
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
+import androidx.lifecycle.lifecycleScope
+import java.io.InputStream
 import java.nio.file.Paths
+import kotlinx.coroutines.launch
 import vela.app.infra.HttpClientImpl
 import vela.app.infra.Settings
 import vela.app.lane.LaneSurface
 import vela.app.stage.AppPlaybackSession
 import vela.app.stage.LifecycleWiring
+import vela.app.stage.StageIntent
 import vela.app.stage.StageViewModel
 import vela.app.stage.challengeEntryUrl
 import vela.app.ui.StageScreen
+import vela.core.base.model.Prefs
 import vela.core.lifecycle.PhoneScenePhase
 
 /**
@@ -43,6 +50,30 @@ class MainActivity : ComponentActivity() {
 
     private var composeView: ComposeView? = null
     private var composed: Boolean = false
+    private var pendingExport: ByteArray? = null
+
+    private val createFavorites = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json"),
+    ) { uri ->
+        val bytes = pendingExport
+        pendingExport = null
+        if (uri == null || bytes == null) return@registerForActivityResult
+        contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
+    }
+
+    private val openFavorites = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) importFavoritesFrom(uri)
+    }
+
+    internal fun launchFavoriteImport() {
+        openFavorites.launch(arrayOf("application/json", "text/plain", "*/*"))
+    }
+
+    internal fun importFavoritesFrom(uri: Uri) {
+        if (!this::stage.isInitialized) return
+        val bytes = contentResolver.openInputStream(uri)?.use { readLimited(it, Prefs.maxFileBytes + 1) } ?: return
+        stage.dispatch(StageIntent.ImportFavorites(bytes))
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -70,6 +101,12 @@ class MainActivity : ComponentActivity() {
             ensurePlayback = { session.ensureLane() },
             onMuteChanged = { muted -> session.onMuteChanged(muted) },
         )
+        lifecycleScope.launch {
+            for (bytes in stage.favoriteExports) {
+                pendingExport = bytes
+                createFavorites.launch("vela-favorites.json")
+            }
+        }
         showStage()
         val host = FrameLayout(this)
         addContentView(host, ViewGroup.LayoutParams(1, 1))
@@ -119,7 +156,11 @@ class MainActivity : ComponentActivity() {
         val session = this.session
         view.setContent {
             val lane by session.lane.collectAsState()
-            StageScreen(stage = stage, challengeUrl = challengeEntryUrl()) { _ ->
+            StageScreen(
+                stage = stage,
+                challengeUrl = challengeEntryUrl(),
+                onImportFavorites = { launchFavoriteImport() },
+            ) { _ ->
                 val current = lane
                 if (current != null) {
                     LaneSurface(lane = current, thumbnail = null, modifier = Modifier.fillMaxSize())
@@ -144,6 +185,19 @@ internal fun installDebugHooks(context: Context) {
     } catch (_: ClassNotFoundException) {
         // release，或 hooks 源码集还没人放类。
     }
+}
+
+/** 导入文件只读到上限加一字节，多出来的交给解码报「文件太大」，不把整个文件拉进内存。 */
+internal fun readLimited(input: InputStream, limit: Int): ByteArray {
+    if (limit <= 0) return ByteArray(0)
+    val buf = ByteArray(limit)
+    var off = 0
+    while (off < limit) {
+        val n = input.read(buf, off, limit - off)
+        if (n < 0) break
+        off += n
+    }
+    return if (off == buf.size) buf else buf.copyOf(off)
 }
 
 /** release 没有 StageHost，真实启动一律起舞台。hooks 自己出错也放行，避免把正式路径停掉。 */
