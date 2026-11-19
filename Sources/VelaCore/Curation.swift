@@ -99,16 +99,40 @@ public struct Curation: Codable, Equatable, Sendable {
     }
 }
 
+/// 启动时那次读取的结果（docs/plans/sync.md 第 14.1 节）：开启或加入同步的前置条件。
+public enum PreferenceLoadOutcome: String, Equatable, Sendable {
+    case loaded, missing, quarantined, readOnly
+}
+
+extension PreferenceQuarantine.ReadResult {
+    var outcome: PreferenceLoadOutcome {
+        switch self {
+        case .loaded: return .loaded
+        case .missing: return .missing
+        case .quarantined: return .quarantined
+        case .readOnly: return .readOnly
+        }
+    }
+}
+
 /// 把收藏与屏蔽存成一个小 JSON 文件。读写失败不抛出：读退回空，写返回 false。
 /// 读失败时坏文件改名为 `.bad-<时间戳>` 备份（`PreferenceQuarantine`）；备份失败则只读，保存跳过。
 public final class CurationStore: @unchecked Sendable {
     public let url: URL
     private let lock = NSLock()
     private var readOnly = false
+    private var firstOutcome: PreferenceLoadOutcome?
     /// 坏文件改名用的操作（测试注入失败用）。
     var moveItem: PreferenceQuarantine.Mover = PreferenceQuarantine.fileMover
 
     public init(url: URL) { self.url = url }
+
+    /// 第一次 `load` 的结果，之后一直保留（之后再读到「文件不存在」也不覆盖）；尚未读取时为 nil。
+    public var lastLoadOutcome: PreferenceLoadOutcome? {
+        lock.lock()
+        defer { lock.unlock() }
+        return firstOutcome
+    }
 
     public static func defaultURL() -> URL {
         PreferenceStore.defaultURL().deletingLastPathComponent().appendingPathComponent("feed-curation.json")
@@ -119,6 +143,7 @@ public final class CurationStore: @unchecked Sendable {
         defer { lock.unlock() }
         let result = PreferenceQuarantine.read(Curation.self, from: url, limit: Preferences.maxFileBytes, now: now, move: moveItem)
         readOnly = false
+        if firstOutcome == nil { firstOutcome = result.outcome }
         switch result {
         case .loaded(let decoded): return Curation(favorites: decoded.favorites, blocked: decoded.blocked)
         case .missing, .quarantined: return Curation()

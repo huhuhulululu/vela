@@ -12,32 +12,44 @@ extension StageModel {
         guard let lane = matchedLane(target), let room = room(of: lane) else { return }
         log.info("favorite-toggle \(self.curation.isFavorite(room.ref) ? "off" : "on", privacy: .public)")
         if curation.isFavorite(room.ref) {
+            guard let next = syncedCuration(.unfavorite(room.ref), local: curation.unfavoriting(room.ref)) else { return }
             commit(
-                curation.unfavoriting(room.ref),
+                next,
                 "已取消收藏 \(room.displayName)",
                 toastSeconds: Theme.unfavoriteToastSeconds,
                 undoFavorite: room.ref
             )
         } else {
+            guard let next = syncedCuration(.favorite(room.ref), local: curation.favoriting(room.ref)) else { return }
             taste = taste.following(room: room, now: Date(), rarity: tagRarity)
             tasteSaver.schedule(taste)
-            commit(curation.favoriting(room.ref), nil)
+            commit(next, nil)
         }
     }
 
     /// 屏蔽当前房间：从所有来源里去掉，并立刻切到下一个。
     func blockCurrent(_ target: RoomTarget?) {
         guard let lane = matchedLane(target), let room = room(of: lane) else { return }
+        guard let next = syncedCuration(.block(room.ref), local: curation.blocking(room.ref)) else { return }
         lane.manuallyPaused = false
-        commit(curation.blocking(room.ref), "已屏蔽 \(room.displayName)，可在收藏与屏蔽列表里取消")
+        commit(next, "已屏蔽 \(room.displayName)，可在收藏与屏蔽列表里取消")
     }
 
-    func removeFavorite(_ name: String) { commit(curation.unfavoriting(name), nil) }
+    func removeFavorite(_ name: String) {
+        guard let next = syncedCuration(.unfavorite(name), local: curation.unfavoriting(name)) else { return }
+        commit(next, nil)
+    }
 
     /// 撤销移除：把名字放回收藏（收藏夹里「撤销」用，不加口味权重、不弹提示）。
-    func restoreFavorite(_ name: String) { commit(curation.restoringFavorite(name), nil) }
+    func restoreFavorite(_ name: String) {
+        guard let next = syncedCuration(.restoreFavorite(name), local: curation.restoringFavorite(name)) else { return }
+        commit(next, nil)
+    }
 
-    func unblock(_ name: String) { commit(curation.unblocking(name), nil) }
+    func unblock(_ name: String) {
+        guard let next = syncedCuration(.unblock(name), local: curation.unblocking(name)) else { return }
+        commit(next, nil)
+    }
 
     func commit(_ next: Curation, _ message: String?, toastSeconds: Double = 3.5, undoFavorite: String? = nil) {
         let previous = curation

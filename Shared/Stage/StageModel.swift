@@ -162,6 +162,10 @@ final class StageModel: ObservableObject {
     let tasteSaver: DeferredSaver<Taste>
     let tasteStore: TasteStore
     let curationSaver: DeferredSaver<Curation>
+    /// 投影落盘屏障要直接调用 `save` 并读启动时的读取结果（docs/plans/sync.md 第 12.2、14.1 节）。
+    let curationStore: CurationStore
+    /// 跨设备同步的界面状态与接线（`StageModel+Sync.swift`）。未开启时不发任何请求。
+    let sync = SyncHub()
     let watchLedgerStore: WatchLedgerStore
     let watchLedgerSaver: DeferredSaver<WatchLedger>
     @Published var watchLedger = WatchLedger()
@@ -195,6 +199,7 @@ final class StageModel: ObservableObject {
         let tasteStore = TasteStore(url: TasteStore.defaultURL(), legacyURL: PreferenceStore.defaultURL())
         self.tasteStore = tasteStore
         let curationStore = CurationStore(url: CurationStore.defaultURL())
+        self.curationStore = curationStore
         let watchLedgerStore = WatchLedgerStore(url: WatchLedgerStore.defaultURL())
         let log = self.log
         // 读失败且坏文件没能改名备份时存储进入只读：保存被跳过，日志里要区分于普通写盘失败。
@@ -234,6 +239,7 @@ final class StageModel: ObservableObject {
         restoreLanesIfRemembered()
         startThermalObserving()
         kickoffCatalogIfConfirmed()
+        sync.attach(self)
     }
 
     private func loadSettings() {
@@ -576,6 +582,14 @@ final class StageModel: ObservableObject {
     }
 
     func setPublicOnly(_ value: Bool) {
+        if rejectWhileJoining() { return }
+        syncSetting(SyncHub.publicOnlyKey, value)
+        applyPublicOnly(value)
+    }
+
+    /// 写入「仅公开」并刷新列表；同步投影也走这里（不再写同步寄存器）。
+    func applyPublicOnly(_ value: Bool) {
+        guard publicOnly != value || settings.publicOnly != value else { return }
         publicOnly = value
         settings.publicOnly = value
         applySearch()
