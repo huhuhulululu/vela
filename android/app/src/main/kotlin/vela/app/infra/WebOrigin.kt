@@ -81,6 +81,7 @@ internal fun unavailableWebResponse(): WebResourceResponse =
 internal fun interceptWhitelisted(
     view: WebView?,
     request: WebResourceRequest?,
+    documentRoot: String,
     allows: (String) -> Boolean,
     delegateUnvalidatedMethods: Boolean = true,
 ): WebResourceResponse? {
@@ -93,7 +94,13 @@ internal fun interceptWhitelisted(
     val method = request.method?.uppercase(Locale.ROOT) ?: "GET"
     if (!request.isForMainFrame && (method == "GET" || method == "HEAD")) {
         return try {
-            loadGuardedSubresource(url, method, request.requestHeaders ?: emptyMap(), allows)
+            loadGuardedSubresource(
+                url,
+                method,
+                request.requestHeaders ?: emptyMap(),
+                allows,
+                documentRoot,
+            )
         } catch (_: Exception) {
             unavailableWebResponse()
         }
@@ -110,6 +117,7 @@ internal fun loadGuardedSubresource(
     method: String,
     headers: Map<String, String>,
     allows: (String) -> Boolean,
+    documentRoot: String,
 ): WebResourceResponse {
     var current = initialUrl
     var verb = method.uppercase(Locale.ROOT)
@@ -124,7 +132,7 @@ internal fun loadGuardedSubresource(
             useCaches = false
         }
         try {
-            forwardSubresourceHeaders(connection, headers, current)
+            forwardSubresourceHeaders(connection, headers, current, isFirstPartyRequest(current, documentRoot))
             val status = connection.responseCode
             if (status in 300..399) {
                 val location = connection.getHeaderField("Location")
@@ -141,7 +149,7 @@ internal fun loadGuardedSubresource(
                 hops += 1
                 continue
             }
-            return subresourceResponse(connection, current, status)
+            return subresourceResponse(connection, current, status, isFirstPartyRequest(current, documentRoot))
         } catch (error: IOException) {
             try {
                 connection.disconnect()
@@ -155,10 +163,19 @@ internal fun loadGuardedSubresource(
 
 private const val MAX_RESOURCE_HOPS = 8
 
+internal fun isFirstPartyRequest(url: String, documentRoot: String): Boolean {
+    val host = webHost(url) ?: return false
+    val site = webHost(documentRoot) ?: return false
+    if (host == site) return true
+    if (site.any { it.isLetter() } && host.endsWith(".$site")) return true
+    return false
+}
+
 private fun forwardSubresourceHeaders(
     connection: HttpURLConnection,
     headers: Map<String, String>,
     url: String,
+    firstParty: Boolean,
 ) {
     for ((name, value) in headers) {
         if (name.equals("Host", true) ||
@@ -174,6 +191,7 @@ private fun forwardSubresourceHeaders(
         } catch (_: IllegalStateException) {
         }
     }
+    if (!firstParty) return
     val cookie = headers.entries.firstOrNull { it.key.equals("Cookie", true) }?.value ?: readWebCookie(url)
     if (!cookie.isNullOrBlank()) {
         try {
@@ -190,7 +208,8 @@ private fun readWebCookie(url: String): String? =
         null
     }
 
-private fun storeWebCookies(connection: HttpURLConnection, url: String) {
+private fun storeWebCookies(connection: HttpURLConnection, url: String, firstParty: Boolean) {
+    if (!firstParty) return
     try {
         val manager = CookieManager.getInstance()
         val values = connection.headerFields.entries
@@ -203,8 +222,13 @@ private fun storeWebCookies(connection: HttpURLConnection, url: String) {
     }
 }
 
-private fun subresourceResponse(connection: HttpURLConnection, url: String, status: Int): WebResourceResponse {
-    storeWebCookies(connection, url)
+private fun subresourceResponse(
+    connection: HttpURLConnection,
+    url: String,
+    status: Int,
+    firstParty: Boolean,
+): WebResourceResponse {
+    storeWebCookies(connection, url, firstParty)
     val contentType = connection.getHeaderField("Content-Type").orEmpty()
     val mime = contentType.substringBefore(';').trim().ifEmpty { "application/octet-stream" }
     val charset = Regex("charset=([^;]+)", RegexOption.IGNORE_CASE)
@@ -283,6 +307,7 @@ internal open class OriginWebViewClient(
         return interceptWhitelisted(
             view,
             request,
+            siteRoot,
             { WebOriginPolicy.allows(it, siteRoot) },
             delegateUnvalidatedMethods,
         )

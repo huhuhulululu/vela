@@ -73,6 +73,7 @@ internal class ChallengeNavigationClient(
         return interceptWhitelisted(
             view,
             request,
+            Endpoints.siteRoot(),
             ::challengeNavigationAllowed,
             delegateUnvalidatedMethods,
         )
