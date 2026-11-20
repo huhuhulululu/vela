@@ -46,7 +46,7 @@ swift test
 
 ## 安卓
 
-安卓版是 `android/` 下的独立 Gradle 工程，不编译 macOS / iOS 的 Swift。`:core` 是纯 JVM 逻辑，`:app` 用 Jetpack Compose 画界面、用 Media3 ExoPlayer 播放，不另开本地中继端口。当前是竖屏单窗：四个来源、上下滑切房、收藏与口味、默认静音、首次打开确认已满 18 岁；站点要求确认访问时在 WebView 里完成。双窗和画中画还没接到界面上。只装自己的手机，不上架。
+安卓版是 `android/` 下的独立 Gradle 工程，不编译 macOS / iOS 的 Swift。`:core` 是纯 JVM 逻辑，`:app` 用 Jetpack Compose 画界面、用 Media3 ExoPlayer 播放，不另开本地中继端口。当前是竖屏单窗，并已接上竖屏双窗（第三格只留界面槽位，不创建播放器）：四个来源、上下滑切房、收藏与口味、默认静音、首次打开确认已满 18 岁；站点要求确认访问时在 WebView 里完成。画中画还没接到界面上。只装自己的手机，不上架。
 
 在 `android/` 目录构建并跑单元测试：
 
