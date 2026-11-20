@@ -120,10 +120,15 @@ thermal = between("/marker/thermal-begin", "/marker/thermal-end")
 thermal_users = set()
 for row in thermal:
     path = row.get("path") or ""
+    # 两路在热降档期间仍在取流：解析请求或 /hls/<用户名>/ 下的列表与分片都算（降档改选档位不一定重新解析）。
     if "chatvideocontext" in path:
         parts = path.strip("/").split("/")
         if parts:
             thermal_users.add(parts[-1].split("?", 1)[0].lower())
+    elif path.startswith("/hls/"):
+        parts = path.strip("/").split("/")
+        if len(parts) >= 3:
+            thermal_users.add(parts[1].lower())
 if len(thermal_users) < 2:
     raise SystemExit("热降档窗口里取流房间不足 2 个")
 print("e2e-b-requests dual_users=%d thermal_users=%d" % (len(users), len(thermal_users)))
