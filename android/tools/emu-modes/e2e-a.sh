@@ -336,23 +336,4 @@ PY
 
 finalize
 
-python3 - "${json_path}" <<'PY'
-import json
-import sys
-doc = json.loads(open(sys.argv[1], "r", encoding="utf-8").read())
-count = int(doc.get("sample_count") or 0)
-if count < 3:
-    raise SystemExit("资源采样只有 %d 条，播放期间应每 5 秒有一行" % count)
-rows = doc.get("samples") or []
-pss = [row.get("pss_kb") for row in rows if row.get("pss_kb")]
-if not pss:
-    raise SystemExit("资源 JSON 里没有 TOTAL PSS")
-cpu = [
-    row.get("cpu_percent") if row.get("cpu_percent") is not None else row.get("cpuinfo_total_percent")
-    for row in rows
-    if row.get("cpu_percent") is not None or row.get("cpuinfo_total_percent") is not None or row.get("cpu_ticks") is not None
-]
-if not cpu and not any(row.get("cpu_ticks") is not None for row in rows):
-    raise SystemExit("资源 JSON 里没有 cpuinfo / CPU tick")
-print("e2e-a-resources samples=%d pss_kb=%s..%s" % (count, min(pss), max(pss)))
-PY
+python3 -I tools/resource_sample.py "${json_path}"
