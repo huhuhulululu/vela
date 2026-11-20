@@ -249,6 +249,7 @@ class AppPlaybackSession(
 
     init {
         stage.ensureSecondary = { ensureSecondary() }
+        stage.releaseSecondaryLane = { releaseSecondaryLane() }
         stage.onLaneFocusChanged = { id ->
             audio.focus = id.role
             audio.lanes = stage.openRoles()
@@ -338,6 +339,18 @@ class AppPlaybackSession(
         lanesByRole[PlaybackLaneRole.SECONDARY] = created
         stage.bindLane(created, null)
         observeSecondary(created)
+    }
+
+    /** 用户关掉双窗或第二路退出时，完整释放副路播放器与会话引用。 */
+    fun releaseSecondaryLane() {
+        val secondary = secondaryLane ?: return
+        observedSecondary?.onPlaybackFace = null
+        observedSecondary = null
+        secondaryLane = null
+        lanesByRole.remove(PlaybackLaneRole.SECONDARY)
+        secondary.release()
+        audio.focus = stage.focusLane.role
+        audio.lanes = stage.openRoles()
     }
 
     override fun restoreUi() {

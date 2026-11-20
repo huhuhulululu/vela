@@ -843,7 +843,11 @@ private fun StageViewModel.dropSecondary(reason: LaneEndReason) {
     secondaryPlayJob?.cancel()
     secondaryPlayJob = null
     secondarySink?.stop()
-    secondaryLane?.stop()
+    if (releaseSecondaryLane != null) {
+        releaseSecondaryLane?.invoke()
+    } else {
+        secondaryLane?.release()
+    }
     secondaryLane = null
     secondarySink = null
     secondaryCursor = null
