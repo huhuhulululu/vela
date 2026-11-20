@@ -26,6 +26,8 @@ import vela.app.infra.AtomicFile
 import vela.app.infra.HttpClientImpl
 import vela.app.infra.Settings
 import vela.app.lane.LaneSurface
+import vela.app.pip.ActivityPictureInPicture
+import vela.app.pip.PiPCoordinator
 import vela.app.stage.AppPlaybackSession
 import vela.app.stage.LifecycleWiring
 import vela.app.stage.StageIntent
@@ -37,9 +39,8 @@ import vela.core.base.model.Prefs
 import vela.core.lifecycle.PhoneScenePhase
 
 /**
- * 应用入口。竖屏可开双窗（接口留三路）；前后台交给 [LifecycleWiring]：
- * 没有画中画时回桌面按 [vela.core.lifecycle.PhoneLifecycle] 全停，回前台按冻结裁决 7 恢复。
- * 画中画（PiP1）再改这个文件。
+ * 应用入口。竖屏可开双窗（接口留三路）；前后台交给 [LifecycleWiring]。
+ * 画中画：比例夹紧、RemoteAction 静音、LifecycleEpoch 只放行焦点路、3 秒未进入则全停。
  *
  * debug / perf 会多编 src/hooks。若存在 [vela.app.hooks.Hooks.install]，启动时调用。
  * 同一套 hooks 里的 [vela.app.hooks.StageHost] 可以让单路仪器测试只拿空宿主，
@@ -53,6 +54,9 @@ class MainActivity : ComponentActivity() {
         private set
 
     lateinit var session: AppPlaybackSession
+        private set
+
+    var pictureInPicture: ActivityPictureInPicture? = null
         private set
 
     private var composeView: ComposeView? = null
@@ -153,10 +157,29 @@ class MainActivity : ComponentActivity() {
         this.stage = stage
         this.session = session
         this.wiring = wiring
+        val coordinator = PiPCoordinator(
+            stage = stage,
+            wiring = wiring,
+            audio = { session.audioController() },
+        )
+        val pipHost = ActivityPictureInPicture(
+            activity = this,
+            stage = stage,
+            onEvent = { event -> wiring.onPictureInPictureEvent(event) },
+        )
+        if (pipHost.supported) {
+            pipHost.attach()
+            coordinator.pip = pipHost
+            pictureInPicture = pipHost
+        }
+        wiring.attachPictureInPicture(coordinator)
         stage.onQuit = { finish() }
         stage.bindLifecycleHooks(
             ensurePlayback = { session.ensureLane() },
-            onMuteChanged = { muted -> session.onMuteChanged(muted) },
+            onMuteChanged = { muted ->
+                session.onMuteChanged(muted)
+                pictureInPicture?.refreshMuteAction()
+            },
         )
         lifecycleScope.launch {
             for (bytes in stage.favoriteExports) {
@@ -212,7 +235,19 @@ class MainActivity : ComponentActivity() {
         wiring.moveTo(PhoneScenePhase.BACKGROUND)
     }
 
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        pictureInPicture?.onUserLeaveHint()
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode)
+        pictureInPicture?.onPictureInPictureModeChanged(isInPictureInPictureMode)
+    }
+
     override fun onDestroy() {
+        pictureInPicture?.detach()
+        pictureInPicture = null
         if (this::wiring.isInitialized) {
             wiring.moveTo(PhoneScenePhase.BACKGROUND)
             session.releaseLeftovers()
