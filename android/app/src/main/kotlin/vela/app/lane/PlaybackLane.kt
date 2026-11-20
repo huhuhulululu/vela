@@ -160,6 +160,24 @@ class PlaybackLane(
         start(rendition, username, peakBitrate, keepReady = false)
     }
 
+    /** 这一路是否还挂着播放项。没有就不换档，下次起播带新上限。 */
+    fun hasItem(): Boolean = sessionOpen && lastPlay != null
+
+    /** 正在用的码率上限。还没播过为 null。 */
+    fun currentPeak(): Double? = lastPlay?.peak
+
+    /**
+     * 按新上限原地换档。不换房间、不计失败。
+     * 没有播放项或上限没变就不动，返回 false。
+     */
+    fun retierPeak(peakBitrate: Double): Boolean {
+        val last = lastPlay ?: return false
+        if (!sessionOpen) return false
+        if (last.peak == peakBitrate) return false
+        start(last.rendition, last.username, peakBitrate, keepReady = true)
+        return true
+    }
+
     fun setAllowed(value: Boolean) {
         allowed = value
         if (value) resumeIfNeeded() else pauseDecoding()

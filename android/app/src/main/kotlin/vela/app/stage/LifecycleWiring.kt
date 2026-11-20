@@ -165,10 +165,18 @@ class LifecycleWiring(
             }
             is PhoneLifecycleAction.RequestPlay -> {
                 steps.add("request-play")
-                if (action.role == PlaybackLaneRole.PRIMARY) {
-                    stage.primaryActivity = action.activity
-                    session.ensureLane()
-                    stage.requestPlay()
+                when (action.role) {
+                    PlaybackLaneRole.PRIMARY -> {
+                        stage.primaryActivity = action.activity
+                        session.ensureLane()
+                        stage.requestPlay()
+                    }
+                    PlaybackLaneRole.SECONDARY -> {
+                        stage.secondaryActivity = action.activity
+                        stage.ensureSecondary?.invoke()
+                        stage.requestPlay(vela.core.base.lane.LaneID.SECONDARY)
+                    }
+                    PlaybackLaneRole.TERTIARY -> steps.add("request-play-tertiary")
                 }
             }
             is PhoneLifecycleAction.KeepFailure -> steps.add("keep-failure")
@@ -222,30 +230,49 @@ class AppPlaybackSession(
 ) : LifecycleSession {
     private val mutableLane = MutableStateFlow<PlaybackLane?>(null)
     val lane: StateFlow<PlaybackLane?> = mutableLane.asStateFlow()
+    private var secondaryLane: PlaybackLane? = null
 
     var webHost: FrameLayout? = null
     private var observed: PlaybackLane? = null
+    private var observedSecondary: PlaybackLane? = null
     private var audioStarted: Boolean = false
+    private val lanesByRole = HashMap<PlaybackLaneRole, PlaybackLane>()
 
     private val audio: AudioFocusController = AudioFocusController(
         context = activity,
         audioManager = activity.getSystemService(AudioManager::class.java),
-        sinks = StageAudioSinks(stage, { mutableLane.value }),
+        sinks = StageAudioSinks(stage, { mutableLane.value }, lanesByRole),
     ).also { controller ->
         controller.focus = PlaybackLaneRole.PRIMARY
         controller.lanes = listOf(PlaybackLaneRole.PRIMARY)
     }
 
+    init {
+        stage.ensureSecondary = { ensureSecondary() }
+        stage.onLaneFocusChanged = { id ->
+            audio.focus = id.role
+            audio.lanes = stage.openRoles()
+            if (!stage.muted) audio.execute(AudioIntent.Unmute(id.role))
+        }
+        stage.onLanesChanged = {
+            audio.focus = stage.focusLane.role
+            audio.lanes = stage.openRoles()
+        }
+    }
+
     fun onMuteChanged(muted: Boolean) {
+        audio.focus = stage.focusLane.role
+        audio.lanes = stage.openRoles()
         if (muted) {
             audio.execute(AudioIntent.Deactivate(DeactivationReason.MUTE))
         } else {
-            audio.execute(AudioIntent.Unmute(PlaybackLaneRole.PRIMARY))
+            audio.execute(AudioIntent.Unmute(stage.focusLane.role))
         }
     }
 
     override fun closeGate() {
         mutableLane.value?.setAllowed(false)
+        secondaryLane?.setAllowed(false)
     }
 
     override fun onEpoch(epoch: LifecycleEpoch) {
@@ -256,11 +283,21 @@ class AppPlaybackSession(
     override fun suspendLanes() {
         stopObserving()
         disposeComposition()
-        val current = mutableLane.value ?: return
+        val current = mutableLane.value
+        val secondary = secondaryLane
         mutableLane.value = null
+        secondaryLane = null
+        lanesByRole.clear()
+        if (current == null && secondary == null) return
         stage.playerReleased = true
-        current.suspendNow()
-        current.release()
+        if (current != null) {
+            current.suspendNow()
+            current.release()
+        }
+        if (secondary != null) {
+            secondary.suspendNow()
+            secondary.release()
+        }
     }
 
     override fun deactivateAudio() {
@@ -286,9 +323,21 @@ class AppPlaybackSession(
         val created = PlaybackLane.create(activity, hub = hub)
         stage.playerReleased = false
         mutableLane.value = created
+        lanesByRole[PlaybackLaneRole.PRIMARY] = created
         val host = webHost
         if (host != null) stage.bindLane(created, host) else stage.bindLane(created, null)
         observe(created)
+    }
+
+    fun ensureSecondary() {
+        if (secondaryLane != null) return
+        if (hub.listeningPort == 0 && hub.allowStart) hub.start()
+        val created = PlaybackLane.create(activity, id = vela.core.base.lane.LaneID.SECONDARY, hub = hub)
+        stage.playerReleased = false
+        secondaryLane = created
+        lanesByRole[PlaybackLaneRole.SECONDARY] = created
+        stage.bindLane(created, null)
+        observeSecondary(created)
     }
 
     override fun restoreUi() {
@@ -298,10 +347,14 @@ class AppPlaybackSession(
     fun releaseLeftovers() {
         stopObserving()
         val current = mutableLane.value
+        val secondary = secondaryLane
         mutableLane.value = null
-        if (current != null) {
+        secondaryLane = null
+        lanesByRole.clear()
+        if (current != null || secondary != null) {
             stage.playerReleased = true
-            current.release()
+            current?.release()
+            secondary?.release()
         }
         if (audioStarted) {
             audio.stop()
@@ -313,43 +366,50 @@ class AppPlaybackSession(
     private fun observe(lane: PlaybackLane) {
         stopObserving()
         observed = lane
-        lane.onPlaybackFace = { syncFromLane(lane) }
-        syncFromLane(lane)
+        lane.onPlaybackFace = { stage.syncFromPlayback(lane) }
+        stage.syncFromPlayback(lane)
     }
 
-    private fun syncFromLane(lane: PlaybackLane) {
-        if (lane.failed && stage.state.value.lane.playback != LanePlayback.Failed) {
-            stage.noteFailed(true, lane.lastError ?: "暂时无法播放")
-        }
-        val ready = lane.readyUsername
-        if (ready != null) stage.noteReady(ready)
-        val playing = lane.playingUsername
-        if (playing != null) stage.notePlaying(playing)
+    private fun observeSecondary(lane: PlaybackLane) {
+        observedSecondary?.onPlaybackFace = null
+        observedSecondary = lane
+        lane.onPlaybackFace = { stage.syncFromPlayback(lane) }
+        stage.syncFromPlayback(lane)
     }
 
     private fun stopObserving() {
         observed?.onPlaybackFace = null
         observed = null
+        observedSecondary?.onPlaybackFace = null
+        observedSecondary = null
     }
 
     private class StageAudioSinks(
         private val stage: StageViewModel,
         private val lane: () -> PlaybackLane?,
+        private val byRole: Map<PlaybackLaneRole, PlaybackLane>,
     ) : AudioFocusController.Sinks {
         override fun muteLane(role: PlaybackLaneRole) {
-            lane()?.setVolume(0.0, true)
+            (byRole[role] ?: if (role == PlaybackLaneRole.PRIMARY) lane() else null)
+                ?.setVolume(0.0, true)
         }
 
         override fun muteAll() {
-            muteLane(PlaybackLaneRole.PRIMARY)
+            if (byRole.isEmpty()) {
+                lane()?.setVolume(0.0, true)
+            } else {
+                byRole.values.forEach { it.setVolume(0.0, true) }
+            }
         }
 
         override fun unmuteLane(role: PlaybackLaneRole) {
-            lane()?.setVolume(stage.volume, false)
+            (byRole[role] ?: if (role == PlaybackLaneRole.PRIMARY) lane() else null)
+                ?.setVolume(stage.volume, false)
         }
 
         override fun detachLane(role: PlaybackLaneRole) {
-            lane()?.setVolume(0.0, true)
+            // 没开的那一路不存在时，不要把另一路的声音关掉。
+            byRole[role]?.setVolume(0.0, true)
         }
 
         override fun writeMuted(muted: Boolean) {
@@ -370,21 +430,35 @@ class AppPlaybackSession(
 
 }
 
-internal fun StageViewModel.phoneSnapshots(): List<PhoneLaneSnapshot> = listOf(
-    PhoneLaneSnapshot(
-        role = PlaybackLaneRole.PRIMARY,
-        username = feed.currentUsername,
-        manuallyPaused = laneFace.manuallyPaused,
-        visible = primaryVisible,
-        failed = laneFace.playback == LanePlayback.Failed,
-        activity = primaryActivity,
-    ),
-)
+internal fun StageViewModel.phoneSnapshots(): List<PhoneLaneSnapshot> {
+    val lanes = ArrayList<PhoneLaneSnapshot>()
+    lanes.add(
+        PhoneLaneSnapshot(
+            role = PlaybackLaneRole.PRIMARY,
+            username = feed.currentUsername,
+            manuallyPaused = laneFace.manuallyPaused,
+            visible = primaryVisible,
+            failed = laneFace.playback == LanePlayback.Failed,
+            activity = primaryActivity,
+        ),
+    )
+    if (laneCount >= 2 && secondaryCursor != null) {
+        lanes.add(
+            PhoneLaneSnapshot(
+                role = PlaybackLaneRole.SECONDARY,
+                username = secondaryCursor?.username,
+                manuallyPaused = secondarySnapshotPaused(),
+                visible = secondarySnapshotVisible(),
+                failed = secondarySnapshotFailed(),
+                activity = secondaryActivity,
+            ),
+        )
+    }
+    return lanes
+}
 
 internal fun StageViewModel.settleBackground(reason: LaneEndReason) {
-    val settled = dwell.finish(now())
-    if (settled != null) recordSettlement(settled, reason, userInitiated = false)
-    lastSettlementUsername = settled?.room?.username
+    settleAllLanes(reason)
 }
 
 internal fun StageViewModel.flushSavers() {
@@ -395,15 +469,13 @@ internal fun StageViewModel.flushSavers() {
 }
 
 internal fun StageViewModel.reopenDwell() {
-    if (dwell.room != null || feed.current == null) return
-    dwell.switchTo(feed.current, now())
-    dwell.setLedgerExcluded(taste.paused, now())
+    reopenDwellLanes()
 }
 
 internal fun StageViewModel.syncSceneAttentive(attentive: Boolean) {
     sceneAttentive = attentive
     if (!attentive) {
-        dwell.setActive(false, now())
+        freezeDwells()
     } else {
         updateDwellActive()
     }
