@@ -198,6 +198,8 @@ internal object E2eBSupport {
     }
 
     fun <T> runOnMainSync(block: () -> T): T {
+        // 已在主线程（例如嵌套在 onMain 里）时直接执行；Instrumentation.runOnMainSync 不允许从主线程调用。
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) return block()
         val box = AtomicReference<T>()
         val error = AtomicReference<Throwable>()
         instrumentation.runOnMainSync {
