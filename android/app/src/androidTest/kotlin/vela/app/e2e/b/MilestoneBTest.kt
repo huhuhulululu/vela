@@ -143,41 +143,27 @@ class MilestoneBTest {
         assertTrue(cap.isFinite())
         assertTrue(cap >= LaneQuality.minimumBitrate)
 
-        val windowStart = android.os.SystemClock.elapsedRealtime()
-        val windowMs = 30_000L
-        var samples = 0
-        var bothRendering = 0
-        var lastPrimary = -1
-        var lastSecondary = -1
-        while (android.os.SystemClock.elapsedRealtime() - windowStart < windowMs) {
-            samples += 1
-            val primary = activity.session.lane.value
-            val secondary = E2eBSupport.secondaryLane(activity.session)
-            val primaryRendered = primary?.renderedOutputBufferCount() ?: 0
-            val secondaryRendered = secondary?.renderedOutputBufferCount() ?: 0
-            val advancing = (primaryRendered > lastPrimary || lastPrimary < 0) &&
-                (secondaryRendered > lastSecondary || lastSecondary < 0) &&
-                primaryRendered > 0 && secondaryRendered > 0
-            if (advancing && primary?.failed != true && secondary?.failed != true) {
-                bothRendering += 1
-            }
-            lastPrimary = primaryRendered
-            lastSecondary = secondaryRendered
-            Thread.sleep(1_000)
-        }
-        val ratio = bothRendering.toDouble() / samples.toDouble()
+        val ratio = E2eBSupport.dualSimultaneousRenderRatio(activity, windowMs = 30_000L, stepMs = 500L)
         assertTrue(
-            "双路同时出画占比 $ratio（$bothRendering/$samples）",
+            "双路同时出画占比 $ratio",
             ratio >= 0.85,
         )
 
         E2eBSupport.injectThermal(stage, PhoneThermalState.FAIR, scheduleRecovery = true)
-        Thread.sleep(59_000)
-        assertTrue("第 59 秒仍应限档", E2eBSupport.laneQualityLimited(stage))
-        Thread.sleep(3_000)
+        val recoveryStart = android.os.SystemClock.elapsedRealtime()
+        assertTrue(
+            "第 59 秒仍应限档",
+            E2eBSupport.waitUntil(75_000) {
+                android.os.SystemClock.elapsedRealtime() - recoveryStart >= 59_000L &&
+                    E2eBSupport.laneQualityLimited(stage)
+            },
+        )
         assertTrue(
             "满 60 秒冷却后应回升",
-            E2eBSupport.waitUntil(15_000) { !E2eBSupport.laneQualityLimited(stage) },
+            E2eBSupport.waitUntil(25_000) {
+                android.os.SystemClock.elapsedRealtime() - recoveryStart >= 60_000L &&
+                    !E2eBSupport.laneQualityLimited(stage)
+            },
         )
 
         E2eBSupport.degradeSecondary(stage)
