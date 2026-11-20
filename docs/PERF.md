@@ -526,3 +526,34 @@ T18、T18b、T19 的实跑（2026-11-18，分支 `feat/ios-pr3`）。全程静�
 
 仓库里没有模拟器资源采样的 JSON（作业写在结果目录，文件名 e2e-a-resources.json），也没有模拟器上的 PSS、CPU 中位数。计划写里程碑 A 的首测写入本文，之后按基线 +10% 做门。首测数字不在这棵树上，本文不编造，也不把「+10%」写成一个具体的 KB 或百分比。`android/PORTING.md` 文末的 `apk_bytes=667213` 是脚手架当时的空壳包，不是现在的 `:app`。体积门仍是 `android/tools/check-apk.sh` 的 5120 KB；等有一次当前 release 包的实测，再把字节数记进来。
 
+## 安卓（里程碑 B，竖屏双窗）
+
+与单窗共用伪上游与 `emulator-run.sh` 框架。里程碑 B **不单独采** PSS/CPU 基线入库；双路流量约为单路同档位的约 2 倍是产品裁决（计划冻结 5），不是性能回退门。
+
+### 方法
+
+- 仪器：`android/tools/emu-modes/e2e-b.sh` 安装 perf 应用 + debug `androidTest`，跑 `vela.app.e2e.b.MilestoneBTest`（与 A 相同：应用 perf、测试 debug）。
+- 热状态：真机/模拟器上 `PowerManager` 常为 `NOMINAL`；E2eB 用 `StageViewModel.injectThermalForTest` 注入 `PhoneThermalState`，不伪造系统 API。
+- 双路出画占比：`E2eBSupport.dualSimultaneousRenderRatio` 轮询两路 `renderedOutputBufferCount`，窗口默认 30 秒、步长 500 ms。
+
+### 已经写进测试的门（S-B1 / S-B2）
+
+| 门 | 断言要点 | 出处 |
+|---|---|---|
+| 两路不同房 | 打开双窗后 `lanesDistinct()`，两路首帧 ≤ 12s | `MilestoneBTest`、`E2eBSupport` |
+| 焦点出声互斥 | 切焦后仅一路 `audioEnabledCountForTest() > 0` | 同上 |
+| 热降档 | 注入 `SERIOUS` 后 `isQualityLimitedForTest`，cap ≥ 896 kbps | 同上 |
+| 60 秒回升 | 注入 `FAIR` 并推进时钟，限时内取消限档 | 同上（`scheduleRecovery`） |
+| 副路降级 | `degradeLaneForTest(SECONDARY)`，主路仍播 | 同上 |
+| 双路同时出画 | 30s 窗口内两路同时渲染占比 ≥ 90% | `dualSimultaneousRenderRatio` |
+| 关双窗释放副路 | `SetLaneCount(1)` 后 `secondaryLaneForTest == null` | `SecondaryLaneReleaseTest`（JVM） |
+
+单窗 A 的门（首帧、比例、静音稳态、后台零播放线程等）在双窗关或横屏单路显示时仍适用；双窗竖屏下每格各自 `display-check`。
+
+### 尚未入库
+
+- 双窗 steady 态 PSS/CPU 中位数（无 `e2e-b-resources.json` 进仓）。
+- 热降档前后流量对比（未要求 ≤ 单窗 ×2 的自动化门，仅产品接受翻倍）。
+
+正式测试钩子与反射待办见 `android/PORTING.md`「仪器测试」与 `android/docs/dual-window.md`。
+

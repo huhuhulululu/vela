@@ -175,13 +175,41 @@ FeedCache 的随机性质测试只断言不变量。Kotlin 用同一个种子，
 - [Track selection](https://developer.android.com/media/media3/exoplayer/track-selection)：关音轨、限制视频码率走 `TrackSelectionParameters`。
 - [`DefaultLoadControl`](https://developer.android.com/reference/androidx/media3/exoplayer/DefaultLoadControl) 与 [`TrackSelectionParameters.Builder.setMaxVideoBitrate`](https://developer.android.com/reference/androidx/media3/common/TrackSelectionParameters.Builder#setMaxVideoBitrate(int)) 的 API 参考页存在。缓冲 min/max 6000 ms、`setMaxVideoBitrate` 按计划在后续播放任务里用，不在这四篇指南正文里。
 
-## milestone-B 跳过项
+## milestone-B 跳过项（2026-11-20 里程碑 B 代码已合入后的登记状态）
 
-`android/parity/skip*.tsv` 里理由以 `milestone-B:` 开头的行，是共用 Core 逻辑、安卓里程碑 B（双窗）要移植的 Swift 用例（双窗与三窗选房、最近划走共享、多路画质、停留焦点秒、音频切换顺序等）。它们只为保持 `--all` 不失败而暂时登记为跳过，不等于不移植。
+`android/parity/skip.tsv` 里 **121 条**理由以 `milestone-B:` 开头。它们是 Swift 里已有、安卓侧尚未逐条登记 parity 的双窗 / 三窗 / 多路音频用例，**只为让 `parity.py --all` 不失败**，不等于行为不移植或已放弃。
 
-- 里程碑 B 内必须把这些用例移植成 Kotlin 测试，并删除对应的 skip 行；里程碑 B 收尾时 `grep -rn 'milestone-B' android/parity` 必须无输出。
-- 理由以「不移植：iOS」开头的行才是真正依赖 iOS 平台 API（AVAudioSession、UIKit 生命周期、MetricKit、画中画等）的用例，长期保留。
-- 新增 skip 行时按这条区分，不要把共用逻辑写成 iOS 专属。
+| 理由摘要（条数） | 含义 | 安卓现状 |
+|---|---|---|
+| 双窗开关、副路选房与目标路操作（27） | `DualWindowTests` 全集 | 舞台与部分 JVM 测试已覆盖；parity 未逐条映射 |
+| 三窗路数迁移、选房与焦点路操作（32） | `TripleWindowTests` | 未做三窗播放；契约/UI 预留第三格 |
+| 三窗出声、停留与按格画质（19） | `TripleLaneMediaTests` | 未移植；计划中无安卓三窗里程碑 |
+| 音频切换的执行顺序（15） | `AudioTransitionRunnerTests` | `AudioFocusPlan` + 仪器 E2eB 部分断言；Runner 逐步未移植 |
+| 双窗停留口径 / 焦点秒（12 + 7） | `DualDwellTests`、`DwellFocusTests` | `FocusSegments` + 双路结算已接线；细粒度测试未登记 |
+| 双窗按路画质与热降档（5） | `DualQualityTests` | `LaneQuality` + `ThermalCapSink` + E2eB 热场景 |
+| 双窗切焦点的出声互斥（4） | `DualAudioFocusTests` 子集 | E2eB 焦点出声；其余条未映射 |
+
+**规则（不变）**
+
+- 里程碑 B **产品行为**验收以 S-B1、S-B2 与 `emu-modes/e2e-b.sh` 为准；parity 里这 121 条可在后续包（或 C9 扩展）里改成 Kotlin 测试 + `split-*.tsv`，或拆成「三窗永不过」并改写理由为「不移植：三窗」——须编排者裁决，执行者不得自行改名糊弄 `--all`。
+- 理由以「不移植：iOS」开头的是真平台绑定（AVAudioSession、UIKit PiP、MetricKit 等），长期保留。
+- 里程碑 B 收尾若要求 `grep -rn 'milestone-B' android/parity` 为零，需要上述迁移或裁决 **之后**再删行；D-B 只记录现状，不删 skip。
+
+### 仪器测试：优先用正式钩子，少反射
+
+已提供的 `@VisibleForTesting` / 测试只读属性：
+
+- `AppPlaybackSession.secondaryLaneForTest`
+- `StageViewModel.injectThermalForTest`、`isQualityLimitedForTest`、`laneCapForTest`、`degradeLaneForTest`
+- `PlaybackLane.audioEnabledCountForTest`、`playerVolumeForTest`
+
+`androidTest/.../e2e/b/` 应只走这些接口（见 `E2eBSupport.kt`）。**待办**：`e2e/a/MilestoneATest.kt` 的 `playerVolume` / `audioEnabled` 仍反射 `PlaybackLane` 私有 `player` 字段，应改为与 E2eB 相同的上列方法。`PlaybackFaceObserveTest` 反射 `AppPlaybackSession.observe` 可改为 package-visible 测试入口或 Robolectric 替身。
+
+`VisibleForTesting` 为 CLASS retention，仪器进程不能单靠反射查注解；单测 `E2eBTestHooksTest` 用 `getMethod` 钉住 JVM 签名即可。
+
+### 里程碑 B 文档
+
+双窗舞台、界面、减路与临时释放语义见 `android/docs/dual-window.md`。架构总览见 `docs/ARCHITECTURE.md` 第 11 节；性能门见 `docs/PERF.md` 里程碑 B 小节。
 
 ## 本次 release 体积
 
