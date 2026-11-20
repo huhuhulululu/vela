@@ -7,7 +7,7 @@
 - 默认单路（`laneCount == 1`）。用户用顶栏路数选择器或双窗开关可开到 2 路；`Settings.dualWindow` 与 `rememberedLaneCount` 记住选择，冷启动由 `restoreDualIfRemembered()` 恢复。
 - `StageUiState.dualWindow` 是 `laneCount > 1` 的派生镜像，界面与测试只读契约，不直接改设置键。
 - 第三路（`LaneID.TERTIARY`）在契约与 `DualStageScreen` 里预留格位，**本里程碑不创建第三路 `PlaybackLane`**；`setLaneCount(3)` 只更新 UI 状态，起播仍限主路 + 副路。
-- 画中画启动中或进行中 `focusLocked` / `laneCountLocked` 为真时，路数选择与显式切焦点被忽略（由 `PiPCoordinator` 经 `syncLaneCountLock` / `focusLocked` 写入，与 iOS 一致）。
+- 画中画启动中或进行中 `focusLocked` / `laneCountLocked` 为真时，路数选择与显式切焦点被忽略（由 `PiPCoordinator` 经 `syncLaneCountLock` 与 `focusLocked` 写入，`WillStop` 后路数锁保持到 `DidStop`，与 iOS 一致）。
 
 ## 舞台：`StageViewModel` + `Stage+Lanes.kt`
 
@@ -46,11 +46,11 @@
 
 ### 画中画（里程碑 C，已接）
 
-回桌面只放行焦点路；其余路经 `setPipSolo(true)` 临时释放播放资源，逻辑状态全保留。启动中与显示中锁焦点与路数；3 秒内未进入则全停；退出后按进入前路数恢复。细节与端到端门见 `android/docs/pip.md`。
+回桌面在画中画继续路径上只放行焦点路：`setPipSolo(true)` 与横屏共用 `syncLaneVisibility`，非焦点路只是停播并隐藏（不释放实例）；播放器实例的释放由进后台序列里的 `ReleaseLane` 经 `AppPlaybackSession.releaseLane` 完成。逻辑路状态全保留，`laneCount` 不变，退出后恢复双格。启动中与显示中锁焦点与路数；3 秒内未进入则全停。细节见 `android/docs/pip.md`。
 
-### 后台（无画中画时全停，回前台按裁决 7 恢复）
+### 后台（没有画中画继续时全停，回前台按裁决 7 恢复）
 
-没有画中画时进后台：`suspendLanes` 拆掉主副 `PlaybackLane` 实例；`secondaryCursor` 等舞台状态仍在 ViewModel。回前台 `ensureLane` / `ensureSecondary` 重建播放器，满足「有房间、未手动暂停、可见、非失败/降级」再起播。
+没有画中画（不支持、自动进入关且未在画中画、焦点路未在播等 `PiPPolicy` 不给出继续）时进后台：`suspendLanes` 拆掉主副 `PlaybackLane` 实例；`secondaryCursor` 等舞台状态仍在 ViewModel。回前台 `ensureLane` / `ensureSecondary` 重建播放器，满足「有房间、未手动暂停、可见、非失败/降级」再起播。
 
 ## 声音
 
@@ -71,7 +71,7 @@
 **反射待清理（里程碑 B 文档登记，不改本包代码）**
 
 - `MilestoneATest` 仍用 `getDeclaredField("player")` 读音量与音轨，应改为 `playerVolumeForTest` / `audioEnabledCountForTest`（E2eB 已用正式接口）。
-- `PlaybackFaceObserveTest` 反射 `observe`；`BandwidthMeterIsolationTest` 反射 Media3 内部字段（仅限 JVM，可保留或另做 test 替身）。
+- `PlaybackFaceObserveTest` 反射 `observe`；`BandwidthMeterIsolationTest` 反射 Media3 内部字段，仅限 JVM，可保留或另做 test 替身。
 - `MainActivity` 对 `Hooks` 的反射是 release 无 hooks 类的既定启动路径，不是测试债务。
 
 ## 与 iOS 的差异（本里程碑有意）
