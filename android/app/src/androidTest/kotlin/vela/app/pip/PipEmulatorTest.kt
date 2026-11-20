@@ -168,13 +168,10 @@ class PipEmulatorTest {
     }
 
     private fun upstream(): String {
-        val args = instrumentation.arguments
-        val fromArgs = args.getString("upstream")
-        if (!fromArgs.isNullOrBlank()) return fromArgs
-        val fromBuild = vela.app.BuildConfig.VELA_UPSTREAM
-        if (fromBuild.isNotBlank()) return fromBuild
-        fail("没有伪上游地址")
-        return ""
+        val raw = InstrumentationRegistry.getArguments().getString("upstream").orEmpty()
+            .ifEmpty { vela.app.BuildConfig.VELA_UPSTREAM }
+        if (raw.isBlank()) fail("没有伪上游地址")
+        return raw
     }
 
     private fun onMain(activity: MainActivity, block: () -> Unit) {
