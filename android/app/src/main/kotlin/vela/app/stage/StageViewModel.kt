@@ -222,6 +222,8 @@ class StageViewModel(
     internal var primaryLane: PlaybackLane? = null
     internal var secondaryLane: PlaybackLane? = null
     internal var ensureSecondary: (() -> Unit)? = null
+    /** 减少路数等永久退出副路时，由会话层 release PlaybackLane 并清空引用。 */
+    internal var releaseSecondary: (() -> Unit)? = null
     internal var onLaneFocusChanged: ((LaneID) -> Unit)? = null
     internal var onLanesChanged: (() -> Unit)? = null
     internal var thermalMonitor: ThermalMonitor? = null

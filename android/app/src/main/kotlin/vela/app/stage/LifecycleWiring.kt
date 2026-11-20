@@ -249,6 +249,7 @@ class AppPlaybackSession(
 
     init {
         stage.ensureSecondary = { ensureSecondary() }
+        stage.releaseSecondary = { releaseSecondaryLane() }
         stage.onLaneFocusChanged = { id ->
             audio.focus = id.role
             audio.lanes = stage.openRoles()
@@ -338,6 +339,20 @@ class AppPlaybackSession(
         lanesByRole[PlaybackLaneRole.SECONDARY] = created
         stage.bindLane(created, null)
         observeSecondary(created)
+    }
+
+    /**
+     * 用户减少路数（DUAL_OFF）时真正释放副路：播放器、解码、中继源与观察者。
+     * 横屏临时隐藏不调用本方法；回竖屏后仍可用同一 [PlaybackLane] 恢复。
+     * 之后再增到 2 路由 [ensureSecondary] 重新创建。
+     */
+    fun releaseSecondaryLane() {
+        observedSecondary?.onPlaybackFace = null
+        observedSecondary = null
+        val secondary = secondaryLane ?: return
+        secondaryLane = null
+        lanesByRole.remove(PlaybackLaneRole.SECONDARY)
+        secondary.release()
     }
 
     override fun restoreUi() {

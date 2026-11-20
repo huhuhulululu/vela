@@ -843,12 +843,14 @@ private fun StageViewModel.dropSecondary(reason: LaneEndReason) {
     secondaryPlayJob?.cancel()
     secondaryPlayJob = null
     secondarySink?.stop()
-    secondaryLane?.stop()
+    // 舞台侧只清引用；播放器/解码/中继/观察者由会话层 releaseSecondary 真正释放。
+    // 横屏临时隐藏走 syncLaneVisibility 的 sink.stop，不经过这里，会话引用可保留以便恢复。
     secondaryLane = null
     secondarySink = null
     secondaryCursor = null
     secondaryFace = null
     secondaryFocusLog.reset()
+    releaseSecondary?.invoke()
 }
 
 private fun StageViewModel.syncLaneVisibility() {
