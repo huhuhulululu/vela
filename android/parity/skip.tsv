@@ -90,17 +90,17 @@ Tests/VelaPhoneTests/AudioFocusControllerTests.swift	testLastLaneStoppingKeepsAu
 Tests/VelaPhoneTests/AudioFocusControllerTests.swift	testRemuteDeactivationFailureRetriesOnce	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
 Tests/VelaPhoneTests/AudioFocusControllerTests.swift	testRemuteDeactivationStillFailingIsRedoneOnNextTransition	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
 Tests/VelaPhoneTests/AudioFocusControllerTests.swift	testAudibleTimeoutThenOriginalItemRecoversRestoresSound	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
-Tests/VelaPhoneTests/DualAudioFocusTests.swift	testFocusSwitchWhenUnmutedMutesOldFirstThenSessionThenUnmutesNew	milestone-B: 双窗切焦点的出声互斥，由 B 阶段移植
-Tests/VelaPhoneTests/DualAudioFocusTests.swift	testFocusSwitchBackAndForthNeverHasTwoAudibleLanes	milestone-B: 双窗切焦点的出声互斥，由 B 阶段移植
+Tests/VelaPhoneTests/DualAudioFocusTests.swift	testFocusSwitchWhenUnmutedMutesOldFirstThenSessionThenUnmutesNew	replaced-by:vela.app.audio.AudioFocusControllerTest#testLaneSwitchMutesOldBeforeUnmute
+Tests/VelaPhoneTests/DualAudioFocusTests.swift	testFocusSwitchBackAndForthNeverHasTwoAudibleLanes	replaced-by:vela.app.audio.AudioFocusControllerTest#testLaneSwitchMutesOldBeforeUnmute
 Tests/VelaPhoneTests/DualAudioFocusTests.swift	testFocusSwitchWhileMutedDoesNotTouchSession	milestone-B: 双窗切焦点的出声互斥，由 B 阶段移植
 Tests/VelaPhoneTests/DualAudioFocusTests.swift	testCategoryFailureKeepsAllLanesMutedAndDoesNotWriteSettings	milestone-B: 双窗切焦点的出声互斥，由 B 阶段移植
 Tests/VelaPhoneTests/DualAudioFocusTests.swift	testActivationFailureKeepsAllLanesMuted	milestone-B: 双窗切焦点的出声互斥，由 B 阶段移植
-Tests/VelaPhoneTests/DualAudioFocusTests.swift	testUnmuteTargetsTheFocusLane	milestone-B: 双窗切焦点的出声互斥，由 B 阶段移植
-Tests/VelaPhoneTests/DualAudioFocusTests.swift	testClosingDualWithSecondaryFocusReturnsSoundToPrimary	milestone-B: 双窗切焦点的出声互斥，由 B 阶段移植
+Tests/VelaPhoneTests/DualAudioFocusTests.swift	testUnmuteTargetsTheFocusLane	replaced-by:vela.app.stage.DualStageTest#testOnlyTheFocusLaneIsAudible
+Tests/VelaPhoneTests/DualAudioFocusTests.swift	testClosingDualWithSecondaryFocusReturnsSoundToPrimary	replaced-by:vela.app.stage.DualStageTest#testClosingDualKeepsTheFocusedSecondaryRoom
 Tests/VelaPhoneTests/DualAudioFocusTests.swift	testNonFocusLaneIsMutedWhenNewLaneJoinsWhileUnmuted	milestone-B: 双窗切焦点的出声互斥，由 B 阶段移植
-Tests/VelaPhoneTests/DualDwellTests.swift	testSettlementSplitsRawWeightedAndFocusedSeconds	milestone-B: 双窗停留口径，由 B 阶段移植
+Tests/VelaPhoneTests/DualDwellTests.swift	testSettlementSplitsRawWeightedAndFocusedSeconds	replaced-by:vela.app.stage.DualStageTest#testUnfocusedLaneSettlesAtHalfWeight
 Tests/VelaPhoneTests/DualDwellTests.swift	testEachLaneKeepsItsOwnSource	milestone-B: 双窗停留口径，由 B 阶段移植
-Tests/VelaPhoneTests/DualDwellTests.swift	testSingleWindowSecondsAllEqual	milestone-B: 双窗停留口径，由 B 阶段移植
+Tests/VelaPhoneTests/DualDwellTests.swift	testSingleWindowSecondsAllEqual	replaced-by:vela.app.stage.DualStageTest#testUnfocusedLaneSettlesAtHalfWeight
 Tests/VelaPhoneTests/DualDwellTests.swift	testBackgroundAndDualOffShortStaysAreNotMisses	milestone-B: 双窗停留口径，由 B 阶段移植
 Tests/VelaPhoneTests/DualDwellTests.swift	testDailyHitRateUsesFocusedSecondsOnly	milestone-B: 双窗停留口径，由 B 阶段移植
 Tests/VelaPhoneTests/DualDwellTests.swift	testLedgerRecordsWeightedSeconds	milestone-B: 双窗停留口径，由 B 阶段移植
@@ -125,34 +125,34 @@ Tests/VelaPhoneTests/DualPictureInPictureTests.swift	testForegroundEntryReleases
 Tests/VelaPhoneTests/DualPictureInPictureTests.swift	testForegroundStartFailureRestoresOtherLane	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
 Tests/VelaPhoneTests/DualPictureInPictureTests.swift	testFocusCannotChangeWhileSmallWindowIsUp	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
 Tests/VelaPhoneTests/DualPictureInPictureTests.swift	testSingleWindowForegroundEntryDoesNotTouchVisibility	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
-Tests/VelaPhoneTests/DualQualityTests.swift	testBothLanesUseTopTierWhenCool	milestone-B: 双窗按路画质与热降档，由 B 阶段移植
-Tests/VelaPhoneTests/DualQualityTests.swift	testSeriousStepsBothLanesDownOneTierFromTop	milestone-B: 双窗按路画质与热降档，由 B 阶段移植
+Tests/VelaPhoneTests/DualQualityTests.swift	testBothLanesUseTopTierWhenCool	replaced-by:vela.app.stage.DualStageTest#testThermalCapFollowsLaneQualityAndRecoversAtSixtySeconds
+Tests/VelaPhoneTests/DualQualityTests.swift	testSeriousStepsBothLanesDownOneTierFromTop	replaced-by:vela.app.stage.DualStageTest#testThermalCapFollowsLaneQualityAndRecoversAtSixtySeconds
 Tests/VelaPhoneTests/DualQualityTests.swift	testCriticalStepsDownTwoTiersEvenWithoutPicture	milestone-B: 双窗按路画质与热降档，由 B 阶段移植
-Tests/VelaPhoneTests/DualQualityTests.swift	testRecoversOnlyAfterSixtySecondsOfFairOrBelow	milestone-B: 双窗按路画质与热降档，由 B 阶段移植
+Tests/VelaPhoneTests/DualQualityTests.swift	testRecoversOnlyAfterSixtySecondsOfFairOrBelow	replaced-by:vela.core.hls.LaneQualityTests#testThermalStaysLimitedAt59SecondsAndRecoversAt60
 Tests/VelaPhoneTests/DualQualityTests.swift	testReheatRestartsTheSixtySeconds	milestone-B: 双窗按路画质与热降档，由 B 阶段移植
 Tests/VelaPhoneTests/DualQualityTests.swift	testRetargetCapTellsLanesToChangeTierOnBothTransitions	milestone-B: 双窗按路画质与热降档，由 B 阶段移植
 Tests/VelaPhoneTests/DualQualityTests.swift	testStartPlaybackCarriesThermalCap	milestone-B: 双窗按路画质与热降档，由 B 阶段移植
-Tests/VelaPhoneTests/DualQualityTests.swift	testSystemThermalStateMapping	milestone-B: 双窗按路画质与热降档，由 B 阶段移植
+Tests/VelaPhoneTests/DualQualityTests.swift	testSystemThermalStateMapping	replaced-by:vela.app.stage.DualStageTest#testThermalMonitorMapsSystemStatus
 Tests/VelaPhoneTests/DualQualityTests.swift	testRetierSkipsLanesWithoutPlaybackItem	milestone-B: 双窗按路画质与热降档，由 B 阶段移植
-Tests/VelaPhoneTests/DualWindowTests.swift	testPhoneDualDefaultsOffAndIsRemembered	milestone-B: 双窗开关、副路选房与目标路操作，由 B 阶段移植
-Tests/VelaPhoneTests/DualWindowTests.swift	testRememberedDualOpensSecondaryAtLaunch	milestone-B: 双窗开关、副路选房与目标路操作，由 B 阶段移植
-Tests/VelaPhoneTests/DualWindowTests.swift	testSetDualOnCreatesSecondaryAfterPrimary	milestone-B: 双窗开关、副路选房与目标路操作，由 B 阶段移植
-Tests/VelaPhoneTests/DualWindowTests.swift	testSetDualIsIdempotent	milestone-B: 双窗开关、副路选房与目标路操作，由 B 阶段移植
+Tests/VelaPhoneTests/DualWindowTests.swift	testPhoneDualDefaultsOffAndIsRemembered	replaced-by:vela.app.infra.SettingsTest#testDualWindowPersistsAcrossInstances
+Tests/VelaPhoneTests/DualWindowTests.swift	testRememberedDualOpensSecondaryAtLaunch	replaced-by:vela.app.stage.DualStageTest#testRememberedDualFillsSecondaryWhenTheListArrives
+Tests/VelaPhoneTests/DualWindowTests.swift	testSetDualOnCreatesSecondaryAfterPrimary	replaced-by:vela.app.stage.DualStageTest#testSetDualOnPlacesSecondaryAfterPrimaryAndRemembers
+Tests/VelaPhoneTests/DualWindowTests.swift	testSetDualIsIdempotent	replaced-by:vela.app.stage.DualStageTest#testSetDualOnPlacesSecondaryAfterPrimaryAndRemembers
 Tests/VelaPhoneTests/DualWindowTests.swift	testSetDualOffReleasesSecondary	milestone-B: 双窗开关、副路选房与目标路操作，由 B 阶段移植
-Tests/VelaPhoneTests/DualWindowTests.swift	testSetDualOffWithSecondaryFocusKeepsFocusedRoomOnPrimary	milestone-B: 双窗开关、副路选房与目标路操作，由 B 阶段移植
-Tests/VelaPhoneTests/DualWindowTests.swift	testSingleRoomListLeavesSecondaryEmpty	milestone-B: 双窗开关、副路选房与目标路操作，由 B 阶段移植
-Tests/VelaPhoneTests/DualWindowTests.swift	testPhonePlatformSupportsDual	milestone-B: 双窗开关、副路选房与目标路操作，由 B 阶段移植
-Tests/VelaPhoneTests/DualWindowTests.swift	testBlockPrimaryKeepsSecondaryAndStaysDistinct	milestone-B: 双窗开关、副路选房与目标路操作，由 B 阶段移植
-Tests/VelaPhoneTests/DualWindowTests.swift	testBlockSecondaryFindsNextRoom	milestone-B: 双窗开关、副路选房与目标路操作，由 B 阶段移植
+Tests/VelaPhoneTests/DualWindowTests.swift	testSetDualOffWithSecondaryFocusKeepsFocusedRoomOnPrimary	replaced-by:vela.app.stage.DualStageTest#testClosingDualKeepsTheFocusedSecondaryRoom
+Tests/VelaPhoneTests/DualWindowTests.swift	testSingleRoomListLeavesSecondaryEmpty	replaced-by:vela.app.stage.DualStageTest#testSingleRoomLeavesSecondaryEmpty
+Tests/VelaPhoneTests/DualWindowTests.swift	testPhonePlatformSupportsDual	replaced-by:vela.app.stage.StageContractDualTest#testSetDualOpensSecondLaneAndIsIdempotent
+Tests/VelaPhoneTests/DualWindowTests.swift	testBlockPrimaryKeepsSecondaryAndStaysDistinct	replaced-by:vela.app.stage.DualStageTest#testBlockPrimaryKeepsSecondaryDistinct
+Tests/VelaPhoneTests/DualWindowTests.swift	testBlockSecondaryFindsNextRoom	replaced-by:vela.app.stage.DualStageTest#testBlockSecondaryFindsTheNextRoom
 Tests/VelaPhoneTests/DualWindowTests.swift	testUnfavoriteSecondaryRoomInFavoritesSource	milestone-B: 双窗开关、副路选房与目标路操作，由 B 阶段移植
 Tests/VelaPhoneTests/DualWindowTests.swift	testUnfavoritePrimaryRoomInFavoritesSource	milestone-B: 双窗开关、副路选房与目标路操作，由 B 阶段移植
 Tests/VelaPhoneTests/DualWindowTests.swift	testLocalSearchNarrowingStaysDistinct	milestone-B: 双窗开关、副路选房与目标路操作，由 B 阶段移植
 Tests/VelaPhoneTests/DualWindowTests.swift	testSiteSearchInstallAndExitStayDistinct	milestone-B: 双窗开关、副路选房与目标路操作，由 B 阶段移植
 Tests/VelaPhoneTests/DualWindowTests.swift	testSwitchingSourceStaysDistinct	milestone-B: 双窗开关、副路选房与目标路操作，由 B 阶段移植
-Tests/VelaPhoneTests/DualWindowTests.swift	testEmptyListThenPageResumeReselectsBothLanes	milestone-B: 双窗开关、副路选房与目标路操作，由 B 阶段移植
-Tests/VelaPhoneTests/DualWindowTests.swift	testRevealTargetPlayingOnOtherLaneOnlySwitchesFocus	milestone-B: 双窗开关、副路选房与目标路操作，由 B 阶段移植
+Tests/VelaPhoneTests/DualWindowTests.swift	testEmptyListThenPageResumeReselectsBothLanes	replaced-by:vela.app.stage.DualStageTest#testEmptyListThenResumeReselectsBothLanes
+Tests/VelaPhoneTests/DualWindowTests.swift	testRevealTargetPlayingOnOtherLaneOnlySwitchesFocus	replaced-by:vela.app.stage.DualStageTest#testRevealOnTheOtherLaneOnlySwitchesFocus
 Tests/VelaPhoneTests/DualWindowTests.swift	testRevealOtherRoomMovesPrimaryAndFocusesIt	milestone-B: 双窗开关、副路选房与目标路操作，由 B 阶段移植
-Tests/VelaPhoneTests/DualWindowTests.swift	testSwipeSecondarySkipsPrimaryRoom	milestone-B: 双窗开关、副路选房与目标路操作，由 B 阶段移植
+Tests/VelaPhoneTests/DualWindowTests.swift	testSwipeSecondarySkipsPrimaryRoom	replaced-by:vela.app.stage.DualStageTest#testSecondarySwipeSkipsThePrimaryRoom
 Tests/VelaPhoneTests/DualWindowTests.swift	testPrimaryForwardSkipsRoomsTheSecondaryJustLeft	milestone-B: 双窗开关、副路选房与目标路操作，由 B 阶段移植
 Tests/VelaPhoneTests/DualWindowTests.swift	testSecondaryForwardSkipsRoomsThePrimaryJustLeft	milestone-B: 双窗开关、副路选房与目标路操作，由 B 阶段移植
 Tests/VelaPhoneTests/DualWindowTests.swift	testBackSwipeToOwnPreviousRoomIsAllowed	milestone-B: 双窗开关、副路选房与目标路操作，由 B 阶段移植
@@ -162,26 +162,26 @@ Tests/VelaPhoneTests/DualWindowTests.swift	testRecentSkipsSurviveListReload	mile
 Tests/VelaPhoneTests/DualWindowTests.swift	testFavoriteOnSecondaryTargetsSecondaryRoomOnly	milestone-B: 双窗开关、副路选房与目标路操作，由 B 阶段移植
 Tests/VelaPhoneTests/DualWindowTests.swift	testBlockOnSecondaryLeavesPrimaryUntouched	milestone-B: 双窗开关、副路选房与目标路操作，由 B 阶段移植
 Tests/VelaPhoneTests/DualWindowTests.swift	testNotInterestedOnSecondaryMovesOnlySecondary	milestone-B: 双窗开关、副路选房与目标路操作，由 B 阶段移植
-Tests/VelaPhoneTests/DualWindowTests.swift	testPauseOnSecondaryDoesNotPausePrimary	milestone-B: 双窗开关、副路选房与目标路操作，由 B 阶段移植
+Tests/VelaPhoneTests/DualWindowTests.swift	testPauseOnSecondaryDoesNotPausePrimary	replaced-by:vela.app.stage.DualStageTest#testPauseOnSecondaryDoesNotPausePrimary
 Tests/VelaPhoneTests/DualWindowTests.swift	testRetryOnSecondaryRestartsOnlySecondary	milestone-B: 双窗开关、副路选房与目标路操作，由 B 阶段移植
 Tests/VelaPhoneTests/DualWindowTests.swift	testStaleTargetIsIgnoredAfterRoomChange	milestone-B: 双窗开关、副路选房与目标路操作，由 B 阶段移植
 Tests/VelaPhoneTests/DualWindowTests.swift	testSetFocusUpdatesFocusAndDwellFlags	milestone-B: 双窗开关、副路选房与目标路操作，由 B 阶段移植
 Tests/VelaPhoneTests/DualWindowTests.swift	testSetFocusInSingleWindowIsIgnored	milestone-B: 双窗开关、副路选房与目标路操作，由 B 阶段移植
 Tests/VelaPhoneTests/DualWindowTests.swift	testSwipingNonFocusPaneTakesFocusViaMove	milestone-B: 双窗开关、副路选房与目标路操作，由 B 阶段移植
 Tests/VelaPhoneTests/DualWindowTests.swift	testIndexOfLaneFollowsItsRoom	milestone-B: 双窗开关、副路选房与目标路操作，由 B 阶段移植
-Tests/VelaPhoneTests/DualWindowTests.swift	testLandscapeReleasesNonFocusLane	milestone-B: 双窗开关、副路选房与目标路操作，由 B 阶段移植
+Tests/VelaPhoneTests/DualWindowTests.swift	testLandscapeReleasesNonFocusLane	replaced-by:vela.app.stage.DualStageTest#testLandscapeReleasesTheNonFocusLaneButKeepsItsRoom
 Tests/VelaPhoneTests/DualWindowTests.swift	testLandscapeReleasesPrimaryWhenSecondaryHasFocus	milestone-B: 双窗开关、副路选房与目标路操作，由 B 阶段移植
 Tests/VelaPhoneTests/DualWindowTests.swift	testBackToPortraitRequestsPlayForReleasedLane	milestone-B: 双窗开关、副路选房与目标路操作，由 B 阶段移植
 Tests/VelaPhoneTests/DualWindowTests.swift	testRoomChangeWhileHiddenDoesNotStartPlayback	milestone-B: 双窗开关、副路选房与目标路操作，由 B 阶段移植
 Tests/VelaPhoneTests/DualWindowTests.swift	testSetLandscapeIsIdempotentAndIgnoredInSingleWindow	milestone-B: 双窗开关、副路选房与目标路操作，由 B 阶段移植
 Tests/VelaPhoneTests/DualWindowTests.swift	testClosingDualInLandscapeRestoresVisibility	milestone-B: 双窗开关、副路选房与目标路操作，由 B 阶段移植
-Tests/VelaPhoneTests/DualWindowTests.swift	testLanesDistinctFollowsRooms	milestone-B: 双窗开关、副路选房与目标路操作，由 B 阶段移植
+Tests/VelaPhoneTests/DualWindowTests.swift	testLanesDistinctFollowsRooms	replaced-by:vela.app.e2e.b.MilestoneBTest#test01DualDistinctRoomsFocusAudioAndRemembered
 Tests/VelaPhoneTests/FailureSampleTests.swift	testGarbageMovieFileIsRoomFailureOnSecondary	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
 Tests/VelaPhoneTests/FailureSampleTests.swift	testTruncatedMovieHeaderIsRoomFailureOnSecondary	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
 Tests/VelaPhoneTests/FailureSampleTests.swift	testGarbageQuickTimeFileIsRoomFailureOnSecondary	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
 Tests/VelaPhoneTests/FailureSampleTests.swift	testDecodeFailureAndMissingDecoderCodesStayRoomFailureInDualWindow	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
-Tests/VelaPhoneTests/FailureSampleTests.swift	testOnlyWhitelistedDecoderCodeOnSecondaryDegradesAndPrimaryNever	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
-Tests/VelaPhoneTests/FailureSampleTests.swift	testDegradeIsOnlyReachedThroughTheWhitelistHook	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/FailureSampleTests.swift	testOnlyWhitelistedDecoderCodeOnSecondaryDegradesAndPrimaryNever	replaced-by:vela.core.hls.PlaybackFailureClassifierTests#testSecondaryDualWindowDecoderTemporarilyUnavailableIsResourceDegrade
+Tests/VelaPhoneTests/FailureSampleTests.swift	testDegradeIsOnlyReachedThroughTheWhitelistHook	replaced-by:vela.app.stage.DualStageTest#testSecondaryDecoderResourceDegradesWithoutTouchingPrimary
 Tests/VelaPhoneTests/LifecycleWiringTests.swift	testBackgroundRejectsSharedAndLaneTokensAtAllFourGates	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
 Tests/VelaPhoneTests/LifecycleWiringTests.swift	testInactiveAloneDoesNotSuspend	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
 Tests/VelaPhoneTests/LifecycleWiringTests.swift	testSuspendCancelsSharedAndLaneTasks	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
