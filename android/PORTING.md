@@ -160,7 +160,7 @@ FeedCache 的随机性质测试只断言不变量。Kotlin 用同一个种子，
 
 ## §8 公开方案核对（2026-11-18）
 
-00 负责表里前两项。页面都打开过。画中画那一项留给 PiP1。
+00 负责表里前两项。页面都打开过。画中画已由里程碑 C 接入（见 `android/docs/pip.md`、`docs/ARCHITECTURE.md` 11.5）；产品行为验收见 `emu-modes/e2e-c.sh` 与 `MilestoneCTest`，是行为门，不是性能基线（`docs/PERF.md` 里程碑 C 一节）。
 
 借什么、不借什么仍按计划表，下面只记当天页面上实际看到的：
 
@@ -192,6 +192,7 @@ FeedCache 的随机性质测试只断言不变量。Kotlin 用同一个种子，
 **规则（不变）**
 
 - 里程碑 B **产品行为**验收以 S-B1、S-B2 与 `emu-modes/e2e-b.sh` 为准；parity 里这 121 条可在后续包（或 C9 扩展）里改成 Kotlin 测试 + `split-*.tsv`，或拆成「三窗永不过」并改写理由为「不移植：三窗」——须编排者裁决，执行者不得自行改名糊弄 `--all`。
+- 里程碑 C **产品行为**验收以 S-C1、S-C2、S-C3 与 `emu-modes/e2e-c.sh` 为准（`MilestoneCTest`）；`emu-modes/pip.sh`（`PipEmulatorTest`）为包级补充。这是行为门，不是性能基线。
 - 理由以「不移植：iOS」开头的是真平台绑定（AVAudioSession、UIKit PiP、MetricKit 等），长期保留。
 - 里程碑 B 收尾若要求 `grep -rn 'milestone-B' android/parity` 为零，需要上述迁移或裁决 **之后**再删行；D-B 只记录现状，不删 skip。
 
@@ -207,9 +208,9 @@ FeedCache 的随机性质测试只断言不变量。Kotlin 用同一个种子，
 
 `VisibleForTesting` 为 CLASS retention，仪器进程不能单靠反射查注解；单测 `E2eBTestHooksTest` 用 `getMethod` 钉住 JVM 签名即可。
 
-### 里程碑 B 文档
+### 里程碑 B / C 文档
 
-双窗舞台、界面、减路与临时释放语义见 `android/docs/dual-window.md`。架构总览见 `docs/ARCHITECTURE.md` 第 11 节；性能门见 `docs/PERF.md` 里程碑 B 小节。
+双窗舞台、界面、减路与临时释放语义见 `android/docs/dual-window.md`；画中画接线、状态机、3 秒回退与端到端门见 `android/docs/pip.md`。架构总览见 `docs/ARCHITECTURE.md` 第 11 节；行为门见 `docs/PERF.md` 里程碑 B / C 小节。
 
 ## 本次 release 体积
 
