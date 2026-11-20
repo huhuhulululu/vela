@@ -25,18 +25,21 @@ class StageThermalHookTest {
         val directory = Files.createTempDirectory("vela-thermal-hook")
         val stage = StageViewModel(
             settings = Settings(context),
-            http = scriptHttp { "{}" },
+            http = scriptHttp { ok("{}") },
             directory = directory,
             context = context,
         )
         try {
             assertFalse(stage.isQualityLimitedForTest())
-            stage.injectThermalForTest(PhoneThermalState.SERIOUS, Instant.EPOCH, scheduleRecovery = false)
+            val t0 = Instant.EPOCH
+            stage.injectThermalForTest(PhoneThermalState.SERIOUS, t0, scheduleRecovery = false)
             assertTrue(stage.isQualityLimitedForTest())
             val cap = stage.laneCapForTest(LaneID.PRIMARY)
             assertTrue(cap.isFinite())
             assertTrue(cap >= LaneQuality.minimumBitrate)
-            stage.injectThermalForTest(PhoneThermalState.NOMINAL, Instant.EPOCH, scheduleRecovery = false)
+            stage.injectThermalForTest(PhoneThermalState.FAIR, t0, scheduleRecovery = false)
+            assertTrue(stage.isQualityLimitedForTest())
+            stage.injectThermalForTest(PhoneThermalState.FAIR, t0.plusSeconds(61), scheduleRecovery = false)
             assertFalse(stage.isQualityLimitedForTest())
         } finally {
             stage.close()
