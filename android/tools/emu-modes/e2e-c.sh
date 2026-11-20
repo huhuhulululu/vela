@@ -110,10 +110,13 @@ def is_media(row):
     target = row.get("path") or ""
     return target.endswith(".m3u8") or target.endswith(".ts")
 
-pip = between("/marker/pip-s1-begin", "/marker/pip-s1-end")
-pip_media = [row for row in pip if is_media(row)]
-if index("/marker/pip-s1-begin") >= 0 and index("/marker/pip-s1-end") >= 0 and not pip_media:
-    raise SystemExit("画中画窗口里没有媒体请求，焦点路可能未联网")
+pip_media = 0
+if index("/marker/pip-s1-begin") >= 0 and index("/marker/pip-s1-end") >= 0:
+    pip = between("/marker/pip-s1-begin", "/marker/pip-s1-end")
+    pip_rows = [row for row in pip if is_media(row)]
+    pip_media = len(pip_rows)
+    if not pip_rows:
+        raise SystemExit("画中画窗口里没有媒体请求，焦点路可能未联网")
 
 quiet = between("/marker/pip-s3-begin", "/marker/pip-s3-end")
 if quiet:

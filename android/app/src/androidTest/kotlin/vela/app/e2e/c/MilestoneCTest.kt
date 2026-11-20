@@ -50,7 +50,6 @@ class MilestoneCTest {
         assertTrue(stage.state.value.lanesDistinct())
         E2eCSupport.onMain(stage) { stage.dispatch(StageIntent.NoteActivity) }
 
-        E2eCSupport.hit(upstream, "/marker/pip-s1-begin")
         E2eCSupport.pressHome()
         assertTrue(
             "没有进后台",
@@ -61,6 +60,7 @@ class MilestoneCTest {
         val entered = supported && E2eCSupport.waitEnterPipOrStop(activity, 4_000)
 
         if (supported && entered) {
+            E2eCSupport.hit(upstream, "/marker/pip-s1-begin")
             assertTrue(
                 "画中画应锁定焦点路",
                 E2eCSupport.waitUntil(3_000) {
@@ -93,6 +93,17 @@ class MilestoneCTest {
                 coordinator?.pictureInPictureState == PiPPolicy.State.ACTIVE ||
                     activity.isInPictureInPictureMode,
             )
+            val lane = activity.session.lane.value
+            val renderedStart = lane?.let { E2eCSupport.renderedOutputBufferCount(it) } ?: 0
+            assertTrue(
+                "画中画里焦点路应持续出画",
+                lane != null &&
+                    E2eCSupport.waitUntil(8_000) {
+                        E2eCSupport.renderedOutputBufferCount(lane) > renderedStart
+                    },
+            )
+
+            E2eCSupport.hit(upstream, "/marker/pip-s1-end")
 
             E2eCSupport.bringToForeground(activity)
             assertTrue(
@@ -115,7 +126,6 @@ class MilestoneCTest {
                 },
             )
         }
-        E2eCSupport.hit(upstream, "/marker/pip-s1-end")
     }
 
     @Test(timeout = 300_000)
