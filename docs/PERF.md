@@ -524,7 +524,18 @@ T18、T18b、T19 的实跑（2026-11-18，分支 `feat/ios-pr3`）。全程静�
 
 ### 还没有的基线
 
-仓库里没有模拟器资源采样的 JSON（作业写在结果目录，文件名 e2e-a-resources.json），也没有模拟器上的 PSS、CPU 中位数。计划写里程碑 A 的首测写入本文，之后按基线 +10% 做门。首测数字不在这棵树上，本文不编造，也不把「+10%」写成一个具体的 KB 或百分比。`android/PORTING.md` 文末的 `apk_bytes=667213` 是脚手架当时的空壳包，不是现在的 `:app`。体积门仍是 `android/tools/check-apk.sh` 的 5120 KB；等有一次当前 release 包的实测，再把字节数记进来。
+仓库里仍没有入库的模拟器资源采样 JSON（作业写在结果目录，文件名 e2e-a-resources.json）。下面是一次 CI 运行的观测，原样引自日志，不是入库基线。来源：GitHub Actions 运行 44703388301 第 2 次，提交 4621e0689bba4c13e777efb5e0b6aa4c56f30b8e，日志里的 e2e-a JSON，共 32 条样本。
+
+| 项 | 观测 |
+|---|---|
+| TOTAL PSS | 最小 125927 KB，最大 141190 KB，中位数 136125 KB |
+| cpu_percent 为 null 的 20 条 | PSS 中位数 137198.5 KB（128633 到 141190 KB） |
+| cpu_percent 为 0 的 12 条 | PSS 中位数 133593.5 KB |
+| CPU tick 估算 | tick 单调的前 31 条跨 149 秒，utime+stime 增加 1574；按 Android USER_HZ 100 估算约合单核 10.6% |
+
+最后一条样本的 tick 掉到 126，是进程重启，不计入单调前缀。播放那一段进程百分比为空，是因为 dumpsys cpuinfo 没把 vela.app 列出来，不是采样脚本的正则写错。dumpsys cpuinfo 的 TOTAL 先是 93 后是 14，那是整机，不是本应用；dumpsys 的百分比不能当本应用的 CPU 基线。解析与 tick 估算在 `android/tools/resource_sample.py`；`android/tools/emu-modes/e2e-a.sh` 末尾只打印单调 tick 增量、墙钟秒数和按 100 Hz 估算的单核比例，不因中位数高低失败。
+
+计划写里程碑 A 的首测写入本文，之后按基线 +10% 做门。这次「基线 +10%」不落成 CI 失败条件：只有一轮观测，而且播放段没有进程百分比，立不起 CPU 基线；PSS 中位数也暂不做失败阈值。`android/PORTING.md` 文末的 `apk_bytes=667213` 是脚手架当时的空壳包，不是现在的 `:app`。体积门仍是 `android/tools/check-apk.sh` 的 5120 KB；等有一次当前 release 包的实测，再把字节数记进来。
 
 ## 安卓（里程碑 B，竖屏双窗）
 

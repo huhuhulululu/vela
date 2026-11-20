@@ -5,7 +5,7 @@
 ## 接线
 
 - `MainActivity.onCreate` 总是创建 `PiPCoordinator` 与 `ActivityPictureInPicture`，事件经 `LifecycleWiring.onPictureInPictureEvent` 转给协调器并同步 `StageUiState.pictureInPicture`。只有 `pipHost.supported`（`PackageManager.FEATURE_PICTURE_IN_PICTURE`）时才 `attach()` 并赋给 `coordinator.pip`；不支持的设备上 `coordinator.pip` 为 null。
-- `LifecycleWiring.attachPictureInPicture` 把 `StageIntent.EnterPictureInPicture` / `TogglePictureInPicture` / `SetAutoEnterPip` 的回调接到 `PiPCoordinator.enterFromUi` / `toggleFromUi` / `setAutoEnter`。这三个意图在 `StageContract.kt` 里已有，但当前没有任何界面派发它们（只有仪器测试用）；`Chrome.kt` 尚未画画中画按钮，回桌面自动进入不依赖按钮。
+- `LifecycleWiring.attachPictureInPicture` 把 `StageIntent.EnterPictureInPicture` / `TogglePictureInPicture` / `SetAutoEnterPip` 的回调接到 `PiPCoordinator.enterFromUi` / `toggleFromUi` / `setAutoEnter`。这三个意图在 `StageContract.kt` 里已有；`ChromeBar` 派发 `EnterPictureInPicture`（顶栏「画中画」按钮，testTag `enter-pip`）和 `SetAutoEnterPip`（「回桌面自动画中画」开关，testTag `toggle-auto-pip`，默认开）。`TogglePictureInPicture` 仍然没有界面入口；回桌面自动进入不依赖按钮。
 - `PictureInPictureControlling` 是生命周期对控制器的最小接口，测试用桩替换；正式实现是 `ActivityPictureInPicture`。
 
 ## 进后台：继续焦点路还是全停
