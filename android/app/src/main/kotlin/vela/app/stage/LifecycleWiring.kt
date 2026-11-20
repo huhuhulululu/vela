@@ -24,12 +24,12 @@ import vela.core.lifecycle.PhoneLifecycle
 import vela.core.lifecycle.PhoneLifecycleAction
 import vela.core.lifecycle.PhoneResumeIntent
 import vela.core.lifecycle.PhoneScenePhase
+import vela.core.lifecycle.PiPPolicy
 
 /**
  * 前后台接线。动作顺序只来自 [PhoneLifecycle.actions]，这里不重排。
  *
- * 没有画中画时（本包不传 `pip`，画中画留给 PiP1）进后台的顺序是：
- * 关闸门、作废代次、结算停留、刷盘、释放各路、放弃音频焦点、停监听并销毁侧车、记下恢复意图。
+ * 无画中画输入时进后台全停；有输入时按 [PhoneLifecycle.pictureInPictureBackground] 只留焦点路。
  * 回到 active 且曾经挂起过：恢复代次，重做恢复意图，再按冻结裁决 7 逐路处理。
  * inactive 只停停留计时，画面继续播。
  */
@@ -37,6 +37,9 @@ class LifecycleWiring(
     private val stage: StageViewModel,
     private val session: LifecycleSession,
 ) {
+    var pipInput: (() -> PiPPolicy.Input?)? = null
+    var onPipBackgroundActions: ((List<PhoneLifecycleAction>) -> Unit)? = null
+    var onPipResuming: (() -> Unit)? = null
     var phase: PhoneScenePhase = PhoneScenePhase.INACTIVE
         private set
 
@@ -75,21 +78,32 @@ class LifecycleWiring(
             stage.notedResume
         }
         val lanes = stage.phoneSnapshots()
-        // PiP1 才会传入画中画输入。这里恒为 null：回桌面一律全停。
+        val pip = when {
+            next == PhoneScenePhase.BACKGROUND && phase != PhoneScenePhase.BACKGROUND ->
+                pipInput?.invoke()
+            else -> null
+        }
         val actions = PhoneLifecycle.actions(
             from = phase,
             to = next,
             wasSuspended = wasSuspended,
             lanes = lanes,
             resumeIntent = intent,
-            pip = null,
+            pip = pip,
         )
         val previous = phase
         phase = next
         if (next == PhoneScenePhase.BACKGROUND && previous != PhoneScenePhase.BACKGROUND && actions.isNotEmpty()) {
             wasSuspended = true
         }
-        for (action in actions) apply(action)
+        val pipLane = pipLaneFrom(actions)
+        for (action in actions) apply(action, pipLane)
+        if (next == PhoneScenePhase.BACKGROUND && previous != PhoneScenePhase.BACKGROUND) {
+            onPipBackgroundActions?.invoke(actions)
+        }
+        if (next == PhoneScenePhase.ACTIVE && (previous == PhoneScenePhase.BACKGROUND || wasSuspended)) {
+            onPipResuming?.invoke()
+        }
         if (next == PhoneScenePhase.ACTIVE) {
             // 冷启动没有 EpochResume。只在会话还没初始化时套用保存的静音偏好并登记拔耳机。
             // 没挂起过的 INACTIVE→ACTIVE 也会走到这里；会话已在时不能再 applyStored，
@@ -103,7 +117,18 @@ class LifecycleWiring(
         Log.i(TAG, "phase=$phase actions=${actions.size}")
     }
 
-    private fun apply(action: PhoneLifecycleAction) {
+    /** 画中画结束或 3 秒回退后补做进后台全停。 */
+    fun applyPictureInPictureStop(actions: List<PhoneLifecycleAction>) {
+        val pipLane = pipLaneFrom(actions)
+        for (action in actions) apply(action, pipLane)
+    }
+
+    private fun pipLaneFrom(actions: List<PhoneLifecycleAction>): PlaybackLaneRole? =
+        actions.firstNotNullOfOrNull { action ->
+            if (action is PhoneLifecycleAction.AllowLaneRequests) action.role else null
+        }
+
+    private fun apply(action: PhoneLifecycleAction, pipLane: PlaybackLaneRole?) {
         when (action) {
             PhoneLifecycleAction.GateOff -> {
                 steps.add("gate-off")
@@ -185,19 +210,20 @@ class LifecycleWiring(
             is PhoneLifecycleAction.StayReleased -> steps.add("stay-released")
             PhoneLifecycleAction.SuspendSharedTasks -> {
                 steps.add("suspend-shared")
-                stage.cancelSharedWork()
-            }
-            is PhoneLifecycleAction.AllowLaneRequests -> {
-                steps.add("allow-lane")
-                stage.lifecycleEpoch.suspend(action.role)
+                stage.suspendWork(pipLane)
                 session.onEpoch(stage.lifecycleEpoch)
             }
+            is PhoneLifecycleAction.AllowLaneRequests -> steps.add("allow-lane")
             is PhoneLifecycleAction.ReleaseLane -> {
-                steps.add("release-lane")
-                session.suspendLanes()
+                steps.add("release-lane-${action.role}")
+                stage.releaseLaneInBackground(action.role)
+                session.releaseLane(action.role)
             }
             is PhoneLifecycleAction.ContinueLane -> steps.add("continue-lane")
-            is PhoneLifecycleAction.RetainRelaySource -> steps.add("retain-relay")
+            is PhoneLifecycleAction.RetainRelaySource -> {
+                steps.add("retain-relay")
+                session.retainRelayFor(action.role)
+            }
         }
     }
 
@@ -211,6 +237,8 @@ interface LifecycleSession {
     fun closeGate()
     fun onEpoch(epoch: LifecycleEpoch)
     fun suspendLanes()
+    fun releaseLane(role: PlaybackLaneRole)
+    fun retainRelayFor(role: PlaybackLaneRole)
     fun deactivateAudio()
     fun prepareAudio()
     fun stopListener()
@@ -243,6 +271,8 @@ class AppPlaybackSession(
     private var observedSecondary: PlaybackLane? = null
     private var audioStarted: Boolean = false
     private val lanesByRole = HashMap<PlaybackLaneRole, PlaybackLane>()
+
+    val audioForPip: AudioFocusController get() = audio
 
     private val audio: AudioFocusController = AudioFocusController(
         context = activity,
@@ -305,6 +335,37 @@ class AppPlaybackSession(
             secondary.suspendNow()
             secondary.release()
         }
+    }
+
+    override fun releaseLane(role: PlaybackLaneRole) {
+        when (role) {
+            PlaybackLaneRole.PRIMARY -> Unit
+            PlaybackLaneRole.SECONDARY -> releaseSecondaryLane()
+            PlaybackLaneRole.TERTIARY -> Unit
+        }
+    }
+
+    override fun retainRelayFor(role: PlaybackLaneRole) {
+        val primary = mutableLane.value
+        val secondary = secondaryLane
+        if (role != PlaybackLaneRole.PRIMARY) {
+            primary?.activeSourceId?.let { hub.deactivate(it) }
+        }
+        if (role != PlaybackLaneRole.SECONDARY) {
+            secondary?.activeSourceId?.let { hub.deactivate(it) }
+        }
+    }
+
+    fun laneForRole(role: PlaybackLaneRole): PlaybackLane? = when (role) {
+        PlaybackLaneRole.PRIMARY -> mutableLane.value
+        PlaybackLaneRole.SECONDARY -> secondaryLane
+        PlaybackLaneRole.TERTIARY -> null
+    }
+
+    fun isLaneAdvancing(role: PlaybackLaneRole): Boolean {
+        val lane = laneForRole(role) ?: return false
+        val playing = lane.playingUsername
+        return playing != null && !lane.failed
     }
 
     override fun deactivateAudio() {

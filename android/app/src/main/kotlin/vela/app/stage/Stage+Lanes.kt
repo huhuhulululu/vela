@@ -855,8 +855,39 @@ private fun StageViewModel.dropSecondary(reason: LaneEndReason) {
     secondaryFocusLog.reset()
 }
 
+internal fun StageViewModel.releaseLaneInBackground(role: PlaybackLaneRole) {
+    when (role) {
+        PlaybackLaneRole.PRIMARY -> Unit
+        PlaybackLaneRole.SECONDARY -> dropSecondary(LaneEndReason.BACKGROUND)
+        PlaybackLaneRole.TERTIARY -> Unit
+    }
+}
+
+internal fun StageViewModel.syncLaneCountLock(locked: Boolean) {
+    if (locked == laneCountLocked) return
+    laneCountLocked = locked
+    if (!locked) {
+        val next = LaneWindow.restoreRemembered(state.value)
+        if (next.laneCount != laneCount) {
+            setLaneCount(next.laneCount, remember = false)
+        } else {
+            publish()
+        }
+    } else {
+        publish()
+    }
+}
+
+internal fun StageViewModel.setPipSolo(on: Boolean) {
+    if (on == pipSolo) return
+    pipSolo = on
+    syncLaneVisibility()
+    syncLaneCaps()
+    publish()
+}
+
 private fun StageViewModel.syncLaneVisibility() {
-    val solo = landscape && laneCount > 1
+    val solo = (landscape || pipSolo) && laneCount > 1
     val showPrimary = !solo || focusLane == LaneID.PRIMARY
     if (laneFace.visible != showPrimary) {
         laneFace = laneFace.copy(visible = showPrimary)

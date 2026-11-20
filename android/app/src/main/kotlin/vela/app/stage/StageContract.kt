@@ -437,6 +437,12 @@ sealed interface StageIntent {
      * 竖屏舞台尺寸（点）。高小于宽的测量丢掉，避免横竖屏在阈值附近来回翻转。
      */
     data class NotePortraitStageSize(val width: Double, val height: Double) : StageIntent
+
+    /** 设置里的「回桌面自动进入画中画」。 */
+    data class SetPipAutoEnter(val enabled: Boolean) : StageIntent
+
+    /** 手动进入或退出画中画。不支持时忽略。 */
+    data object TogglePictureInPicture : StageIntent
 }
 
 /** 假舞台记下的副作用。真 ViewModel 自己去做，不积累这份列表。 */

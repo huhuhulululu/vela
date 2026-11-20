@@ -45,6 +45,8 @@ class InactiveDwellTest {
             override fun closeGate() = Unit
             override fun onEpoch(epoch: LifecycleEpoch) = Unit
             override fun suspendLanes() = Unit
+            override fun releaseLane(role: vela.core.base.lane.PlaybackLaneRole) = Unit
+            override fun retainRelayFor(role: vela.core.base.lane.PlaybackLaneRole) = Unit
             override fun deactivateAudio() = Unit
             override fun prepareAudio() = Unit
             override fun stopListener() = Unit

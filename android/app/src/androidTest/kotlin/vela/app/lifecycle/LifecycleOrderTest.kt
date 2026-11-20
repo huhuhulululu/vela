@@ -19,6 +19,7 @@ import vela.app.stage.LifecycleWiring
 import vela.app.stage.SidecarPage
 import vela.app.stage.StageIntent
 import vela.app.stage.StageViewModel
+import vela.core.base.lane.PlaybackLaneRole
 import vela.core.base.model.FeedSource
 import vela.core.base.net.HTTPClient
 import vela.core.base.net.HTTPRequest
@@ -219,6 +220,14 @@ class LifecycleOrderTest {
         override fun suspendLanes() {
             suspends += 1
             calls.add("suspend-lanes")
+        }
+
+        override fun releaseLane(role: PlaybackLaneRole) {
+            calls.add("release-$role")
+        }
+
+        override fun retainRelayFor(role: PlaybackLaneRole) {
+            calls.add("retain-$role")
         }
 
         override fun deactivateAudio() {

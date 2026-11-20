@@ -1,6 +1,7 @@
 package vela.app
 
 import android.content.Context
+import android.content.res.Configuration
 import android.net.Uri
 import android.os.Bundle
 import android.view.ViewGroup
@@ -25,6 +26,8 @@ import kotlinx.coroutines.withContext
 import vela.app.infra.AtomicFile
 import vela.app.infra.HttpClientImpl
 import vela.app.infra.Settings
+import vela.app.pip.PipBridge
+import vela.app.pip.PipHost
 import vela.app.lane.LaneSurface
 import vela.app.stage.AppPlaybackSession
 import vela.app.stage.LifecycleWiring
@@ -53,6 +56,9 @@ class MainActivity : ComponentActivity() {
         private set
 
     lateinit var session: AppPlaybackSession
+        private set
+
+    internal var pipBridge: PipBridge? = null
         private set
 
     private var composeView: ComposeView? = null
@@ -150,9 +156,27 @@ class MainActivity : ComponentActivity() {
             restoreComposition = { showStage() },
         )
         val wiring = LifecycleWiring(stage, session)
+        val pipHost = PipHost(activity = this, onToggleMute = {
+            if (!this::stage.isInitialized) return@PipHost
+            stage.dispatch(vela.app.stage.StageIntent.ToggleMute)
+        })
+        val bridge = PipBridge(
+            stage = stage,
+            wiring = wiring,
+            session = session,
+            host = pipHost,
+            audio = session.audioForPip,
+            videoViewProvider = { composeView },
+        )
+        wiring.pipInput = { bridge.beforeBackgroundTransition() }
+        wiring.onPipBackgroundActions = { bridge.afterBackgroundActions(it) }
+        wiring.onPipResuming = { bridge.onReturningToForeground() }
+        stage.onPipAutoEnter = { enabled -> bridge.setAutoEnter(enabled) }
+        stage.onPipToggle = { bridge.toggleFromChrome() }
         this.stage = stage
         this.session = session
         this.wiring = wiring
+        this.pipBridge = bridge
         stage.onQuit = { finish() }
         stage.bindLifecycleHooks(
             ensurePlayback = { session.ensureLane() },
@@ -213,12 +237,26 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        pipBridge?.close()
         if (this::wiring.isInitialized) {
             wiring.moveTo(PhoneScenePhase.BACKGROUND)
             session.releaseLeftovers()
             stage.close()
         }
         super.onDestroy()
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        pipBridge?.onUserLeaveHint()
+    }
+
+    override fun onPictureInPictureModeChanged(
+        isInPictureInPictureMode: Boolean,
+        newConfig: Configuration,
+    ) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        pipBridge?.onPictureInPictureModeChanged(isInPictureInPictureMode)
     }
 
     private fun showStage() {

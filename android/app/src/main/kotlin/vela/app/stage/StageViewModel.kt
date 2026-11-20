@@ -201,6 +201,7 @@ class StageViewModel(
     internal var landscape: Boolean = false
     internal var laneCountLocked: Boolean = false
     internal var focusLocked: Boolean = false
+    internal var pipSolo: Boolean = false
     internal var thermal: PhoneThermalState = PhoneThermalState.NOMINAL
     internal val laneQuality: LaneQuality = LaneQuality()
     internal var screenScale: Double = 1.0
@@ -484,8 +485,13 @@ class StageViewModel(
             is StageIntent.SetFocus -> setFocus(intent.lane)
             is StageIntent.SetLandscape -> setLandscape(intent.on)
             is StageIntent.NotePortraitStageSize -> notePortraitStageSize(intent.width, intent.height)
+            is StageIntent.SetPipAutoEnter -> onPipAutoEnter?.invoke(intent.enabled)
+            StageIntent.TogglePictureInPicture -> onPipToggle?.invoke()
         }
     }
+
+    internal var onPipAutoEnter: ((Boolean) -> Unit)? = null
+    internal var onPipToggle: (() -> Unit)? = null
 
     override fun noteReady(username: String?) {
         laneFace = laneFace.copy(readyUsername = username)
@@ -782,9 +788,37 @@ class StageViewModel(
         publish()
     }
 
+    /**
+     * 挂起共享任务。画中画时只放行 [allowingLane] 这一路，代次与 iOS 对齐。
+     */
+    internal fun suspendWork(allowingLane: PlaybackLaneRole? = null) {
+        if (allowingLane == null) {
+            invalidateGenerations()
+            cancelSharedWork()
+            return
+        }
+        if (!lifecycleEpoch.suspended) {
+            // 记下活动状态，恢复时沿用。
+        }
+        lifecycleEpoch.suspend(allowingLane)
+        loadGeneration += 1
+        cancelSharedWork()
+        if (allowingLane != PlaybackLaneRole.PRIMARY) {
+            playJob?.cancel()
+            playJob = null
+        }
+        if (allowingLane != PlaybackLaneRole.SECONDARY) {
+            secondaryPlayJob?.cancel()
+            secondaryPlayJob = null
+        }
+        sidecarHolder?.suspendPage()
+        publish()
+    }
+
     internal fun resumeGenerations() {
         lifecycleEpoch.resume()
         playbackGateOpen = true
+        focusLocked = false
     }
 
     internal fun applyMute(nextMuted: Boolean, writeSettings: Boolean) {

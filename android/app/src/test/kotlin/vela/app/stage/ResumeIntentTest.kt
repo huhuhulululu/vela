@@ -19,6 +19,7 @@ import vela.core.base.model.FeedSource
 import vela.core.base.net.HTTPClient
 import vela.core.base.net.HTTPRequest
 import vela.core.base.net.HTTPResult
+import vela.core.base.lane.PlaybackLaneRole
 import vela.core.lifecycle.LifecycleEpoch
 import vela.core.lifecycle.PhoneScenePhase
 
@@ -111,6 +112,8 @@ class ResumeIntentTest {
         override fun closeGate() = Unit
         override fun onEpoch(epoch: LifecycleEpoch) = Unit
         override fun suspendLanes() = Unit
+        override fun releaseLane(role: PlaybackLaneRole) = Unit
+        override fun retainRelayFor(role: PlaybackLaneRole) = Unit
         override fun deactivateAudio() = Unit
         override fun prepareAudio() = Unit
         override fun stopListener() = Unit
