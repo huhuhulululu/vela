@@ -32,13 +32,14 @@ import vela.app.stage.StageIntent
 import vela.app.stage.StageViewModel
 import vela.app.stage.challengeEntryUrl
 import vela.app.ui.StageScreen
+import vela.core.base.lane.LaneID
 import vela.core.base.model.Prefs
 import vela.core.lifecycle.PhoneScenePhase
 
 /**
- * 单窗入口。前后台交给 [LifecycleWiring]：没有画中画时回桌面按
- * [vela.core.lifecycle.PhoneLifecycle] 全停，回前台按冻结裁决 7 恢复。
- * 画中画（B2 之后的 PiP1）再改这个文件。
+ * 应用入口。竖屏可开双窗（接口留三路）；前后台交给 [LifecycleWiring]：
+ * 没有画中画时回桌面按 [vela.core.lifecycle.PhoneLifecycle] 全停，回前台按冻结裁决 7 恢复。
+ * 画中画（PiP1）再改这个文件。
  *
  * debug / perf 会多编 src/hooks。若存在 [vela.app.hooks.Hooks.install]，启动时调用。
  * 同一套 hooks 里的 [vela.app.hooks.StageHost] 可以让单路仪器测试只拿空宿主，
@@ -229,13 +230,21 @@ class MainActivity : ComponentActivity() {
         val stage = this.stage
         val session = this.session
         view.setContent {
-            val lane by session.lane.collectAsState()
+            val state by stage.state.collectAsState()
+            val primary by session.lane.collectAsState()
+            // 副路挂在舞台上；读 state 触发重组时一起拿到最新的 secondaryLane。
+            val secondary = stage.secondaryLane
+            val laneCount = state.laneCount
             StageScreen(
                 stage = stage,
                 challengeUrl = challengeEntryUrl(),
                 onImportFavorites = { launchFavoriteImport() },
-            ) { _ ->
-                val current = lane
+            ) { laneId, _ ->
+                val current = when (laneId) {
+                    LaneID.PRIMARY -> primary
+                    LaneID.SECONDARY -> if (laneCount >= 2) secondary else null
+                    LaneID.TERTIARY -> null
+                }
                 if (current != null) {
                     LaneSurface(lane = current, thumbnail = null, modifier = Modifier.fillMaxSize())
                 }
