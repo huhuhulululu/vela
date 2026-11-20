@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pip_action_mute">静音</string>
+    <string name="pip_action_unmute">取消静音</string>
+    <string name="pip_auto_enter">回桌面自动画中画</string>
+    <string name="pip_enter">画中画</string>
+    <string name="pip_lane_locked">画中画进行中，结束后可调整路数</string>
+</resources>

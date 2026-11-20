@@ -1,0 +1,214 @@
+package vela.app.pip
+
+import android.app.PendingIntent
+import android.app.PictureInPictureParams
+import android.app.RemoteAction
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.content.pm.PackageManager
+import android.graphics.drawable.Icon
+import android.os.Build
+import android.util.Log
+import androidx.activity.ComponentActivity
+import vela.app.R
+import vela.app.stage.StageIntent
+import vela.app.stage.StageViewModel
+
+/**
+ * Activity 侧画中画：比例夹紧、[RemoteAction] 切换静音、
+ * API 31+ [PictureInPictureParams.setAutoEnterEnabled]，26–30 用 [onUserLeaveHint] 兜底。
+ */
+class ActivityPictureInPicture(
+    private val activity: ComponentActivity,
+    private val stage: StageViewModel,
+    private val onEvent: (PiPEvent) -> Unit,
+) : PictureInPictureControlling {
+    private var receiverRegistered = false
+    private var bound = false
+
+    override var autoEnter: Boolean = stage.settings.autoEnterPip
+        set(value) {
+            field = value
+            updateParams(enter = false)
+        }
+
+    override val canAutoEnter: Boolean
+        get() = autoEnter && supported && bound
+
+    val supported: Boolean =
+        activity.packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
+
+    fun attach() {
+        if (!supported || bound) return
+        bound = true
+        registerMuteReceiver()
+        updateParams(enter = false)
+        Log.i(TAG, "pip attach")
+    }
+
+    fun detach() {
+        if (!bound) return
+        bound = false
+        unregisterMuteReceiver()
+        Log.i(TAG, "pip detach")
+    }
+
+    override fun enter() {
+        if (!supported || activity.isInPictureInPictureMode) return
+        val params = buildParams()
+        try {
+            if (Build.VERSION.SDK_INT >= 26) {
+                activity.enterPictureInPictureMode(params)
+            }
+        } catch (error: IllegalStateException) {
+            onEvent(PiPEvent.Failed(error.message ?: "enter-failed"))
+        } catch (error: IllegalArgumentException) {
+            onEvent(PiPEvent.Failed(error.message ?: "bad-aspect"))
+        }
+    }
+
+    override fun stop() {
+        // 回前台时系统会先展开小窗；这里不 finish，避免把整页拆掉。
+    }
+
+    override fun abort() {
+        // 3 秒回退或迟到启动：关掉可能留下的黑小窗。
+        if (activity.isInPictureInPictureMode && !activity.isFinishing) {
+            activity.finish()
+        }
+    }
+
+    /** Activity.onUserLeaveHint：API 31 以下自动进入的兜底。 */
+    fun onUserLeaveHint() {
+        if (Build.VERSION.SDK_INT >= 31) return
+        if (!canAutoEnter) return
+        if (!focusLooksPlayable()) return
+        enter()
+    }
+
+    fun onPictureInPictureModeChanged(inPip: Boolean) {
+        if (inPip) {
+            onEvent(PiPEvent.WillStart)
+            onEvent(PiPEvent.DidStart)
+            updateParams(enter = false)
+        } else {
+            onEvent(PiPEvent.WillStop)
+            onEvent(PiPEvent.DidStop)
+        }
+    }
+
+    /** 视频尺寸变化时刷新比例。 */
+    fun noteVideoSize(width: Double, height: Double) {
+        if (!supported) return
+        updateParams(enter = false, width = width, height = height)
+    }
+
+    fun refreshMuteAction() {
+        updateParams(enter = false)
+    }
+
+    private fun focusLooksPlayable(): Boolean {
+        val state = stage.state.value
+        val face = state.face(state.focusLane) ?: return false
+        return face.playback == vela.app.stage.LanePlayback.Playing &&
+            !face.manuallyPaused &&
+            face.playingUsername != null
+    }
+
+    private fun updateParams(enter: Boolean, width: Double? = null, height: Double? = null) {
+        if (!supported || Build.VERSION.SDK_INT < 26) return
+        try {
+            activity.setPictureInPictureParams(buildParams(width, height))
+        } catch (_: IllegalStateException) {
+            // Activity 尚未 resumed 时忽略。
+        } catch (_: IllegalArgumentException) {
+        }
+    }
+
+    private fun buildParams(width: Double? = null, height: Double? = null): PictureInPictureParams {
+        val size = resolveSize(width, height)
+        val aspect = PiPAspect.clamp(size.first, size.second)
+        val builder = PictureInPictureParams.Builder()
+            .setAspectRatio(aspect)
+            .setActions(listOf(muteAction()))
+        if (Build.VERSION.SDK_INT >= 31) {
+            builder.setAutoEnterEnabled(autoEnter && focusLooksPlayable())
+            builder.setSeamlessResizeEnabled(true)
+        }
+        return builder.build()
+    }
+
+    private fun resolveSize(width: Double?, height: Double?): Pair<Double, Double> {
+        if (width != null && height != null && width > 0 && height > 0) {
+            return width to height
+        }
+        val lane = when (stage.focusLane) {
+            vela.core.base.lane.LaneID.PRIMARY -> stage.primaryLane
+            vela.core.base.lane.LaneID.SECONDARY -> stage.secondaryLane
+            vela.core.base.lane.LaneID.TERTIARY -> null
+        }
+        val video = lane?.currentVideoSize()
+        if (video != null && video.width > 0 && video.height > 0) {
+            return video.width to video.height
+        }
+        return 9.0 to 16.0
+    }
+
+    private fun muteAction(): RemoteAction {
+        val muted = stage.muted
+        val icon = Icon.createWithResource(
+            activity,
+            if (muted) R.drawable.ic_pip_unmute else R.drawable.ic_pip_mute,
+        )
+        val title = activity.getString(
+            if (muted) R.string.pip_action_unmute else R.string.pip_action_mute,
+        )
+        val intent = Intent(ACTION_TOGGLE_MUTE).setPackage(activity.packageName)
+        val pending = PendingIntent.getBroadcast(
+            activity,
+            REQUEST_MUTE,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        return RemoteAction(icon, title, title, pending).apply {
+            isEnabled = true
+        }
+    }
+
+    private fun registerMuteReceiver() {
+        if (receiverRegistered) return
+        val filter = IntentFilter(ACTION_TOGGLE_MUTE)
+        if (Build.VERSION.SDK_INT >= 33) {
+            activity.registerReceiver(muteReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("UnspecifiedRegisterReceiverFlag")
+            activity.registerReceiver(muteReceiver, filter)
+        }
+        receiverRegistered = true
+    }
+
+    private fun unregisterMuteReceiver() {
+        if (!receiverRegistered) return
+        try {
+            activity.unregisterReceiver(muteReceiver)
+        } catch (_: IllegalArgumentException) {
+        }
+        receiverRegistered = false
+    }
+
+    private val muteReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != ACTION_TOGGLE_MUTE) return
+            stage.dispatch(StageIntent.ToggleMute)
+            refreshMuteAction()
+        }
+    }
+
+    companion object {
+        private const val TAG = "vela.pip"
+        const val ACTION_TOGGLE_MUTE = "vela.app.pip.TOGGLE_MUTE"
+        private const val REQUEST_MUTE = 4401
+    }
+}

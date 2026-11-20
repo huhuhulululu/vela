@@ -855,15 +855,24 @@ private fun StageViewModel.dropSecondary(reason: LaneEndReason) {
     secondaryFocusLog.reset()
 }
 
+/**
+ * 横屏或画中画只留焦点路。PiP1 引入 [StageViewModel.pipSolo]；
+ * 本函数仍归 B1 文件，PiP1 只改这一处口径（与计划串行重叠表略有出入，见交付说明）。
+ */
+internal fun StageViewModel.syncLaneVisibilityForPip() {
+    syncLaneVisibility()
+}
+
 private fun StageViewModel.syncLaneVisibility() {
-    val solo = landscape && laneCount > 1
+    val solo = (landscape || pipSolo) && laneCount > 1
     val showPrimary = !solo || focusLane == LaneID.PRIMARY
     if (laneFace.visible != showPrimary) {
         laneFace = laneFace.copy(visible = showPrimary)
         primaryVisible = showPrimary
         if (!showPrimary) {
             playbackSink?.stop()
-        } else if (playbackGateOpen && !laneFace.manuallyPaused) {
+            primaryLane?.stop()
+        } else if (playbackGateOpen && !laneFace.manuallyPaused && !lifecycleEpoch.suspended) {
             requestPlay()
         }
     } else {
@@ -876,7 +885,13 @@ private fun StageViewModel.syncLaneVisibility() {
             secondaryFace = face.copy(visible = showSecondary)
             if (!showSecondary) {
                 secondarySink?.stop()
-            } else if (playbackGateOpen && face.manuallyPaused.not() && face.playback != LanePlayback.Degraded) {
+                secondaryLane?.stop()
+            } else if (
+                playbackGateOpen &&
+                face.manuallyPaused.not() &&
+                face.playback != LanePlayback.Degraded &&
+                !lifecycleEpoch.suspended
+            ) {
                 requestLane(LaneID.SECONDARY)
             }
         }

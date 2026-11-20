@@ -10,11 +10,14 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import vela.app.audio.AudioFocusController
 import vela.app.lane.PlaybackLane
+import vela.app.pip.PiPCoordinator
+import vela.app.pip.PiPEvent
 import vela.app.playback.LaneHub
 import vela.core.audio.AudioFocusPlan
 import vela.core.audio.AudioIntent
 import vela.core.audio.DeactivationReason
 import vela.core.base.lane.LaneEndReason
+import vela.core.base.lane.LaneID
 import vela.core.base.lane.PlaybackLaneRole
 import vela.core.base.model.Room
 import vela.core.lifecycle.LifecycleEpoch
@@ -24,14 +27,14 @@ import vela.core.lifecycle.PhoneLifecycle
 import vela.core.lifecycle.PhoneLifecycleAction
 import vela.core.lifecycle.PhoneResumeIntent
 import vela.core.lifecycle.PhoneScenePhase
+import vela.core.lifecycle.PiPPolicy
 
 /**
  * 前后台接线。动作顺序只来自 [PhoneLifecycle.actions]，这里不重排。
  *
- * 没有画中画时（本包不传 `pip`，画中画留给 PiP1）进后台的顺序是：
- * 关闸门、作废代次、结算停留、刷盘、释放各路、放弃音频焦点、停监听并销毁侧车、记下恢复意图。
- * 回到 active 且曾经挂起过：恢复代次，重做恢复意图，再按冻结裁决 7 逐路处理。
- * inactive 只停停留计时，画面继续播。
+ * 有画中画输入且焦点路将继续时：挂起共享任务、只放行焦点路、释放其余路。
+ * 3 秒内未进入画中画则由 [PiPCoordinator] 补做全停。
+ * 没有画中画控制器时进后台仍全停。
  */
 class LifecycleWiring(
     private val stage: StageViewModel,
@@ -42,6 +45,8 @@ class LifecycleWiring(
 
     var wasSuspended: Boolean = false
         private set
+
+    var pipCoordinator: PiPCoordinator? = null
 
     private val steps = ArrayList<String>()
 
@@ -66,6 +71,19 @@ class LifecycleWiring(
         stage.primaryVisible = visible
     }
 
+    fun attachPictureInPicture(coordinator: PiPCoordinator) {
+        pipCoordinator = coordinator
+        stage.onEnterPictureInPicture = { coordinator.enterFromUi() }
+        stage.onTogglePictureInPicture = { coordinator.toggleFromUi() }
+        stage.onSetAutoEnterPip = { enabled -> coordinator.setAutoEnter(enabled) }
+    }
+
+    fun onPictureInPictureEvent(event: PiPEvent) {
+        pipCoordinator?.deliver(event)
+        stage.pictureInPicture = pipCoordinator?.pictureInPicturePlaying == true
+        stage.publish()
+    }
+
     fun moveTo(next: PhoneScenePhase) {
         if (next == phase) return
         // 只在进后台时捕获。恢复时任务已被取消，再捕获会把记下的意图盖成 null。
@@ -75,21 +93,31 @@ class LifecycleWiring(
             stage.notedResume
         }
         val lanes = stage.phoneSnapshots()
-        // PiP1 才会传入画中画输入。这里恒为 null：回桌面一律全停。
+        val previous = phase
+        val pip = if (next == PhoneScenePhase.BACKGROUND && previous != PhoneScenePhase.BACKGROUND) {
+            pipCoordinator?.pictureInPictureInput(PhoneScenePhase.BACKGROUND)
+        } else {
+            null
+        }
+        if (next == PhoneScenePhase.ACTIVE && wasSuspended) {
+            pipCoordinator?.onReturningToForeground()
+        }
         val actions = PhoneLifecycle.actions(
-            from = phase,
+            from = previous,
             to = next,
             wasSuspended = wasSuspended,
             lanes = lanes,
             resumeIntent = intent,
-            pip = null,
+            pip = pip,
         )
-        val previous = phase
         phase = next
         if (next == PhoneScenePhase.BACKGROUND && previous != PhoneScenePhase.BACKGROUND && actions.isNotEmpty()) {
             wasSuspended = true
         }
         for (action in actions) apply(action)
+        if (next == PhoneScenePhase.BACKGROUND && previous != PhoneScenePhase.BACKGROUND) {
+            pipCoordinator?.onContinued(actions)
+        }
         if (next == PhoneScenePhase.ACTIVE) {
             // 冷启动没有 EpochResume。只在会话还没初始化时套用保存的静音偏好并登记拔耳机。
             // 没挂起过的 INACTIVE→ACTIVE 也会走到这里；会话已在时不能再 applyStored，
@@ -98,9 +126,28 @@ class LifecycleWiring(
                 session.prepareAudio()
             }
             wasSuspended = false
+            pipCoordinator?.onForegroundIdle()
         }
         stage.syncSceneAttentive(PhoneLifecycle.attentive(phase))
         Log.i(TAG, "phase=$phase actions=${actions.size}")
+    }
+
+    /**
+     * 画中画结束或 3 秒回退：在已经后台的前提下补做全停序列。
+     * 由 [PiPCoordinator] 在状态变为 stopping 时调用。
+     */
+    fun applyPictureInPictureStop(pip: PiPPolicy.Input) {
+        if (phase != PhoneScenePhase.BACKGROUND) return
+        val actions = PhoneLifecycle.actions(
+            from = PhoneScenePhase.BACKGROUND,
+            to = PhoneScenePhase.BACKGROUND,
+            wasSuspended = wasSuspended || stage.lifecycleEpoch.suspended,
+            lanes = stage.phoneSnapshots(),
+            resumeIntent = stage.notedResume,
+            pip = pip,
+        )
+        for (action in actions) apply(action)
+        wasSuspended = true
     }
 
     private fun apply(action: PhoneLifecycleAction) {
@@ -175,7 +222,7 @@ class LifecycleWiring(
                     PlaybackLaneRole.SECONDARY -> {
                         stage.secondaryActivity = action.activity
                         stage.ensureSecondary?.invoke()
-                        stage.requestPlay(vela.core.base.lane.LaneID.SECONDARY)
+                        stage.requestPlay(LaneID.SECONDARY)
                     }
                     PlaybackLaneRole.TERTIARY -> steps.add("request-play-tertiary")
                 }
@@ -194,10 +241,13 @@ class LifecycleWiring(
             }
             is PhoneLifecycleAction.ReleaseLane -> {
                 steps.add("release-lane")
-                session.suspendLanes()
+                session.releaseLane(action.role)
             }
             is PhoneLifecycleAction.ContinueLane -> steps.add("continue-lane")
-            is PhoneLifecycleAction.RetainRelaySource -> steps.add("retain-relay")
+            is PhoneLifecycleAction.RetainRelaySource -> {
+                steps.add("retain-relay")
+                session.retainRelaySource(action.role)
+            }
         }
     }
 
@@ -216,6 +266,12 @@ interface LifecycleSession {
     fun stopListener()
     fun ensureLane()
     fun restoreUi()
+
+    /** 只释放这一路的播放项。画中画进入时释放非焦点路。默认空操作。 */
+    fun releaseLane(role: PlaybackLaneRole) = Unit
+
+    /** 中继源表只留这一路。进程内 LaneHub 无源表时为空操作。 */
+    fun retainRelaySource(role: PlaybackLaneRole) = Unit
 }
 
 /**
@@ -252,6 +308,9 @@ class AppPlaybackSession(
         controller.focus = PlaybackLaneRole.PRIMARY
         controller.lanes = listOf(PlaybackLaneRole.PRIMARY)
     }
+
+    /** 画中画钩子读取焦点控制器。 */
+    fun audioController(): AudioFocusController = audio
 
     init {
         stage.ensureSecondary = { ensureSecondary() }
@@ -305,6 +364,30 @@ class AppPlaybackSession(
             secondary.suspendNow()
             secondary.release()
         }
+    }
+
+    override fun releaseLane(role: PlaybackLaneRole) {
+        when (role) {
+            PlaybackLaneRole.PRIMARY -> {
+                val current = mutableLane.value ?: return
+                if (observed === current) {
+                    current.onPlaybackFace = null
+                    observed = null
+                }
+                mutableLane.value = null
+                lanesByRole.remove(PlaybackLaneRole.PRIMARY)
+                current.suspendNow()
+                current.release()
+                stage.primaryLane = null
+                if (secondaryLane == null) stage.playerReleased = true
+            }
+            PlaybackLaneRole.SECONDARY -> releaseSecondaryLane()
+            PlaybackLaneRole.TERTIARY -> Unit
+        }
+    }
+
+    override fun retainRelaySource(role: PlaybackLaneRole) {
+        // 进程内 LaneHub：非焦点路释放后源表自然只剩焦点路。
     }
 
     override fun deactivateAudio() {

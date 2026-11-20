@@ -22,8 +22,7 @@ import vela.core.lifecycle.ChallengeResume
  * 舞台界面契约。界面只读 [state]、只发 [StageIntent]；`StageViewModel` 实现本接口。
  *
  * 这里没有老板键、置顶、透明度、指针、铺满。双窗与三窗的路数、焦点、横屏可见性和降级占位
- * 由 [LaneWindow] 纯函数决定，不在这里选房或放播放器。画中画由 PiP1 按串行重叠表再扩展：
- * 新字段加在数据类末尾并带默认值，新意图加在 [StageIntent] 末尾。
+ * 由 [LaneWindow] 纯函数决定，不在这里选房或放播放器。画中画字段与意图由 PiP1 加在末尾。
  * 假实现见 `FakeStage`：年龄确认前不发目录和搜索；静音与音量按 `AudioPolicy` 的规则。
  */
 interface StageContract {
@@ -180,6 +179,10 @@ data class StageUiState(
     val focusLocked: Boolean = false,
     /** 设备热状态。降档算法在 `LaneQuality`，这里只给界面和后续包一个稳定的槽。 */
     val thermal: PhoneThermalState = PhoneThermalState.NOMINAL,
+    /** 回桌面自动进入画中画。缺省开。 */
+    val autoEnterPip: Boolean = true,
+    /** 画中画正在显示或正在启动。 */
+    val pictureInPicture: Boolean = false,
 ) {
     val index: Int
         get() {
@@ -437,6 +440,15 @@ sealed interface StageIntent {
      * 竖屏舞台尺寸（点）。高小于宽的测量丢掉，避免横竖屏在阈值附近来回翻转。
      */
     data class NotePortraitStageSize(val width: Double, val height: Double) : StageIntent
+
+    /** 设置「回桌面自动进入画中画」。 */
+    data class SetAutoEnterPip(val enabled: Boolean) : StageIntent
+
+    /** 控制栏按钮：进入画中画。已在画中画里时忽略（退出走系统手势）。 */
+    data object EnterPictureInPicture : StageIntent
+
+    /** 控制栏按钮：在画中画与全屏之间切换。 */
+    data object TogglePictureInPicture : StageIntent
 }
 
 /** 假舞台记下的副作用。真 ViewModel 自己去做，不积累这份列表。 */

@@ -201,6 +201,14 @@ class StageViewModel(
     internal var landscape: Boolean = false
     internal var laneCountLocked: Boolean = false
     internal var focusLocked: Boolean = false
+    /** 画中画只留焦点路：临时释放其余路的播放资源，逻辑路状态保留。 */
+    internal var pipSolo: Boolean = false
+    internal var autoEnterPip: Boolean = settings.autoEnterPip
+    internal var pictureInPicture: Boolean = false
+    /** 画中画按钮：由 MainActivity / LifecycleWiring 接上。 */
+    internal var onEnterPictureInPicture: (() -> Unit)? = null
+    internal var onTogglePictureInPicture: (() -> Unit)? = null
+    internal var onSetAutoEnterPip: ((Boolean) -> Unit)? = null
     internal var thermal: PhoneThermalState = PhoneThermalState.NOMINAL
     internal val laneQuality: LaneQuality = LaneQuality()
     internal var screenScale: Double = 1.0
@@ -484,7 +492,45 @@ class StageViewModel(
             is StageIntent.SetFocus -> setFocus(intent.lane)
             is StageIntent.SetLandscape -> setLandscape(intent.on)
             is StageIntent.NotePortraitStageSize -> notePortraitStageSize(intent.width, intent.height)
+            is StageIntent.SetAutoEnterPip -> {
+                autoEnterPip = intent.enabled
+                settings.autoEnterPip = intent.enabled
+                onSetAutoEnterPip?.invoke(intent.enabled)
+                publish()
+            }
+            StageIntent.EnterPictureInPicture -> onEnterPictureInPicture?.invoke()
+            StageIntent.TogglePictureInPicture -> onTogglePictureInPicture?.invoke()
         }
+    }
+
+    /** 画中画状态变化时同步路数锁；解锁时按舞台尺寸补判路数。 */
+    fun syncLaneCountLock(locked: Boolean) {
+        if (locked == laneCountLocked) return
+        laneCountLocked = locked
+        if (!locked) {
+            notePortraitStageSize(portraitStageWidth, portraitStageHeight)
+        }
+        publish()
+    }
+
+    /**
+     * 画中画进入时只留焦点路，退出后按原路数恢复。单窗不动。
+     * 可见性与 [syncLaneVisibility] 共用 [pipSolo] 口径。
+     */
+    fun setPipSolo(on: Boolean) {
+        if (on == pipSolo) return
+        pipSolo = on
+        syncLaneVisibilityPublic()
+        publish()
+    }
+
+    fun publishPipFlags() {
+        publish()
+    }
+
+    /** 给画中画与 LifecycleWiring 用：复用 Stage+Lanes 的可见性规则。 */
+    internal fun syncLaneVisibilityPublic() {
+        syncLaneVisibilityForPip()
     }
 
     override fun noteReady(username: String?) {
@@ -692,6 +738,8 @@ class StageViewModel(
             laneCountLocked = laneCountLocked,
             focusLocked = focusLocked,
             thermal = thermal,
+            autoEnterPip = autoEnterPip,
+            pictureInPicture = pictureInPicture,
         )
     }
 
