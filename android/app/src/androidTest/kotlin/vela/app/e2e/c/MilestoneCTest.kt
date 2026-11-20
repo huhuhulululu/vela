@@ -237,9 +237,18 @@ class MilestoneCTest {
             } || E2eCSupport.hasGainTransient(unmutedDump),
         )
 
-        // 再静音：放弃焦点。
-        E2eCSupport.onMain(stage) { stage.dispatch(StageIntent.ToggleMute) }
-        assertTrue(E2eCSupport.waitUntil(8_000) { stage.state.value.muted })
+        // 再静音：放弃焦点。回桌面后系统可能先收走焦点，运行时静音已经被同步成真。
+        // 这时再切一次会把静音打开，所以只在仍未静音时切。
+        val alreadyMuted = E2eCSupport.onMain(stage) { stage.muted }
+        if (!alreadyMuted) {
+            E2eCSupport.onMain(stage) { stage.dispatch(StageIntent.ToggleMute) }
+        }
+        assertTrue(
+            "再静音后应为静音 alreadyMuted=$alreadyMuted",
+            E2eCSupport.waitUntil(8_000) {
+                E2eCSupport.onMain(stage) { stage.muted }
+            },
+        )
         assertTrue(
             "再静音应放弃焦点",
             E2eCSupport.waitUntil(8_000) { !activity.session.audioController().holdingFocus },
