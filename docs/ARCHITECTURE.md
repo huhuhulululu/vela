@@ -455,7 +455,7 @@ xcodebuild -project Vela.xcodeproj -scheme Vela -destination 'platform=macOS' \
 
 ## 11. 安卓
 
-代码在 `android/`，不编译 `App/`、`iOS/`、`Shared/`、`Sources/`。玩法与桌面版的核心对齐：四个来源（猜你喜欢、热门、新开播、收藏）、上下滑切房、心形收藏与收藏夹、口味、搜索（本地过滤再全站搜索）、默认静音、首次打开确认已满 18 岁、站点质询走 WebView。不做菜单栏、老板键、窗口拖动、指针轮询、离开后降画质、手动铺满、登录、打赏、录制。**里程碑 A** 为竖屏单窗；**里程碑 B** 为竖屏双窗（2 路播放 + 双格界面，第三格仅占位）。画中画纯函数在 `:core`，应用未接（见 11.5）。不用本地套接字中继、音频焦点用 `AUDIOFOCUS_GAIN_TRANSIENT`、静音只关音轨；对应 ADR 正文由编排者另写。双窗细节见 `android/docs/dual-window.md`。
+代码在 `android/`，不编译 `App/`、`iOS/`、`Shared/`、`Sources/`。玩法与桌面版的核心对齐：四个来源（猜你喜欢、热门、新开播、收藏）、上下滑切房、心形收藏与收藏夹、口味、搜索（本地过滤再全站搜索）、默认静音、首次打开确认已满 18 岁、站点质询走 WebView。不做菜单栏、老板键、窗口拖动、指针轮询、离开后降画质、手动铺满、登录、打赏、录制。**里程碑 A** 为竖屏单窗；**里程碑 B** 为竖屏双窗（2 路播放 + 双格界面，第三格仅占位）；**里程碑 C** 为画中画（`PiPPolicy` 纯函数在 `:core`，应用接线在 `vela.app.pip` 与 `LifecycleWiring`，见 11.5）。不用本地套接字中继、音频焦点用 `AUDIOFOCUS_GAIN_TRANSIENT`、静音只关音轨；对应 ADR 正文由编排者另写。双窗细节见 `android/docs/dual-window.md`，画中画见 `android/docs/pip.md`。
 
 ### 11.1 工程
 
@@ -468,7 +468,7 @@ xcodebuild -project Vela.xcodeproj -scheme Vela -destination 'platform=macOS' \
 
 ### 11.2 模块
 
-当前 Kotlin 源文件数（随分支变动，以 `find android -name '*.kt'` 为准）：`:core` 主代码约 80+、单元测试 80+；`:app` 主代码约 40、单元测试 50+、仪器测试 10+；hooks 4。下表是包目录，不逐文件展开。
+当前 Kotlin 源文件数（2026-11-20 本树自数，`find android -name '*.kt'` 合计 354）：`:core` 主代码 113、单元测试 108；`:app` 主代码 46、单元测试 71、仪器测试 12；hooks 4。下表是包目录，不逐文件展开。
 
 | 路径 | 职责 |
 |---|---|
@@ -488,11 +488,12 @@ xcodebuild -project Vela.xcodeproj -scheme Vela -destination 'platform=macOS' \
 | `android/core/src/main/kotlin/vela/core/curation` | 收藏、屏蔽、上次开播、名单提交 |
 | `android/core/src/main/kotlin/vela/core/selection` | 联合选房与一路停留结算 |
 | `android/core/src/main/kotlin/vela/core/audio` | `AudioFocusPlan`：焦点步骤，不碰 Android API |
-| `android/app/src/main/kotlin/vela/app/MainActivity.kt` | 入口；Compose `StageScreen`，双路各挂 `LaneFrame`。偏好放在应用私有目录里名为 Vela 的子目录 |
+| `android/app/src/main/kotlin/vela/app/MainActivity.kt` | 入口；Compose `StageScreen`，双路各挂 `LaneFrame`；创建 `PiPCoordinator`，设备支持时挂 `ActivityPictureInPicture`。偏好放在应用私有目录里名为 Vela 的子目录 |
 | `android/app/src/main/kotlin/vela/app/infra` | 不存 cookie 的 HTTP、设置、原子写文件、缩略图缓存、空的 `Probe` |
 | `android/app/src/main/kotlin/vela/app/playback` | 进程内数据源 `LaneHub` / `LaneDataSource`、播放器默认值 `LaneEngine`、列表请求 `LaneHttp` |
 | `android/app/src/main/kotlin/vela/app/lane` | 一路播放 `PlaybackLane`、ExoPlayer 封装、`ThermalMonitor`、`SurfaceView` 画面 |
-| `android/app/src/main/kotlin/vela/app/stage` | `StageViewModel`；`Stage+Lanes.kt` 双路选房、焦点、热降档、横屏可见性；目录、起播、收藏、口味；`LifecycleWiring` 主副路会话；侧车 |
+| `android/app/src/main/kotlin/vela/app/stage` | `StageViewModel`（含 `setPipSolo`、`focusLocked`、`laneCountLocked`）；`Stage+Lanes.kt` 双路选房、焦点、热降档、横屏与画中画共用的可见性；目录、起播、收藏、口味；`LifecycleWiring` 主副路会话并接 `PiPCoordinator`；侧车 |
+| `android/app/src/main/kotlin/vela/app/pip` | `ActivityPictureInPicture`（系统参数、比例、静音 RemoteAction、自动进入）、`PiPCoordinator`（状态机与 3 秒回退）、`PiPAspect`、`PiPFallback`、`PiPEvent`、`PictureInPictureControlling` |
 | `android/app/src/main/kotlin/vela/app/ui` | `StageScreen`（单窗分页 + 竖屏双格切换）、`DualStageScreen`、顶栏、收藏夹、口味、质询、年龄确认 |
 | `android/app/src/main/kotlin/vela/app/audio` | 双路时只听焦点路；`AudioFocusRequest` 执行 `AudioFocusPlan` |
 | `android/app/src/hooks/kotlin/vela/app/hooks` | 仅 debug / perf：首帧记录、站点根地址覆盖、仪器测试用的空宿主 |
@@ -527,7 +528,7 @@ xcodebuild -project Vela.xcodeproj -scheme Vela -destination 'platform=macOS' \
 
 - 路数 `laneCount` 1…3（设置记住 `dualWindow` / `rememberedLaneCount`）；实际起播限主路 + 副路，`LifecycleWiring.ensureSecondary` / `releaseSecondaryLane` 管理副路 ExoPlayer。
 - `updateFeedLanes`：`secondaryCursor` 非空时联合选房；两路房间永不相同；副路目标操作、最近划走共享、空列表与 reveal 等对齐计划 S-B1。
-- `syncLaneVisibility`：横屏时只保留焦点路可见并 `stop()` 非焦点路，**不**清空 cursor/房间；回竖屏再 `requestLane`。
+- `syncLaneVisibility`：横屏或画中画（`pipSolo`）时只保留焦点路可见并 `stop()` 非焦点路，**不**清空 cursor/房间，也不释放播放器实例；回竖屏或退出画中画再 `requestLane`。
 - `setLaneCount(1)` / 关双窗：`dropSecondary` → 会话层 `releaseSecondaryLane()` **销毁**副路播放器；副路焦点房间可按规则合并回主路。
 - 热状态：`ThermalMonitor` + `LaneQuality`；两路未热时不封顶；serious 起按显示高度降档；fair 及以下持续 60 秒回升（S-B2）。
 - 副路解码资源不足：`degradeLane`，提示「双窗暂不可用」，不走房间失败链。
@@ -538,13 +539,22 @@ xcodebuild -project Vela.xcodeproj -scheme Vela -destination 'platform=macOS' \
 
 声音与单窗相同：`Settings.muted` 缺省视为静音；静音不请求音频焦点；取消静音 `AUDIOFOCUS_GAIN_TRANSIENT`；失败不写设置；拔耳机转静音。`AudioFocusController` 不用 ExoPlayer 自带 `handleAudioFocus`。
 
-前后台：`LifecycleWiring` 按 `PhoneLifecycle.actions` 执行。无画中画时进后台释放主副播放器实例（`suspendLanes`），舞台状态仍在 ViewModel；回前台按裁决 7 重建播放器并起播。inactive 只停停留计时。
+前后台：`LifecycleWiring` 按 `PhoneLifecycle.actions` 执行。进后台时若有画中画控制器且 `PiPPolicy` 裁定继续（已在画中画，或自动进入开着且焦点路正在播），只放行焦点路、逐路 `ReleaseLane` 释放其余路播放器；没有画中画（不支持、自动进入关且未在画中画、焦点路未在播）仍走 `suspendLanes` 全停。舞台状态仍在 ViewModel；回前台按裁决 7 重建播放器并起播。inactive 只停停留计时。画中画细节见 11.5 与 `android/docs/pip.md`。
 
-### 11.5 还没接上的部分
+### 11.5 画中画（里程碑 C）与还没接上的部分
 
-- **三窗播放**：契约与 `DualStageScreen` 可摆第三格，`LaneID.TERTIARY` 无 `PlaybackLane`；iOS 三窗测试在 parity 标 `milestone-B`，安卓不计划移植（见 `android/PORTING.md`）。
-- **画中画**。`Settings.autoEnterPip` 已存；`LifecycleWiring` 仍一律全停，不读开关。纯函数 `PiPPolicy.kt` 待 PiP1 接入后：回桌面只留焦点路，非焦点路临时释放（与横屏类似），3 秒未进 PiP 全停。
-- 不移植的 Swift 符号没有对应 Kotlin 文件：菜单栏、窗口拖动、快捷键闸门、滚轮翻页、离开淡出、离开后降画质、竖屏自动铺满、旧 `Preferences` 迁移，以及 `RelayFeed`、`RelayWait`、`RelaySourceTable`。跳过理由在 `android/parity/`。
+**画中画（已接）**
+
+- 接线：`MainActivity` 创建 `PiPCoordinator`，设备支持 `FEATURE_PICTURE_IN_PICTURE` 时挂 `ActivityPictureInPicture`（`PictureInPictureControlling` 的正式实现）；`LifecycleWiring.attachPictureInPicture` 接上契约意图。进后台时 `PiPCoordinator.pictureInPictureInput` 组 `PiPPolicy.Input` 交给 `PhoneLifecycle.actions`；`pip == null` 时输入为 null，照旧全停。
+- 继续路径：`SuspendSharedTasks` + `AllowLaneRequests(焦点)`，照做 `SettleDwell` / `FlushSavers`，非焦点路 `ReleaseLane`（释放播放器实例），焦点路 `ContinueLane` + `RetainRelaySource`；不发 `GateOff` / `SuspendLanes` / `AudioDeactivate` / `StopListener`。可见性层由 `StageViewModel.setPipSolo` 与横屏共用 `syncLaneVisibility`，只停播不释放；两层语义见 `android/docs/pip.md`。
+- 锁与回退：`WillStart` / `DidStart` 期间 `focusLocked`、`laneCountLocked` 为真，路数选择与显式切焦点被忽略；`WillStop` 后路数锁保持到 `DidStop`。继续后 3 秒（`PiPFallback.TIMEOUT_SECONDS`）仍非 `ACTIVE` 则 `PiPCoordinator` 回退：`abort()` 关小窗并经 `LifecycleWiring.applyPictureInPictureStop` 补做全停。后台关闭画中画（`DidStop`）同样补做全停。退出后 `setPipSolo(false)` 恢复可见性，`laneCount` 未被画中画改动，解锁时 `notePortraitStageSize` 补判路数。
+- 比例夹紧在 `PiPAspect`（约 1:2.39 到 2.39:1，无效尺寸回落 9:16）。静音切换用系统 `RemoteAction`（`ActivityPictureInPicture.ACTION_TOGGLE_MUTE`，本包广播）。出声请求 `AUDIOFOCUS_GAIN_TRANSIENT`；静音不请求焦点，`AudioFocusController.pictureInPictureActive` 让画中画中的静音保持播放。
+- `Settings.autoEnterPip`（默认开）已读写：`StageIntent.SetAutoEnterPip` → `PiPCoordinator.setAutoEnter`；API 31+ 写 `PictureInPictureParams.setAutoEnterEnabled`（还要求焦点路像在播），API 26–30 用 `onUserLeaveHint` 兜底。契约里的 `EnterPictureInPicture` / `TogglePictureInPicture` / `SetAutoEnterPip` 已接线但当前没有界面派发（只有测试）；自动进入不依赖按钮。
+- 端到端门（行为断言，不是性能基线）：`MilestoneCTest` 的 S-C1 / S-C2 / S-C3 由 `android/tools/emu-modes/e2e-c.sh` 逐条跑；包级模式 `android/tools/emu-modes/pip.sh` 跑 `PipEmulatorTest`。见 `docs/PERF.md` 里程碑 C 一节。
+
+**三窗仍然只占界面槽位，不创建第三路播放器。** 契约与 `DualStageScreen` 可摆第三格，`LaneID.TERTIARY` 无 `PlaybackLane`；画中画只挂焦点路。iOS 三窗测试在 parity 标 `milestone-B`，安卓不计划移植（见 `android/PORTING.md`）。
+
+不移植的 Swift 符号没有对应 Kotlin 文件：菜单栏、窗口拖动、快捷键闸门、滚轮翻页、离开淡出、离开后降画质、竖屏自动铺满、旧 `Preferences` 迁移，以及 `RelayFeed`、`RelayWait`、`RelaySourceTable`。跳过理由在 `android/parity/`。
 
 ### 11.6 本机存储
 
@@ -556,7 +566,7 @@ xcodebuild -project Vela.xcodeproj -scheme Vela -destination 'platform=macOS' \
 | feed-curation.json | `android/core/src/main/kotlin/vela/core/curation/Curation.kt` | 收藏与屏蔽 |
 | watch-ledger.json | `android/core/src/main/kotlin/vela/core/ledger/WatchLedgerStore.kt` | 观看账本 |
 
-上限与桌面版同一套常量（标签、名单、字节），写入仍走原子替换。SharedPreferences 名 `com.vela.stage`：`ageConfirmed`、`muted`、`volume`、`source`、`publicOnly`、`infoAlwaysOn`、`hintSeen`、`tag`、`gender`、`region`，以及预留的 `dualWindow`、`autoEnterPip`。不存置顶、透明度、老板键、菜单栏。收藏、屏蔽、口味、账本只在这台设备上，不进云备份。
+上限与桌面版同一套常量（标签、名单、字节），写入仍走原子替换。SharedPreferences 名 `com.vela.stage`：`ageConfirmed`、`muted`、`volume`、`source`、`publicOnly`、`infoAlwaysOn`、`hintSeen`、`tag`、`gender`、`region`，以及已接线的 `dualWindow`（竖屏双窗）与 `autoEnterPip`（回桌面自动进入画中画，默认开，经 `Settings.autoEnterPip` 读写）。不存置顶、透明度、老板键、菜单栏。收藏、屏蔽、口味、账本只在这台设备上，不进云备份。
 
 ### 11.7 构建与测试
 
@@ -569,4 +579,4 @@ python3 -I tools/parity.py --all
 
 仓库根目录同样可以：`python3 -I android/tools/parity.py --all`。release 包用 `android/tools/check-apk.sh`：体积 ≤ 5120 KB，权限只有 `INTERNET`、`ACCESS_NETWORK_STATE` 和合并进来的 `*.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`，`allowBackup=false`，没有 service 与开机 receiver，R8 mapping 不含 `vela.app.hooks`。
 
-CI 是 `.github/workflows/android.yml`。`android-unit` 跑上面的单元测试、两种组装、parity 与 `android/tools/check-apk.sh`。`android-emulator` 跑 `android/tools/emulator-run.sh`，由它依次执行 `android/tools/emu-modes/` 里已有的模式：`lane.sh`、`challenge.sh`、`background.sh`、`e2e-a.sh`，里程碑 B 另加 `e2e-b.sh`（S-B1、S-B2）。伪上游与夹具只用合成数据，不访问真实站点。测量口径见 `docs/PERF.md` 的安卓一节。
+CI 是 `.github/workflows/android.yml`。`android-unit` 跑上面的单元测试、两种组装、parity 与 `android/tools/check-apk.sh`。`android-emulator` 跑 `android/tools/emulator-run.sh all`，按文件名顺序执行 `android/tools/emu-modes/` 下全部 `*.sh`：`background.sh`、`challenge.sh`、`e2e-a.sh`、里程碑 B 的 `e2e-b.sh`（S-B1、S-B2）、里程碑 C 的 `e2e-c.sh`（S-C1、S-C2、S-C3）、`lane.sh`、`pip.sh`。伪上游与夹具只用合成数据，不访问真实站点。测量口径见 `docs/PERF.md` 的安卓一节。
