@@ -4,7 +4,6 @@ import android.app.Activity
 import android.content.Context
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
-import java.lang.reflect.Method
 import java.time.Instant
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -13,7 +12,6 @@ import org.junit.Assert.assertTrue
 import vela.app.MainActivity
 import vela.app.infra.Endpoints
 import vela.app.infra.Settings
-import vela.app.lane.LanePlayer
 import vela.app.lane.PlaybackLane
 import vela.app.stage.AppPlaybackSession
 import vela.app.stage.StageIntent
@@ -104,75 +102,32 @@ internal object E2eBSupport {
         )
     }
 
-    fun secondaryLane(session: AppPlaybackSession): PlaybackLane? {
-        val field = AppPlaybackSession::class.java.getDeclaredField("secondaryLane")
-        field.isAccessible = true
-        return field.get(session) as? PlaybackLane
-    }
+    fun secondaryLane(session: AppPlaybackSession): PlaybackLane? = session.secondaryLaneForTest
 
     fun injectThermal(stage: StageViewModel, state: PhoneThermalState, scheduleRecovery: Boolean) {
-        val clazz = Class.forName("vela.app.stage.StageViewModelKt")
-        val method: Method = clazz.getDeclaredMethod(
-            "noteThermal",
-            StageViewModel::class.java,
-            PhoneThermalState::class.java,
-            Instant::class.java,
-            java.lang.Boolean.TYPE,
-        )
-        method.isAccessible = true
-        onMain(stage) { method.invoke(null, stage, state, Instant.now(), scheduleRecovery) }
+        onMain(stage) {
+            stage.injectThermalForTest(state, Instant.now(), scheduleRecovery)
+        }
     }
 
     fun laneQualityLimited(stage: StageViewModel): Boolean {
-        return onMain(stage) {
-            val field = StageViewModel::class.java.getDeclaredField("laneQuality")
-            field.isAccessible = true
-            val quality = field.get(stage)
-            val limited = quality.javaClass.getDeclaredMethod("isLimited")
-            limited.isAccessible = true
-            limited.invoke(quality) as Boolean
-        }
+        return onMain(stage) { stage.isQualityLimitedForTest }
     }
 
     fun laneCapBps(stage: StageViewModel, id: LaneID): Double {
-        return onMain(stage) {
-            val clazz = Class.forName("vela.app.stage.StageViewModelKt")
-            val method = clazz.getDeclaredMethod("laneCap", StageViewModel::class.java, LaneID::class.java)
-            method.isAccessible = true
-            method.invoke(null, stage, id) as Double
-        }
+        return onMain(stage) { stage.laneCapForTest(id) }
     }
 
     fun degradeSecondary(stage: StageViewModel) {
-        val clazz = Class.forName("vela.app.stage.StageViewModelKt")
-        val method = clazz.getDeclaredMethod(
-            "degradeLane",
-            StageViewModel::class.java,
-            LaneID::class.java,
-        )
-        method.isAccessible = true
-        onMain(stage) { method.invoke(null, stage, LaneID.SECONDARY) }
+        onMain(stage) { stage.degradeLaneForTest(LaneID.SECONDARY) }
     }
 
     fun audioEnabled(lane: PlaybackLane): Int {
-        return runOnMainSync {
-            val outer = lane.javaClass.getDeclaredField("player")
-            outer.isAccessible = true
-            val delegate = outer.get(lane) as LanePlayer
-            delegate.audioEnabledCount()
-        }
+        return runOnMainSync { lane.audioEnabledCountForTest() }
     }
 
     fun playerVolume(lane: PlaybackLane): Float {
-        return runOnMainSync {
-            val outer = lane.javaClass.getDeclaredField("player")
-            outer.isAccessible = true
-            val delegate = outer.get(lane) as LanePlayer
-            val inner = delegate.javaClass.getDeclaredField("player")
-            inner.isAccessible = true
-            val player = inner.get(delegate) as androidx.media3.common.Player
-            player.volume
-        }
+        return runOnMainSync { lane.playerVolumeForTest() }
     }
 
     fun renderedOutputBufferCount(lane: PlaybackLane): Int {

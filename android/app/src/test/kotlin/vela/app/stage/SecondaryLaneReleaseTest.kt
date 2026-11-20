@@ -15,7 +15,6 @@ import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import vela.app.infra.Settings
-import vela.app.lane.PlaybackLane
 import vela.core.base.lane.LaneID
 import vela.core.base.model.FeedSource
 import vela.core.base.model.Room
@@ -68,14 +67,14 @@ class SecondaryLaneReleaseTest {
         }
         stage.setDual(true)
         session.ensureSecondary()
-        assertNotNull(readSessionSecondary(session))
+        assertNotNull(session.secondaryLaneForTest)
         assertEquals(2, stage.laneCount)
 
         stage.setLaneCount(1)
 
         assertEquals(1, stage.laneCount)
         assertNull(stage.secondaryLane)
-        assertNull(readSessionSecondary(session))
+        assertNull(session.secondaryLaneForTest)
         assertNull(stage.secondaryCursor)
     } finally {
         session.releaseLeftovers()
@@ -108,28 +107,22 @@ class SecondaryLaneReleaseTest {
     try {
       stage.setDual(true)
       session.ensureSecondary()
-      assertNotNull(readSessionSecondary(session))
+      assertNotNull(session.secondaryLaneForTest)
 
       stage.setLandscape(true)
 
       assertTrue(stage.landscape)
       assertEquals(2, stage.laneCount)
-      assertNotNull(readSessionSecondary(session))
+      assertNotNull(session.secondaryLaneForTest)
       assertFalse(stage.state.value.secondary?.visible ?: true)
 
       stage.setLandscape(false)
 
-      assertNotNull(readSessionSecondary(session))
+      assertNotNull(session.secondaryLaneForTest)
     } finally {
       session.releaseLeftovers()
       stage.close()
       directory.toFile().deleteRecursively()
     }
-  }
-
-  private fun readSessionSecondary(session: AppPlaybackSession): PlaybackLane? {
-    val field = AppPlaybackSession::class.java.getDeclaredField("secondaryLane")
-    field.isAccessible = true
-    return field.get(session) as PlaybackLane?
   }
 }
