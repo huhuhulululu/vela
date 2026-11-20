@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.view.Surface
+import androidx.annotation.VisibleForTesting
 import androidx.media3.common.PlaybackException
 import java.time.Clock
 import java.time.Duration
@@ -276,6 +277,14 @@ class PlaybackLane(
 
     /** 必须在创建播放器的那条线程上调用。 */
     fun renderedOutputBufferCount(): Int = player.renderedOutputBufferCount()
+
+    /** 已选中的音轨数。必须在创建播放器的那条线程上调用。 */
+    @VisibleForTesting
+    fun audioEnabledCountForTest(): Int = player.audioEnabledCount()
+
+    /** 当前音量。必须在创建播放器的那条线程上调用。 */
+    @VisibleForTesting
+    fun playerVolumeForTest(): Float = player.volume()
 
     fun release() {
         onPlaybackFace = null

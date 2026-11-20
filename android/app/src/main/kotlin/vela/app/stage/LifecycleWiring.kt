@@ -4,6 +4,7 @@ import android.media.AudioManager
 import android.util.Log
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
+import androidx.annotation.VisibleForTesting
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -231,6 +232,11 @@ class AppPlaybackSession(
     private val mutableLane = MutableStateFlow<PlaybackLane?>(null)
     val lane: StateFlow<PlaybackLane?> = mutableLane.asStateFlow()
     private var secondaryLane: PlaybackLane? = null
+
+    /** 会话层副路播放器。只读测试钩子，不改变正式行为。 */
+    @get:VisibleForTesting
+    val secondaryLaneForTest: PlaybackLane?
+        get() = secondaryLane
 
     var webHost: FrameLayout? = null
     private var observed: PlaybackLane? = null

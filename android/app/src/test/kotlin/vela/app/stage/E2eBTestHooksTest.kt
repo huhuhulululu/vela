@@ -2,7 +2,6 @@ package vela.app.stage
 
 import android.content.Context
 import androidx.activity.ComponentActivity
-import androidx.annotation.VisibleForTesting
 import androidx.test.core.app.ApplicationProvider
 import java.nio.file.Files
 import java.time.Instant
@@ -116,41 +115,32 @@ class E2eBTestHooksTest {
     fun testPlaybackLaneExposesAudioAndVolumeForTest() {
         val hub = LaneHub()
         val player = FakeLanePlayer()
-        player.audioEnabled = 2
-        player.volume = 0.4f
         val lane = PlaybackLane(id = LaneID.PRIMARY, hub = hub, player = player)
+        // 构造时默认静音音量为 0；之后用正式入口改音量，再读测试钩子。
+        lane.setVolume(0.4, muted = false)
+        player.audioEnabled = 2
 
         assertEquals(2, lane.audioEnabledCountForTest())
         assertEquals(0.4f, lane.playerVolumeForTest(), 0.0001f)
     }
 
     @Test
-    fun testHooksAreAnnotatedVisibleForTesting() {
-        val sessionProp = AppPlaybackSession::class.java.getMethod("getSecondaryLaneForTest")
-        assertNotNull(sessionProp.getAnnotation(VisibleForTesting::class.java))
-
-        val inject = StageViewModel::class.java.getMethod(
-            "injectThermalForTest",
-            PhoneThermalState::class.java,
-            Instant::class.java,
-            java.lang.Boolean.TYPE,
+    fun testHooksArePublicJvmMethods() {
+        // VisibleForTesting 是 CLASS retention，运行时看不到；这里只钉住 JVM 签名，避免再靠反射猜名字。
+        assertNotNull(AppPlaybackSession::class.java.getMethod("getSecondaryLaneForTest"))
+        assertNotNull(
+            StageViewModel::class.java.getMethod(
+                "injectThermalForTest",
+                PhoneThermalState::class.java,
+                Instant::class.java,
+                java.lang.Boolean.TYPE,
+            ),
         )
-        assertNotNull(inject.getAnnotation(VisibleForTesting::class.java))
-
-        val limited = StageViewModel::class.java.getMethod("isQualityLimitedForTest")
-        assertNotNull(limited.getAnnotation(VisibleForTesting::class.java))
-
-        val cap = StageViewModel::class.java.getMethod("laneCapForTest", LaneID::class.java)
-        assertNotNull(cap.getAnnotation(VisibleForTesting::class.java))
-
-        val degrade = StageViewModel::class.java.getMethod("degradeLaneForTest", LaneID::class.java)
-        assertNotNull(degrade.getAnnotation(VisibleForTesting::class.java))
-
-        val audio = PlaybackLane::class.java.getMethod("audioEnabledCountForTest")
-        assertNotNull(audio.getAnnotation(VisibleForTesting::class.java))
-
-        val volume = PlaybackLane::class.java.getMethod("playerVolumeForTest")
-        assertNotNull(volume.getAnnotation(VisibleForTesting::class.java))
+        assertNotNull(StageViewModel::class.java.getMethod("isQualityLimitedForTest"))
+        assertNotNull(StageViewModel::class.java.getMethod("laneCapForTest", LaneID::class.java))
+        assertNotNull(StageViewModel::class.java.getMethod("degradeLaneForTest", LaneID::class.java))
+        assertNotNull(PlaybackLane::class.java.getMethod("audioEnabledCountForTest"))
+        assertNotNull(PlaybackLane::class.java.getMethod("playerVolumeForTest"))
     }
 
     private fun openSession(): SessionEnv {

@@ -312,7 +312,7 @@ class PlaybackLaneTest {
     fun testMutedDoesNotReportMissingAudio() {
         val fixture = open()
         assertTrue(fixture.player.muted)
-        assertEquals(0f, fixture.player.volume)
+        assertEquals(0f, fixture.player.volumeLevel)
         fixture.lane.play(fixture.rendition, "room-a", 800_000.0, allowed = true)
         fixture.player.audioEnabled = 0
         fixture.player.group = MuteAudioPolicy.AudibleGroupState(
@@ -332,7 +332,7 @@ class PlaybackLaneTest {
         val fixture = open()
         fixture.lane.setVolume(0.2, muted = false)
         assertFalse(fixture.player.muted)
-        assertEquals(0.2f, fixture.player.volume)
+        assertEquals(0.2f, fixture.player.volumeLevel)
         fixture.lane.play(fixture.rendition, "room-a", 800_000.0, allowed = true)
         fixture.player.audioEnabled = 0
         fixture.player.group = MuteAudioPolicy.AudibleGroupState(
@@ -465,7 +465,7 @@ internal class FakeLanePlayer : LanePlayer {
     var callbacks: LanePlayerListener? = null
     var bufferedEnd: Double? = 0.0
     var muted: Boolean = false
-    var volume: Float = 1f
+    var volumeLevel: Float = 1f
     var wantPlay: Boolean = false
     override var isPrepared: Boolean = false
     var audioEnabled: Int = 0
@@ -494,7 +494,7 @@ internal class FakeLanePlayer : LanePlayer {
 
     override fun setMuted(muted: Boolean, volume: Float) {
         this.muted = muted
-        this.volume = volume
+        this.volumeLevel = volume
     }
 
     override fun attachSurface(surface: android.view.Surface?) = Unit
@@ -504,6 +504,8 @@ internal class FakeLanePlayer : LanePlayer {
     override fun renderedOutputBufferCount(): Int = rendered
 
     override fun audioEnabledCount(): Int = audioEnabled
+
+    override fun volume(): Float = volumeLevel
 
     override fun audibleGroup(): MuteAudioPolicy.AudibleGroupState = group
 
