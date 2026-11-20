@@ -53,7 +53,7 @@ internal object E2eBSupport {
 
     fun confirmAgeAndLoadPopular(stage: StageViewModel) {
         check(stage.state.value.ageConfirmed || run {
-            stage.dispatch(StageIntent.ConfirmAge)
+            onMain(stage) { stage.dispatch(StageIntent.ConfirmAge) }
             waitUntil { stage.state.value.ageConfirmed }
         })
         onMain(stage) { stage.dispatch(StageIntent.DismissHint) }
@@ -87,15 +87,19 @@ internal object E2eBSupport {
         assertTrue(
             "主路首帧超时",
             waitUntil(25_000) {
-                val lane = activity.session.lane.value
-                lane != null && lane.firstFrameElapsedMs in 0..12_000 && !lane.failed
+                onMain(activity) {
+                    val lane = activity.session.lane.value
+                    lane != null && lane.firstFrameElapsedMs in 0..12_000 && !lane.failed
+                }
             },
         )
         assertTrue(
             "副路首帧超时 note=${stage.state.value.secondary?.playbackNote}",
             waitUntil(25_000) {
-                val secondary = secondaryLane(activity.session)
-                secondary != null && secondary.firstFrameElapsedMs in 0..12_000 && !secondary.failed
+                onMain(activity) {
+                    val secondary = secondaryLane(activity.session)
+                    secondary != null && secondary.firstFrameElapsedMs in 0..12_000 && !secondary.failed
+                }
             },
         )
     }
@@ -120,19 +124,23 @@ internal object E2eBSupport {
     }
 
     fun laneQualityLimited(stage: StageViewModel): Boolean {
-        val field = StageViewModel::class.java.getDeclaredField("laneQuality")
-        field.isAccessible = true
-        val quality = field.get(stage)
-        val limited = quality.javaClass.getDeclaredMethod("isLimited")
-        limited.isAccessible = true
-        return limited.invoke(quality) as Boolean
+        return onMain(stage) {
+            val field = StageViewModel::class.java.getDeclaredField("laneQuality")
+            field.isAccessible = true
+            val quality = field.get(stage)
+            val limited = quality.javaClass.getDeclaredMethod("isLimited")
+            limited.isAccessible = true
+            limited.invoke(quality) as Boolean
+        }
     }
 
     fun laneCapBps(stage: StageViewModel, id: LaneID): Double {
-        val clazz = Class.forName("vela.app.stage.StageViewModelKt")
-        val method = clazz.getDeclaredMethod("laneCap", StageViewModel::class.java, LaneID::class.java)
-        method.isAccessible = true
-        return method.invoke(null, stage, id) as Double
+        return onMain(stage) {
+            val clazz = Class.forName("vela.app.stage.StageViewModelKt")
+            val method = clazz.getDeclaredMethod("laneCap", StageViewModel::class.java, LaneID::class.java)
+            method.isAccessible = true
+            method.invoke(null, stage, id) as Double
+        }
     }
 
     fun degradeSecondary(stage: StageViewModel) {
@@ -147,20 +155,67 @@ internal object E2eBSupport {
     }
 
     fun audioEnabled(lane: PlaybackLane): Int {
-        val outer = lane.javaClass.getDeclaredField("player")
-        outer.isAccessible = true
-        val delegate = outer.get(lane) as LanePlayer
-        return delegate.audioEnabledCount()
+        return runOnMainSync {
+            val outer = lane.javaClass.getDeclaredField("player")
+            outer.isAccessible = true
+            val delegate = outer.get(lane) as LanePlayer
+            delegate.audioEnabledCount()
+        }
     }
 
     fun playerVolume(lane: PlaybackLane): Float {
-        val outer = lane.javaClass.getDeclaredField("player")
-        outer.isAccessible = true
-        val delegate = outer.get(lane) as LanePlayer
-        val inner = delegate.javaClass.getDeclaredField("player")
-        inner.isAccessible = true
-        val player = inner.get(delegate) as androidx.media3.common.Player
-        return player.volume
+        return runOnMainSync {
+            val outer = lane.javaClass.getDeclaredField("player")
+            outer.isAccessible = true
+            val delegate = outer.get(lane) as LanePlayer
+            val inner = delegate.javaClass.getDeclaredField("player")
+            inner.isAccessible = true
+            val player = inner.get(delegate) as androidx.media3.common.Player
+            player.volume
+        }
+    }
+
+    fun renderedOutputBufferCount(lane: PlaybackLane): Int {
+        return runOnMainSync { lane.renderedOutputBufferCount() }
+    }
+
+    /**
+     * 在 [windowMs] 内按 [stepMs] 采样两路是否同时出画；ExoPlayer 读数在主线程完成。
+     */
+    fun dualSimultaneousRenderRatio(
+        activity: MainActivity,
+        windowMs: Long,
+        stepMs: Long = 500L,
+    ): Double {
+        var samples = 0
+        var bothRendering = 0
+        var lastPrimary = -1
+        var lastSecondary = -1
+        val deadline = android.os.SystemClock.elapsedRealtime() + windowMs
+        while (android.os.SystemClock.elapsedRealtime() < deadline) {
+            samples += 1
+            val sample = onMain(activity) {
+                val primary = activity.session.lane.value
+                val secondary = secondaryLane(activity.session)
+                val primaryRendered = primary?.let { renderedOutputBufferCount(it) } ?: 0
+                val secondaryRendered = secondary?.let { renderedOutputBufferCount(it) } ?: 0
+                val primaryFailed = primary?.failed == true
+                val secondaryFailed = secondary?.failed == true
+                intArrayOf(primaryRendered, secondaryRendered, if (primaryFailed) 1 else 0, if (secondaryFailed) 1 else 0)
+            }
+            val primaryRendered = sample[0]
+            val secondaryRendered = sample[1]
+            val advancing = (primaryRendered > lastPrimary || lastPrimary < 0) &&
+                (secondaryRendered > lastSecondary || lastSecondary < 0) &&
+                primaryRendered > 0 && secondaryRendered > 0
+            if (advancing && sample[2] == 0 && sample[3] == 0) {
+                bothRendering += 1
+            }
+            lastPrimary = primaryRendered
+            lastSecondary = secondaryRendered
+            Thread.sleep(stepMs)
+        }
+        return if (samples == 0) 0.0 else bothRendering.toDouble() / samples.toDouble()
     }
 
     fun <T> onMain(stage: StageViewModel, block: () -> T): T {
@@ -182,6 +237,21 @@ internal object E2eBSupport {
             }
         }
         assertTrue(latch.await(20, TimeUnit.SECONDS))
+        error.get()?.let { throw it }
+        @Suppress("UNCHECKED_CAST")
+        return box.get() as T
+    }
+
+    fun <T> runOnMainSync(block: () -> T): T {
+        val box = AtomicReference<T>()
+        val error = AtomicReference<Throwable>()
+        instrumentation.runOnMainSync {
+            try {
+                box.set(block())
+            } catch (thrown: Throwable) {
+                error.set(thrown)
+            }
+        }
         error.get()?.let { throw it }
         @Suppress("UNCHECKED_CAST")
         return box.get() as T
