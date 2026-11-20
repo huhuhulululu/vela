@@ -28,6 +28,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -120,6 +121,18 @@ fun ChromeBar(
                 selected = state.infoAlwaysOn,
                 onClick = { dispatch(StageIntent.ToggleInfo) },
                 modifier = Modifier.testTag("toggle-info"),
+            )
+            ChipButton(
+                text = stringResource(R.string.pip_enter),
+                selected = state.pictureInPicture,
+                onClick = { dispatch(StageIntent.EnterPictureInPicture) },
+                modifier = Modifier.testTag("enter-pip"),
+            )
+            ChipButton(
+                text = stringResource(R.string.pip_auto_enter),
+                selected = state.autoEnterPip,
+                onClick = { dispatch(StageIntent.SetAutoEnterPip(!state.autoEnterPip)) },
+                modifier = Modifier.testTag("toggle-auto-pip"),
             )
         }
         if (volumeOpen) {
@@ -334,6 +347,7 @@ internal fun ChipButton(
                 RoundedCornerShape(percent = 50),
             )
             .clickable(interaction, null, role = Role.Button, onClick = onClick)
+            .semantics { this.selected = selected }
             .padding(horizontal = 12.dp, vertical = 8.dp),
         contentAlignment = Alignment.Center,
     ) {
