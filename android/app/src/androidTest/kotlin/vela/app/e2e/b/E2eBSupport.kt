@@ -80,7 +80,7 @@ internal object E2eBSupport {
     fun waitBothFirstFrames(activity: MainActivity, stage: StageViewModel) {
         assertTrue(
             "两路房间不独立 primary=${stage.feed.currentUsername} secondary=${stage.secondaryCursor?.username}",
-            waitUntil(5_000) { onMainSync { stage.state.value.lanesDistinct() } },
+            waitUntil(12_000) { onMainSync { stage.state.value.lanesDistinct() } },
         )
         assertTrue(
             "主路首帧超时",

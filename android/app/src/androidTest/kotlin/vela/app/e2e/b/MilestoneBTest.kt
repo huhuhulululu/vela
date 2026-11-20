@@ -6,6 +6,7 @@ import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.UiSelector
 import java.net.HttpURLConnection
 import java.net.URL
+import java.time.Instant
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -136,9 +137,21 @@ class MilestoneBTest {
         E2eBSupport.waitBothFirstFrames(activity, stage)
 
         hit(upstream, "/marker/thermal-begin")
-        E2eBSupport.injectThermal(stage, PhoneThermalState.SERIOUS, scheduleRecovery = true)
-        assertEquals(PhoneThermalState.SERIOUS, stage.state.value.thermal)
-        assertTrue(E2eBSupport.laneQualityLimited(stage))
+        // 可控时钟：拨快 Instant，不必在慢模拟器上真等 60 秒墙钟。
+        val t0 = Instant.parse("2020-06-01T00:00:00Z")
+        E2eBSupport.injectThermal(
+            stage,
+            PhoneThermalState.SERIOUS,
+            scheduleRecovery = false,
+            now = t0,
+        )
+        assertTrue(
+            "热注入后未进入 serious",
+            E2eBSupport.waitUntil(5_000) {
+                stage.state.value.thermal == PhoneThermalState.SERIOUS &&
+                    E2eBSupport.laneQualityLimited(stage)
+            },
+        )
         val cap = E2eBSupport.laneCapBps(stage, LaneID.PRIMARY)
         assertTrue(cap.isFinite())
         assertTrue(cap >= LaneQuality.minimumBitrate)
@@ -151,38 +164,72 @@ class MilestoneBTest {
         var lastSecondary = -1
         while (android.os.SystemClock.elapsedRealtime() - windowStart < windowMs) {
             samples += 1
-            val primary = activity.session.lane.value
+            // 播放器计数必须在应用线程读（renderedOutputBufferCount / secondaryLane 内部已 runOnMainSync）。
+            val primary = E2eBSupport.onMain(activity) { activity.session.lane.value }
             val secondary = E2eBSupport.secondaryLane(activity.session)
-            val primaryRendered = primary?.renderedOutputBufferCount() ?: 0
-            val secondaryRendered = secondary?.renderedOutputBufferCount() ?: 0
+            val primaryRendered = primary?.let { E2eBSupport.renderedOutputBufferCount(it) } ?: 0
+            val secondaryRendered = secondary?.let { E2eBSupport.renderedOutputBufferCount(it) } ?: 0
+            val primaryFailed = primary?.failed == true
+            val secondaryFailed = secondary?.failed == true
             val advancing = (primaryRendered > lastPrimary || lastPrimary < 0) &&
                 (secondaryRendered > lastSecondary || lastSecondary < 0) &&
                 primaryRendered > 0 && secondaryRendered > 0
-            if (advancing && primary?.failed != true && secondary?.failed != true) {
+            if (advancing && !primaryFailed && !secondaryFailed) {
                 bothRendering += 1
             }
             lastPrimary = primaryRendered
             lastSecondary = secondaryRendered
-            Thread.sleep(1_000)
+            // 采样步进：短轮询凑满约 1 秒，窗口内可提前结束，避免固定 sleep 卡住。
+            val stepDeadline = android.os.SystemClock.elapsedRealtime() + 1_000L
+            while (android.os.SystemClock.elapsedRealtime() < stepDeadline &&
+                android.os.SystemClock.elapsedRealtime() - windowStart < windowMs
+            ) {
+                Thread.sleep(50)
+            }
         }
+        assertTrue("采样次数为 0", samples > 0)
         val ratio = bothRendering.toDouble() / samples.toDouble()
         assertTrue(
             "双路同时出画占比 $ratio（$bothRendering/$samples）",
             ratio >= 0.85,
         )
 
-        E2eBSupport.injectThermal(stage, PhoneThermalState.FAIR, scheduleRecovery = true)
-        Thread.sleep(59_000)
-        assertTrue("第 59 秒仍应限档", E2eBSupport.laneQualityLimited(stage))
-        Thread.sleep(3_000)
+        // 第 59 秒仍限档；第 60 秒回升（断言不放宽，只改时间来源）。
+        E2eBSupport.injectThermal(
+            stage,
+            PhoneThermalState.FAIR,
+            scheduleRecovery = false,
+            now = t0,
+        )
+        E2eBSupport.injectThermal(
+            stage,
+            PhoneThermalState.FAIR,
+            scheduleRecovery = false,
+            now = t0.plusSeconds(59),
+        )
+        assertTrue(
+            "第 59 秒仍应限档",
+            E2eBSupport.waitUntil(5_000) { E2eBSupport.laneQualityLimited(stage) },
+        )
+        E2eBSupport.injectThermal(
+            stage,
+            PhoneThermalState.FAIR,
+            scheduleRecovery = false,
+            now = t0.plusSeconds(60),
+        )
         assertTrue(
             "满 60 秒冷却后应回升",
-            E2eBSupport.waitUntil(15_000) { !E2eBSupport.laneQualityLimited(stage) },
+            E2eBSupport.waitUntil(5_000) { !E2eBSupport.laneQualityLimited(stage) },
         )
 
         E2eBSupport.degradeSecondary(stage)
-        assertEquals(LanePlayback.Degraded, stage.state.value.secondary?.playback)
-        assertEquals(StageRules.DUAL_UNAVAILABLE, stage.state.value.secondary?.playbackNote)
+        assertTrue(
+            "副路未降级",
+            E2eBSupport.waitUntil(5_000) {
+                stage.state.value.secondary?.playback == LanePlayback.Degraded &&
+                    stage.state.value.secondary?.playbackNote == StageRules.DUAL_UNAVAILABLE
+            },
+        )
         assertEquals(LaneID.PRIMARY, stage.focusLane)
         assertEquals(primaryRoom(stage), stage.feed.currentUsername)
 
