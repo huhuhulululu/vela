@@ -526,3 +526,30 @@ T18、T18b、T19 的实跑（2026-11-18，分支 `feat/ios-pr3`）。全程静�
 
 仓库里没有模拟器资源采样的 JSON（作业写在结果目录，文件名 e2e-a-resources.json），也没有模拟器上的 PSS、CPU 中位数。计划写里程碑 A 的首测写入本文，之后按基线 +10% 做门。首测数字不在这棵树上，本文不编造，也不把「+10%」写成一个具体的 KB 或百分比。`android/PORTING.md` 文末的 `apk_bytes=667213` 是脚手架当时的空壳包，不是现在的 `:app`。体积门仍是 `android/tools/check-apk.sh` 的 5120 KB；等有一次当前 release 包的实测，再把字节数记进来。
 
+## 安卓（里程碑 B，双窗）
+
+与里程碑 A 同一套伪上游与夹具，不访问真实站点。入口是 `android/tools/emu-modes/e2e-b.sh`（由 `emulator-run.sh` 在有该模式时调用），仪器类 `vela.app.e2e.b.MilestoneBTest`。应用打 perf、仪器包打 debug，全程静音起测、用例内再取消静音验焦点出声。
+
+### 方法
+
+- 竖屏双窗：确认年龄 → 热门目录 → `SetLaneCount(2)` → 等两路首帧。
+- 伪上游请求日志经 `VELA_REQUEST_LOG` 交给模式脚本；热降档窗口按实际取流（解析或 `/hls` 列表与分片）统计两路，不要求降档必须重新解析。
+- 双路同时出画：仪器在窗口内按步长采样两路 `renderedOutputBufferCount` 是否同时前进，占比须 ≥ 测试窗口的 90%（S-B2）。
+- JVM 侧不跑伪上游墙钟：`DualStageTest` / `StageContractDualTest` / `DualStageScreenTest` 用合成目录与假 sink 验选房、横屏临时释放、热上限与副路降级。
+
+### 已经写进测试的门
+
+| 门 | 代码里的断言 | 出处 |
+|---|---|---|
+| 两路不同房 | `lanesDistinct()`；主副用户名大小写不敏感不相等 | `MilestoneBTest#test01…`；`DualStageTest` |
+| 焦点路出声 | 取消静音后焦点路 `audioEnabledCountForTest > 0`，另一路为 0 | `MilestoneBTest#test01…`；`DualStageTest#testOnlyTheFocusLaneIsAudible` |
+| 双窗记住 | `Settings.dualWindow == true`；杀进程后再起仍为双窗 | `MilestoneBTest#test01…`、`#test03RememberedDualAfterStop` |
+| 热降档与回升 | 注入 serious 后 `LaneQuality` 受限且两路仍在取流；第 59 秒不回升、满 60 秒回升 | `MilestoneBTest#test02…`；`DualStageTest#testThermalCapFollowsLaneQualityAndRecoversAtSixtySeconds` |
+| 副路资源降级 | 副路 `LanePlayback.Degraded`、主路仍在播；提示「双窗暂不可用」 | `MilestoneBTest#test02…`；`DualStageTest#testSecondaryDecoderResourceDegradesWithoutTouchingPrimary` |
+| 双路同时出画 | 采样窗口内两路同时推进占比 ≥ 0.90 | `MilestoneBTest#test02…` |
+| 横屏临时释放 | 非焦点路 `visible=false`、房间保留；回竖屏再起播 | `DualStageTest#testLandscapeReleasesTheNonFocusLaneButKeepsItsRoom`；`DualStageScreenTest#testLandscapeFallsBackToSingleFocusPane` |
+
+### 还没有的双窗基线
+
+仓库里没有双窗模拟器的 PSS / CPU / 流量中位数 JSON（e2e-b 结果写在作业目录，不入库）。不把 iOS Spike 的双/单比值抄成安卓门。体积门仍是 release ≤ 5120 KB。画中画双窗行为属 PiP1 / E3，不在本表。
+

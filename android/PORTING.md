@@ -177,11 +177,23 @@ FeedCache 的随机性质测试只断言不变量。Kotlin 用同一个种子，
 
 ## milestone-B 跳过项
 
-`android/parity/skip*.tsv` 里理由以 `milestone-B:` 开头的行，是共用 Core 逻辑、安卓里程碑 B（双窗）要移植的 Swift 用例（双窗与三窗选房、最近划走共享、多路画质、停留焦点秒、音频切换顺序等）。它们只为保持 `--all` 不失败而暂时登记为跳过，不等于不移植。
+`android/parity/skip.tsv` 里理由以 `milestone-B:` 开头的行，原先约定是「里程碑 B 内必须移植并删除」。基线 `android/fleet`（含 B0–B2、E2）落地后，**仍有 121 行**保留在全局 skip 表，`grep -rn 'milestone-B' android/parity` 非空。编排者在 D-B 记录现状如下（不在本包改 skip 表或代码）。
 
-- 里程碑 B 内必须把这些用例移植成 Kotlin 测试，并删除对应的 skip 行；里程碑 B 收尾时 `grep -rn 'milestone-B' android/parity` 必须无输出。
-- 理由以「不移植：iOS」开头的行才是真正依赖 iOS 平台 API（AVAudioSession、UIKit 生命周期、MetricKit、画中画等）的用例，长期保留。
-- 新增 skip 行时按这条区分，不要把共用逻辑写成 iOS 专属。
+| Swift 文件 | 条数 | 为何仍保留 |
+|---|---|---|
+| `TripleWindowTests` / `TripleLaneMediaTests` | 32 + 19 | 安卓里程碑 B 只接双窗播放；契约与界面可摆 3 格，第三路不建 `PlaybackLane`。整组暂不移植，等若做三窗再改，或日后改成明确的「不移植：安卓不做三窗」。 |
+| `DualWindowTests` | 27 | JVM 已有 `DualStageTest` / `StageContractDualTest` / 仪器 `MilestoneBTest` 覆盖开关、两路不同房、目标路操作、横屏临时释放等主要语义；skip 行尚未逐条改成 `replaced-by:` 或删行映射，故仍挂 milestone-B 以免 `--all` 缺映射。 |
+| `DualDwellTests` / `DwellFocusTests` | 12 + 7 | 焦点秒与双路停留口径部分由 `DualStageTest#testUnfocusedLaneSettlesAtHalfWeight` 等覆盖；完整 Swift 逐条对照未写进 split/replaced-by。 |
+| `DualQualityTests` | 5 | 热降档与换档由 `DualStageTest` + `MilestoneBTest#test02` 覆盖语义；parity 方法名未对齐。 |
+| `DualAudioFocusTests` / `AudioTransitionRunnerTests` | 4 + 15 | 安卓改走 `AudioFocusPlan` + `AudioFocusController`（含切焦点互斥），不是 iOS `AudioTransitionRunner`；Runner 用例本可改「不移植」或 `replaced-by:`，B 阶段未改理由列。 |
+
+约定更新：
+
+- 理由以「不移植：」或「不移植：iOS」开头的行才是长期跳过（平台专属或不做功能）。
+- 仍写 `milestone-B:` 的行表示「语义多半已由安卓测试覆盖，但 parity 映射未收尾」；后续编排者可批量改成 `replaced-by:<Kotlin 测试>` 或正式 split，不要求执行者在文档包里动表。
+- 新增 skip 时不要把已落地的双窗逻辑继续标成 milestone-B；三窗未做则写清「安卓不做三窗」或不移植。
+
+更细的舞台结构、临时释放与仪器反射待办见 `android/docs/milestone-b.md` 与 `docs/ARCHITECTURE.md` §11.8。
 
 ## 本次 release 体积
 
