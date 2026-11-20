@@ -557,3 +557,26 @@ T18、T18b、T19 的实跑（2026-11-18，分支 `feat/ios-pr3`）。全程静�
 
 正式测试钩子与反射待办见 `android/PORTING.md`「仪器测试」与 `android/docs/dual-window.md`。
 
+## 安卓（里程碑 C，画中画）
+
+与 A / B 共用伪上游与 `emulator-run.sh`。里程碑 C **不单独采** PSS/CPU 基线入库；下列门是行为断言，不是性能中位数。
+
+### 方法
+
+- 仪器：`android/tools/emu-modes/e2e-c.sh` 安装 perf 应用 + debug `androidTest`，跑 `vela.app.e2e.c.MilestoneCTest`。
+- 包级：`android/tools/emu-modes/pip.sh` 跑 `vela.app.pip.PipEmulatorTest`（自动进入 / 3 秒全停 / 比例 / 静音 Intent）。
+- 语义：回桌面只放行焦点路；无画中画时仍 `suspendLanes` 全停；启动中与显示中锁焦点与路数；3 秒未进入则全停；退出后按进入前路数恢复。比例 `PiPAspect`，静音 `RemoteAction`，焦点 `AUDIOFOCUS_GAIN_TRANSIENT`。细节见 `android/docs/pip.md` 与 `docs/ARCHITECTURE.md` 11.5。
+
+### 已经写进测试的门（S-C1 / S-C2 / S-C3）
+
+| 门 | 断言要点 | 出处 |
+|---|---|---|
+| 进画中画或全停；只焦点路；不裁切；锁与恢复路数 | HOME 后 3 秒内进 PiP 或全停；`focusLocked` / `laneCountLocked`；退出后路数恢复 | `MilestoneCTest#test01HomeEntersPipFocusOnlyUncroppedAndRestoresLanes` |
+| 静音 RemoteAction 与音频焦点 | 画中画路径下静音动作与 `AUDIOFOCUS_GAIN_TRANSIENT` | `MilestoneCTest#test02PipMuteAudioFocusGainTransient` |
+| 关自动进入全停；关闭后静默 | `autoEnterPip=false` 后台全停；关闭画中画后请求窗口安静 | `MilestoneCTest#test03AutoEnterOffStopsAndClosingPipIsQuiet` |
+
+### 尚未入库
+
+- 画中画 steady 态 PSS/CPU 中位数（无 `e2e-c-resources.json` 进仓）。
+- 画中画期间相对单路的流量比（未要求自动化性能门）。
+
