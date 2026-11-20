@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stage_source_guess">猜你喜欢</string>
+    <string name="stage_source_popular">热门</string>
+    <string name="stage_source_fresh">新开播</string>
+    <string name="stage_source_favorites">收藏</string>
+    <string name="stage_toast_unfavorite">已取消收藏 %1$s</string>
+    <string name="stage_toast_blocked">已屏蔽 %1$s，可在收藏与屏蔽列表里取消</string>
+    <string name="stage_toast_in_blocklist">%1$s 在屏蔽列表里</string>
+    <string name="stage_toast_more_failed">没能加载更多房间</string>
+    <string name="stage_toast_challenge_later">站点连续要求确认，稍后再试</string>
+    <string name="stage_toast_challenge_search">站点连续要求确认，全站搜索稍后再试</string>
+    <string name="stage_toast_challenge_favorites">站点连续要求确认，收藏状态稍后再查</string>
+    <string name="stage_toast_learning_off">已暂停学习，排序仍按现有口味</string>
+    <string name="stage_toast_learning_on">已恢复学习</string>
+    <string name="stage_toast_taste_reset">口味画像已重置</string>
+    <string name="stage_toast_cleared">已清除口味与观看记录，收藏与屏蔽保留</string>
+    <string name="stage_toast_skip">已记下，会少推荐类似的</string>
+    <string name="stage_toast_skip_paused">已跳过，学习已暂停所以没有记口味</string>
+    <string name="stage_toast_file_large">文件太大，不是收藏夹导出文件</string>
+    <string name="stage_toast_file_bad">无法识别这个文件</string>
+    <string name="stage_favorite_invalid">用户名只含字母、数字、下划线，2 到 30 位</string>
+    <string name="stage_favorite_exists">已经在收藏里了</string>
+    <string name="stage_catalog_needs_challenge">目录需要先通过站点确认</string>
+    <string name="stage_import">已导入 %1$d 个收藏%2$s</string>
+    <string name="stage_import_skipped">，忽略 %1$d 条格式不对的</string>
+    <string name="stage_rollback">%1$s，仍停在%2$s</string>
+    <string name="stage_playback_interrupted">画面中断了</string>
+</resources>

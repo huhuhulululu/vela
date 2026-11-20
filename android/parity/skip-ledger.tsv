@@ -1,0 +1,4 @@
+# C6b 跳过。三列制表符：swift_file、swift_test、reason。
+# SheetLayout 不移植，不是 deferred。
+swift_file	swift_test	reason
+Tests/VelaCoreTests/PromptRulesTests.swift	testChallengeSheetHeightFollowsWindow	不移植 SheetLayout

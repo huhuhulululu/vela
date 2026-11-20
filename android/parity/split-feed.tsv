@@ -1,0 +1,6 @@
+# swift_file	swift_test	kotlin_id
+# C5 用例与 Swift 同名，测试类名与 Swift 文件名一致，parity 按类名后缀对上。
+# 类型改名（不是测试改名）：
+# Swift LanePaging.landingIndex 在 LaneSelection.swift，归属 C8。C5 复制为 vela.core.feed.FeedPaging，
+# FeedStore.step 调用它，避免依赖还没移植的 C8。
+# SiteSearch.normalized 转调 L0a 的 SiteSearchText.normalized，截断长度共用 SiteSearchText.maxLength。

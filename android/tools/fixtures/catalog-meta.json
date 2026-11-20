@@ -1,0 +1,9 @@
+{
+  "synth_nova": {"region": "NA", "new_cam": false, "last_broadcast": "2020-01-15T12:00:00Z"},
+  "synth_kai": {"region": "AS", "new_cam": false, "last_broadcast": "2021-06-01T00:00:00Z"},
+  "synth_rio": {"region": "SA", "new_cam": true, "last_broadcast": "2024-11-01T08:30:00Z"},
+  "synth_lux": {"region": "ER", "new_cam": false, "last_broadcast": "2019-05-05 03:04:05"},
+  "synth_locked": {"region": "O", "new_cam": false, "last_broadcast": "2022-02-02T02:02:02Z"},
+  "synth_away": {"region": "O", "new_cam": false, "last_broadcast": "2018-08-08T08:08:08Z"},
+  "synth_gone": {"deleted": true}
+}

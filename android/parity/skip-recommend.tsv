@@ -1,0 +1,7 @@
+# C6c 跳过。三列制表符：swift_file、swift_test、reason。
+# FeedRankingTests 末尾四条测的是旧 Preferences / PreferenceStore，计划明确不移植。
+swift_file	swift_test	reason
+Tests/VelaCoreTests/FeedRankingTests.swift	testStoreReadsLegacyFileAndMissingFile	不移植 Preferences 结构体与 PreferenceStore
+Tests/VelaCoreTests/FeedRankingTests.swift	testCorruptFileFallsBackToEmpty	不移植 Preferences 结构体与 PreferenceStore
+Tests/VelaCoreTests/FeedRankingTests.swift	testCapsEvictWeakestWeightsAndOldestSeen	不移植 Preferences 结构体与 PreferenceStore
+Tests/VelaCoreTests/FeedRankingTests.swift	testLegacyFileSizeStaysBoundedOnLoad	不移植 Preferences 结构体与 PreferenceStore

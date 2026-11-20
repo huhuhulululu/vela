@@ -1,0 +1,40 @@
+# C9 跳过。三列制表符：swift_file、swift_test、reason。
+# 组 cross 的用例除下面登记的 iOS 专属项外都已移植。
+# deferred:C9 由 split-cross.tsv 里真正跑过的映射消化，不在本文件用非 deferred 理由销掉。
+swift_file	swift_test	reason
+Tests/VelaCoreTests/ReviewFixTests.swift	testCancelStopsInflightBatchAndLaterRunsStillWork	不移植：iOS 挂起时取消在途批次（安卓无对应的统一挂起）
+# AuditFixTests 里尚未移植的 iOS 专有用例。SkipNonPublic 九条已在 vela.app.stage.AuditFixTests 跑。
+Tests/VelaPhoneTests/AuditFixTests.swift	testEmptyPrimaryDoesNotFallBackToFirstRoom	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testSingleWindowStillFollowsFeedCurrent	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testFocusTargetFollowsFocusLane	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testDualToggleIgnoredWhilePictureInPictureIsUp	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testOpeningDualIgnoredWhilePictureInPictureIsUp	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testNewSecondaryHonoursPipSoloWhenOpenedViaRestore	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testFallbackReleasesPipLockAndSolo	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testLoadingLineFollowsOwnLaneGate	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testDirectSearchHitOnSecondaryRoomRevealsInsteadOfSqueezing	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testDirectSearchHitOnNewRoomGoesToPrimaryAndStaysDistinct	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testPausingLearningExcludesLedgerOnBothLanes	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testClearAllPreferencesDiscardsEveryLanesDwell	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testSecondarySameNameSourceChangeSettlesAndUpdatesSource	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testCapSyncNeededWhenThermalChangedAfterPlaybackStarted	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testDisplaySizeChangeInThreeLanesRequestsCapSync	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testDisplaySizeSameValueIsIgnored	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testRelatedPromotionWorksForFocusSecondaryRoom	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testReadyAfterThermalLimitRequestsCapSync	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testReadyWithUpToDateCapDoesNotRequestCapSync	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testClosingDualAfterPrimaryEmptiedInitialisesPrimaryDwell	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testReloadRestoringEmptyPrimaryInitialisesDwell	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testSecondaryLoadingLineSurvivesPrimaryPause	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testFallbackAbortsCoordinatorNotJustStops	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testCoordinatorAbortClearsActiveSoItCanRebind	不移植：iOS 专有（Xcode 目标 VelaPhoneTests，覆盖 iOS 多窗、画中画、音频焦点与界面）
+Tests/VelaPhoneTests/AuditFixTests.swift	testH5_turningExperimentOffWhileStartingNeverLeavesActiveSync	不移植：同步接线仍是 iOS，安卓没有 SyncHub
+Tests/VelaPhoneTests/AuditFixTests.swift	testH5_turningExperimentOffDuringCreateNeverLeavesActiveSync	不移植：同步接线仍是 iOS，安卓没有 SyncHub
+Tests/VelaPhoneTests/AuditFixTests.swift	testH5_turningExperimentOffRightAfterUnavailableRetryNeverStartsSync	不移植：同步接线仍是 iOS，安卓没有 SyncHub
+Tests/VelaPhoneTests/AuditFixTests.swift	testH8_commitLockIsHeldUntilJoinActivationFinishes	不移植：同步接线仍是 iOS，安卓没有 SyncHub
+Tests/VelaPhoneTests/AuditFixTests.swift	testM9_rollbackReloadKeepsUnsetSettingUnset	不移植：同步接线仍是 iOS，安卓没有 SyncHub
+Tests/VelaPhoneTests/AuditFixTests.swift	testM10_cancelWhileCheckingDropsLateResult	不移植：同步接线仍是 iOS，安卓没有 SyncHub
+Tests/VelaPhoneTests/AuditFixTests.swift	testH9_cannotTurnExperimentOffWhileStateIsStoredButUnavailable	不移植：同步接线仍是 iOS，安卓没有 SyncHub
+Tests/VelaPhoneTests/AuditFixTests.swift	testM7_dwellRecordIsRejectedWhileCommitting	不移植：同步接线仍是 iOS，安卓没有 SyncHub
+Tests/VelaPhoneTests/AuditFixTests.swift	testM7_dwellRecordIsRejectedWhileJoinRepairPending	不移植：同步接线仍是 iOS，安卓没有 SyncHub
+Tests/VelaPhoneTests/AuditFixTests.swift	testH1_modelSinkPersistsPendingEditsAndReloadsAfterRollback	不移植：同步接线仍是 iOS，安卓没有 SyncHub
