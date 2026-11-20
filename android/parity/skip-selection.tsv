@@ -20,7 +20,6 @@ Tests/VelaCoreTests/LaneSelectionTests.swift	testSingleWindowIgnoresRecent	miles
 Tests/VelaCoreTests/LaneSelectionTests.swift	testRecentSkipsExpireByReadTime	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
 Tests/VelaCoreTests/LaneSelectionTests.swift	testRecentSkipsRerecordRefreshesTimestamp	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
 Tests/VelaCoreTests/LaneSelectionTests.swift	testRecentSkipsCapacityDropsOldest	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
-Tests/VelaCoreTests/LaneSelectionTests.swift	testLaneIDsActiveCountAndRoleMapping	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
 Tests/VelaCoreTests/LaneSelectionTests.swift	testBlockingPrimaryYieldsPastBothOtherLanes	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
 Tests/VelaCoreTests/LaneSelectionTests.swift	testBlockingSecondaryReplacementSkipsTertiaryRoom	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
 Tests/VelaCoreTests/LaneSelectionTests.swift	testBlockingTertiaryFindsNextFreeRoomAlongItsDirection	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
@@ -37,4 +36,3 @@ Tests/VelaCoreTests/LaneSelectionTests.swift	testMoveNeverLandsOnEitherOtherLane
 Tests/VelaCoreTests/LaneSelectionTests.swift	testRecentSkipsAreSharedByAllThreeLanes	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
 Tests/VelaCoreTests/LaneSelectionTests.swift	testFillPlacesNewLanesAfterTheirPredecessorAndRespectsRecent	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
 Tests/VelaCoreTests/LaneSelectionTests.swift	testTwoLaneSnapshotWithoutTertiaryKeepsDualBehavior	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
-Tests/VelaCoreTests/LaneSelectionTests.swift	testPaneHeightAndThreeLaneFit	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植

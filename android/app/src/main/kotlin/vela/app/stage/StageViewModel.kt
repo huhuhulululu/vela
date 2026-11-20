@@ -421,6 +421,12 @@ class StageViewModel(
             is StageIntent.SetLearningPaused -> setLearningPaused(intent.paused)
             StageIntent.ResetTaste -> resetTasteProfile()
             StageIntent.ClearPreferences -> clearAllPreferences()
+            // 路数、焦点和横屏的规则在 LaneWindow。这里先占住分支，B1 再接到选房和播放。
+            is StageIntent.SetDual -> Unit
+            is StageIntent.SetLaneCount -> Unit
+            is StageIntent.SetFocus -> Unit
+            is StageIntent.SetLandscape -> Unit
+            is StageIntent.NotePortraitStageSize -> Unit
         }
     }
 
