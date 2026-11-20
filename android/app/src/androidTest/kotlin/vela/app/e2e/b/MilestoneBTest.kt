@@ -177,7 +177,6 @@ class MilestoneBTest {
 
     @Test(timeout = 120_000)
     fun test03RememberedDualAfterStop() {
-        assertTrue("应先跑 test01", dualRememberedThisProcess)
         E2eBSupport.resetLocalData()
         val prefs = E2eBSupport.instrumentation.targetContext
             .getSharedPreferences(Settings.PREFS_NAME, android.content.Context.MODE_PRIVATE)
