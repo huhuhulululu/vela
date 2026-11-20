@@ -199,7 +199,7 @@ class SheetTest {
                     stage = stage,
                     challengeUrl = challengeUrl,
                     onImportFavorites = onImport,
-                    player = { _: Room -> },
+                    player = { _, _, _ -> },
                 )
             }
         }

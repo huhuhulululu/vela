@@ -8,6 +8,7 @@ import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -230,15 +231,24 @@ class MainActivity : ComponentActivity() {
         val session = this.session
         view.setContent {
             val lane by session.lane.collectAsState()
+            val ui by stage.state.collectAsState()
             StageScreen(
                 stage = stage,
                 challengeUrl = challengeEntryUrl(),
                 onImportFavorites = { launchFavoriteImport() },
-            ) { _ ->
-                val current = lane
-                if (current != null) {
-                    LaneSurface(lane = current, thumbnail = null, modifier = Modifier.fillMaxSize())
+            ) { _, laneId, active ->
+                if (!active) return@StageScreen
+                val playbackLane = when (laneId) {
+                    vela.core.base.lane.LaneID.PRIMARY -> lane
+                    vela.core.base.lane.LaneID.SECONDARY -> stage.secondaryLane
+                    else -> null
                 }
+                if (playbackLane != null) {
+                    LaneSurface(lane = playbackLane, thumbnail = null, modifier = Modifier.fillMaxSize())
+                }
+            }
+            LaunchedEffect(ui.laneCount) {
+                if (ui.laneCount >= 2) session.ensureSecondary()
             }
         }
         composed = true
