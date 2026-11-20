@@ -6,8 +6,6 @@ import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
 import java.lang.reflect.Method
 import java.time.Instant
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import org.junit.Assert.assertTrue
 import vela.app.MainActivity
@@ -82,31 +80,43 @@ internal object E2eBSupport {
     fun waitBothFirstFrames(activity: MainActivity, stage: StageViewModel) {
         assertTrue(
             "两路房间不独立 primary=${stage.feed.currentUsername} secondary=${stage.secondaryCursor?.username}",
-            waitUntil(5_000) { stage.state.value.lanesDistinct() },
+            waitUntil(5_000) { onMainSync { stage.state.value.lanesDistinct() } },
         )
         assertTrue(
             "主路首帧超时",
             waitUntil(25_000) {
-                val lane = activity.session.lane.value
-                lane != null && lane.firstFrameElapsedMs in 0..12_000 && !lane.failed
+                onMainSync {
+                    val lane = activity.session.lane.value
+                    lane != null && lane.firstFrameElapsedMs in 0..12_000 && !lane.failed
+                }
             },
         )
         assertTrue(
             "副路首帧超时 note=${stage.state.value.secondary?.playbackNote}",
             waitUntil(25_000) {
-                val secondary = secondaryLane(activity.session)
-                secondary != null && secondary.firstFrameElapsedMs in 0..12_000 && !secondary.failed
+                onMainSync {
+                    val secondary = secondaryLaneUnlocked(activity.session)
+                    secondary != null && secondary.firstFrameElapsedMs in 0..12_000 && !secondary.failed
+                }
             },
         )
     }
 
-    fun secondaryLane(session: AppPlaybackSession): PlaybackLane? {
+    fun secondaryLane(session: AppPlaybackSession): PlaybackLane? =
+        onMainSync { secondaryLaneUnlocked(session) }
+
+    private fun secondaryLaneUnlocked(session: AppPlaybackSession): PlaybackLane? {
         val field = AppPlaybackSession::class.java.getDeclaredField("secondaryLane")
         field.isAccessible = true
         return field.get(session) as? PlaybackLane
     }
 
-    fun injectThermal(stage: StageViewModel, state: PhoneThermalState, scheduleRecovery: Boolean) {
+    fun injectThermal(
+        stage: StageViewModel,
+        state: PhoneThermalState,
+        scheduleRecovery: Boolean,
+        now: Instant = Instant.now(),
+    ) {
         val clazz = Class.forName("vela.app.stage.StageViewModelKt")
         val method: Method = clazz.getDeclaredMethod(
             "noteThermal",
@@ -116,23 +126,23 @@ internal object E2eBSupport {
             java.lang.Boolean.TYPE,
         )
         method.isAccessible = true
-        onMain(stage) { method.invoke(null, stage, state, Instant.now(), scheduleRecovery) }
+        onMain(stage) { method.invoke(null, stage, state, now, scheduleRecovery) }
     }
 
-    fun laneQualityLimited(stage: StageViewModel): Boolean {
+    fun laneQualityLimited(stage: StageViewModel): Boolean = onMainSync {
         val field = StageViewModel::class.java.getDeclaredField("laneQuality")
         field.isAccessible = true
         val quality = field.get(stage)
         val limited = quality.javaClass.getDeclaredMethod("isLimited")
         limited.isAccessible = true
-        return limited.invoke(quality) as Boolean
+        limited.invoke(quality) as Boolean
     }
 
-    fun laneCapBps(stage: StageViewModel, id: LaneID): Double {
+    fun laneCapBps(stage: StageViewModel, id: LaneID): Double = onMainSync {
         val clazz = Class.forName("vela.app.stage.StageViewModelKt")
         val method = clazz.getDeclaredMethod("laneCap", StageViewModel::class.java, LaneID::class.java)
         method.isAccessible = true
-        return method.invoke(null, stage, id) as Double
+        method.invoke(null, stage, id) as Double
     }
 
     fun degradeSecondary(stage: StageViewModel) {
@@ -146,42 +156,42 @@ internal object E2eBSupport {
         onMain(stage) { method.invoke(null, stage, LaneID.SECONDARY) }
     }
 
-    fun audioEnabled(lane: PlaybackLane): Int {
+    /** ExoPlayer 必须在应用线程读；仪器线程直接调会触发 wrong thread。 */
+    fun audioEnabled(lane: PlaybackLane): Int = onMainSync {
         val outer = lane.javaClass.getDeclaredField("player")
         outer.isAccessible = true
         val delegate = outer.get(lane) as LanePlayer
-        return delegate.audioEnabledCount()
+        delegate.audioEnabledCount()
     }
 
-    fun playerVolume(lane: PlaybackLane): Float {
+    fun playerVolume(lane: PlaybackLane): Float = onMainSync {
         val outer = lane.javaClass.getDeclaredField("player")
         outer.isAccessible = true
         val delegate = outer.get(lane) as LanePlayer
         val inner = delegate.javaClass.getDeclaredField("player")
         inner.isAccessible = true
         val player = inner.get(delegate) as androidx.media3.common.Player
-        return player.volume
+        player.volume
     }
 
-    fun <T> onMain(stage: StageViewModel, block: () -> T): T {
-        val activity = stage.appContext as? Activity ?: error("没有 Activity")
-        return onMain(activity, block)
+    fun renderedOutputBufferCount(lane: PlaybackLane): Int = onMainSync {
+        lane.renderedOutputBufferCount()
     }
 
-    fun <T> onMain(activity: Activity, block: () -> T): T {
-        val box = AtomicReference<T>()
+    fun <T> onMain(stage: StageViewModel, block: () -> T): T = onMainSync(block)
+
+    fun <T> onMain(activity: Activity, block: () -> T): T = onMainSync(block)
+
+    fun <T> onMainSync(block: () -> T): T {
+        val box = AtomicReference<Any?>()
         val error = AtomicReference<Throwable>()
-        val latch = CountDownLatch(1)
-        activity.runOnUiThread {
+        instrumentation.runOnMainSync {
             try {
                 box.set(block())
             } catch (thrown: Throwable) {
                 error.set(thrown)
-            } finally {
-                latch.countDown()
             }
         }
-        assertTrue(latch.await(20, TimeUnit.SECONDS))
         error.get()?.let { throw it }
         @Suppress("UNCHECKED_CAST")
         return box.get() as T
