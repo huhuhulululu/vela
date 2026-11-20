@@ -2,6 +2,7 @@ package vela.app.stage
 
 import android.content.Context
 import android.util.Log
+import androidx.annotation.VisibleForTesting
 import java.nio.file.Path
 import java.time.Clock
 import java.time.Instant
@@ -992,6 +993,21 @@ class StageViewModel(
     }
 
     internal fun requestPlay(lane: LaneID, isRetry: Boolean = false) = requestLane(lane, isRetry)
+
+    /** 仪器测试注入热状态，须在应用主线程调用。 */
+    @VisibleForTesting
+    fun injectThermalForTest(state: PhoneThermalState, now: Instant, scheduleRecovery: Boolean) {
+        noteThermal(state, now, scheduleRecovery)
+    }
+
+    @VisibleForTesting
+    fun laneCapForTest(id: LaneID): Double = laneCap(id)
+
+    @VisibleForTesting
+    fun isQualityLimitedForTest(): Boolean = laneQuality.isLimited
+
+    @VisibleForTesting
+    fun degradeLaneForTest(id: LaneID) = degradeLane(id)
 
     companion object {
         private const val TAG = "vela.stage"

@@ -2,6 +2,7 @@ package vela.app.lane
 
 import android.content.Context
 import android.net.Uri
+import androidx.annotation.VisibleForTesting
 import android.os.Handler
 import android.os.Looper
 import android.view.Surface
@@ -276,6 +277,12 @@ class PlaybackLane(
 
     /** 必须在创建播放器的那条线程上调用。 */
     fun renderedOutputBufferCount(): Int = player.renderedOutputBufferCount()
+
+    @VisibleForTesting
+    fun audioEnabledCountForTest(): Int = player.audioEnabledCount()
+
+    @VisibleForTesting
+    fun playbackVolumeForTest(): Float = player.playbackVolumeForTest()
 
     fun release() {
         onPlaybackFace = null

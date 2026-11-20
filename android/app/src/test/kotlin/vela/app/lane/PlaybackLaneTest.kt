@@ -505,6 +505,8 @@ internal class FakeLanePlayer : LanePlayer {
 
     override fun audioEnabledCount(): Int = audioEnabled
 
+    override fun playbackVolumeForTest(): Float = volume
+
     override fun audibleGroup(): MuteAudioPolicy.AudibleGroupState = group
 
     override fun setListener(listener: LanePlayerListener?) {

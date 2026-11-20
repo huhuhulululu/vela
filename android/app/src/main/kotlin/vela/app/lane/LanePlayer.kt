@@ -2,6 +2,7 @@ package vela.app.lane
 
 import android.net.Uri
 import android.view.Surface
+import androidx.annotation.VisibleForTesting
 import vela.app.playback.VelaLoadErrorPolicy
 import vela.core.hls.FailureCode
 import vela.core.hls.MuteAudioPolicy
@@ -51,6 +52,10 @@ interface LanePlayer {
     fun renderedOutputBufferCount(): Int
 
     fun audioEnabledCount(): Int
+
+    /** 仪器测试读 ExoPlayer 音量，须在应用主线程调用。 */
+    @VisibleForTesting
+    fun playbackVolumeForTest(): Float
 
     fun audibleGroup(): MuteAudioPolicy.AudibleGroupState
 

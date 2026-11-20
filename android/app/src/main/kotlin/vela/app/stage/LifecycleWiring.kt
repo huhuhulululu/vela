@@ -2,6 +2,7 @@ package vela.app.stage
 
 import android.media.AudioManager
 import android.util.Log
+import androidx.annotation.VisibleForTesting
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -231,6 +232,13 @@ class AppPlaybackSession(
     private val mutableLane = MutableStateFlow<PlaybackLane?>(null)
     val lane: StateFlow<PlaybackLane?> = mutableLane.asStateFlow()
     private var secondaryLane: PlaybackLane? = null
+
+    /** 仪器测试读副路实例；须在应用主线程调用。 */
+    @VisibleForTesting
+    fun secondaryLaneForTest(): PlaybackLane? = secondaryLane
+
+    @VisibleForTesting
+    fun hostActivityForTest(): ComponentActivity = activity
 
     var webHost: FrameLayout? = null
     private var observed: PlaybackLane? = null

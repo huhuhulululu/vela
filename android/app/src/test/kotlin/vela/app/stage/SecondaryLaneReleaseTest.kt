@@ -127,9 +127,6 @@ class SecondaryLaneReleaseTest {
     }
   }
 
-  private fun readSessionSecondary(session: AppPlaybackSession): PlaybackLane? {
-    val field = AppPlaybackSession::class.java.getDeclaredField("secondaryLane")
-    field.isAccessible = true
-    return field.get(session) as PlaybackLane?
-  }
+  private fun readSessionSecondary(session: AppPlaybackSession): PlaybackLane? =
+    session.secondaryLaneForTest()
 }

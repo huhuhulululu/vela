@@ -147,6 +147,8 @@ internal class ExoLanePlayer(
         return count
     }
 
+    override fun playbackVolumeForTest(): Float = player.volume
+
     override fun audibleGroup(): MuteAudioPolicy.AudibleGroupState {
         val groups = player.currentTracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
         if (groups.isEmpty()) return MuteAudioPolicy.AudibleGroupState.unknown
