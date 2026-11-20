@@ -160,7 +160,7 @@ FeedCache 的随机性质测试只断言不变量。Kotlin 用同一个种子，
 
 ## §8 公开方案核对（2026-11-18）
 
-00 负责表里前两项。页面都打开过。画中画那一项留给 PiP1。
+00 负责表里前两项。页面都打开过。里程碑 C 画中画行为验收见 `android/tools/emu-modes/e2e-c.sh` 与 `MilestoneCTest`；模拟器墙钟与 PSS/CPU 见 `docs/PERF.md` 里程碑 C。
 
 借什么、不借什么仍按计划表，下面只记当天页面上实际看到的：
 
@@ -191,7 +191,8 @@ FeedCache 的随机性质测试只断言不变量。Kotlin 用同一个种子，
 
 **规则（不变）**
 
-- 里程碑 B **产品行为**验收以 S-B1、S-B2 与 `emu-modes/e2e-b.sh` 为准；parity 里这 121 条可在后续包（或 C9 扩展）里改成 Kotlin 测试 + `split-*.tsv`，或拆成「三窗永不过」并改写理由为「不移植：三窗」——须编排者裁决，执行者不得自行改名糊弄 `--all`。
+- 里程碑 B **产品行为**验收以 S-B1、S-B2 与 `emu-modes/e2e-b.sh` 为准；里程碑 C 画中画以 S-C1、S-C2、S-C3 与 `emu-modes/e2e-c.sh` 为准（行为门，不是性能基线）。
+- parity 里这 121 条可在后续包（或 C9 扩展）里改成 Kotlin 测试 + `split-*.tsv`，或拆成「三窗永不过」并改写理由为「不移植：三窗」。须编排者裁决，执行者不得自行改名糊弄 `--all`。
 - 理由以「不移植：iOS」开头的是真平台绑定（AVAudioSession、UIKit PiP、MetricKit 等），长期保留。
 - 里程碑 B 收尾若要求 `grep -rn 'milestone-B' android/parity` 为零，需要上述迁移或裁决 **之后**再删行；D-B 只记录现状，不删 skip。
 

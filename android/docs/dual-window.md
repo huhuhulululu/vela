@@ -7,7 +7,7 @@
 - 默认单路（`laneCount == 1`）。用户用顶栏路数选择器或双窗开关可开到 2 路；`Settings.dualWindow` 与 `rememberedLaneCount` 记住选择，冷启动由 `restoreDualIfRemembered()` 恢复。
 - `StageUiState.dualWindow` 是 `laneCount > 1` 的派生镜像，界面与测试只读契约，不直接改设置键。
 - 第三路（`LaneID.TERTIARY`）在契约与 `DualStageScreen` 里预留格位，**本里程碑不创建第三路 `PlaybackLane`**；`setLaneCount(3)` 只更新 UI 状态，起播仍限主路 + 副路。
-- 画中画进行中 `focusLocked` / `laneCountLocked` 为真时，路数选择与显式切焦点被忽略（PiP 包接线后会与 iOS 一致）。
+- 画中画进行中 `focusLocked` / `laneCountLocked` 为真时，路数选择与显式切焦点被忽略（由 `PiPCoordinator` 与 iOS 一致）。
 
 ## 舞台：`StageViewModel` + `Stage+Lanes.kt`
 
@@ -44,13 +44,13 @@
 
 `SetLandscape(true)` → `syncLaneVisibility`：非焦点路 `visible = false`，`PlaybackSink.stop()`，**保留** `secondaryCursor`、房间与 `LaneFace` 状态。回竖屏后可见路按 `PhoneLifecycle.shouldPlay` 再 `requestLane`。
 
-### 画中画（待 PiP1）
+### 画中画（里程碑 C，见 `picture-in-picture.md`）
 
-里程碑 B 未接 `PiPPolicy` 的「只留焦点路」。当前回桌面仍按里程碑 A 全停（`suspendLanes` 释放主副播放器）。PiP1 将用 `pipSolo` 同类语义临时藏非焦点路，逻辑状态全保留，退出 PiP 后恢复双格。
+`PiPPolicy` 裁定继续时：回桌面只放行焦点路，非焦点路 `ReleaseLane`（释放 ExoPlayer，逻辑状态保留），`setPipSolo(true)` 与路数/焦点锁。3 秒内未进入画中画或 `autoEnterPip == false` 时仍全停 `suspendLanes`。
 
-### 后台（全停，回前台按裁决 7 恢复）
+### 后台（无画中画继续时全停）
 
-无 PiP 时进后台：`suspendLanes` 拆掉主副 `PlaybackLane` 实例；`secondaryCursor` 等舞台状态仍在 ViewModel。回前台 `ensureLane` / `ensureSecondary` 重建播放器，满足「有房间、未手动暂停、可见、非失败/降级」再起播。
+未进画中画继续路径时进后台：`suspendLanes` 拆掉主副 `PlaybackLane` 实例；`secondaryCursor` 等舞台状态仍在 ViewModel。回前台 `ensureLane` / `ensureSecondary` 重建播放器，满足「有房间、未手动暂停、可见、非失败/降级」再起播。
 
 ## 声音
 

@@ -557,3 +557,28 @@ T18、T18b、T19 的实跑（2026-11-18，分支 `feat/ios-pr3`）。全程静�
 
 正式测试钩子与反射待办见 `android/PORTING.md`「仪器测试」与 `android/docs/dual-window.md`。
 
+## 安卓（里程碑 C，画中画）
+
+与 A/B 共用伪上游、`emulator-run.sh` 与 perf 应用 + debug `androidTest` 组合。**不单独采**画中画稳态 PSS/CPU 入库；本节只登记行为验收门，不测流量翻倍。
+
+### 方法
+
+- 仪器：`android/tools/emu-modes/e2e-c.sh` 跑 `vela.app.e2e.c.MilestoneCTest` 三条（类内固定顺序）。
+- 辅助：`android/tools/emu-modes/pip.sh` 同样登记到 `emulator-run.sh all`，侧重 HOME 与 PiP 状态，不替代 `e2e-c.sh` 的三项 S-C 断言。
+- 设备不支持 `FEATURE_PICTURE_IN_PICTURE` 时，S-C1 期望全停，不视为失败语义漂移。
+
+### 已经写进测试的门（S-C1 / S-C2 / S-C3）
+
+| 门 | 断言要点 | 出处 |
+|---|---|---|
+| 进 PiP 或 3 秒全停 | HOME 后进入 PiP，或网关关、播放器拆掉 | `test01HomeEntersPipFocusOnlyUncroppedAndRestoresLanes` |
+| 焦点路与比例 | 仅焦点路继续；`display-check` 含 `uncropped=true`；退出后恢复路数 | 同上 |
+| 静音与焦点 | 静音无本包焦点；取消静音 `GAIN_TRANSIENT`；再静音放弃焦点 | `test02PipMuteAudioFocusGainTransient` |
+| 关自动进入 | `autoEnterPip=false` 时 HOME 全停 | `test03AutoEnterOffStopsAndClosingPipIsQuiet` |
+| 关 PiP 后后台 | 对齐里程碑 A 后台静默（零请求、无播放线程） | 同上 |
+
+### 尚未入库
+
+- 画中画期间与退出后的 PSS/CPU/流量中位数：**尚未入库**。
+- 与双窗叠加时的资源采样：无 `e2e-c-resources.json` 进仓。
+
