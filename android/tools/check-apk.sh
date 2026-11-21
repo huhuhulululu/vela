@@ -220,6 +220,13 @@ for line in xmltree.splitlines():
 if backup is not False:
     problems.append(f"allowBackup 必须为 false，实际: {backup}")
 
+icon_lines = [
+    line for line in badging.splitlines()
+    if line.startswith("application:") or line.startswith("application-icon")
+]
+if not any("ic_launcher" in line for line in icon_lines):
+    problems.append("启动图标不是 ic_launcher")
+
 roots = parse_tree(xmltree)
 for root in roots:
     for node, chain in walk(root):
