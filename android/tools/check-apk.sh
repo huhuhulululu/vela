@@ -220,12 +220,26 @@ for line in xmltree.splitlines():
 if backup is not False:
     problems.append(f"allowBackup 必须为 false，实际: {backup}")
 
-icon_lines = [
-    line for line in badging.splitlines()
-    if line.startswith("application:") or line.startswith("application-icon")
-]
-if not any("ic_launcher" in line for line in icon_lines):
-    problems.append("启动图标不是 ic_launcher")
+# R8 会把包内路径缩成 res/BW.xml 这类短名，badging 上看不到 ic_launcher。
+# 资源表里的名字还在，清单上也必须挂着非 0 的 icon / roundIcon。
+resource_dump = run_aapt(aapt, "dump", "resources", str(apk))
+resource_names = set(re.findall(r"vela\.app:(mipmap/[\w]+):", resource_dump))
+for required in ("mipmap/ic_launcher", "mipmap/ic_launcher_round"):
+    if required not in resource_names:
+        problems.append(f"缺少启动图标资源: {required}")
+
+def resource_ref(attr_name):
+    for line in xmltree.splitlines():
+        if f"android:{attr_name}(" not in line:
+            continue
+        match = re.search(r"=(@0x[0-9a-fA-F]+)", line)
+        return match.group(1) if match else ""
+    return None
+
+for attr_name in ("icon", "roundIcon"):
+    ref = resource_ref(attr_name)
+    if ref is None or ref in ("@0x0", "@0x00", "@0x00000000"):
+        problems.append(f"清单没有 android:{attr_name}")
 
 roots = parse_tree(xmltree)
 for root in roots:

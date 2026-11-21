@@ -577,6 +577,6 @@ xcodebuild -project Vela.xcodeproj -scheme Vela -destination 'platform=macOS' \
 python3 -I tools/parity.py --all
 ```
 
-仓库根目录同样可以：`python3 -I android/tools/parity.py --all`。release 包用 `android/tools/check-apk.sh`：体积 ≤ 5120 KB，权限只有 `INTERNET`、`ACCESS_NETWORK_STATE` 和合并进来的 `*.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`，`allowBackup=false`，没有 service 与开机 receiver，R8 mapping 不含 `vela.app.hooks`，badging 里的启动图标必须是 `ic_launcher`。
+仓库根目录同样可以：`python3 -I android/tools/parity.py --all`。release 包用 `android/tools/check-apk.sh`：体积 ≤ 5120 KB，权限只有 `INTERNET`、`ACCESS_NETWORK_STATE` 和合并进来的 `*.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`，`allowBackup=false`，没有 service 与开机 receiver，R8 mapping 不含 `vela.app.hooks`。资源表里必须有 `mipmap/ic_launcher` 与 `mipmap/ic_launcher_round`，清单的 `android:icon` 与 `android:roundIcon` 必须是非 0 引用。R8 会把包内路径缩成短文件名，不能靠 badging 里的 `res/*.xml` 判断。
 
 CI 是 `.github/workflows/android.yml`。`android-unit` 跑上面的单元测试、两种组装、parity 与 `android/tools/check-apk.sh`。`android-emulator` 跑 `android/tools/emulator-run.sh all`，按文件名顺序执行 `android/tools/emu-modes/` 下全部 `*.sh`：`background.sh`、`challenge.sh`、`e2e-a.sh`、里程碑 B 的 `e2e-b.sh`（S-B1、S-B2）、里程碑 C 的 `e2e-c.sh`（S-C1、S-C2、S-C3）、`lane.sh`、`pip.sh`。伪上游与夹具只用合成数据，不访问真实站点。测量口径见 `docs/PERF.md` 的安卓一节。
