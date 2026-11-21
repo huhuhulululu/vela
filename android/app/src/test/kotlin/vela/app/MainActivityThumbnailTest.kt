@@ -124,8 +124,11 @@ class MainActivityThumbnailTest {
         val dir = listOf(
             File("src/main/kotlin/vela/app"),
             File("app/src/main/kotlin/vela/app"),
-        ).firstOrNull { it.isDirectory } ?: return
-        val text = File(dir, "MainActivity.kt").readText()
+        ).firstOrNull { it.isDirectory }
+        assertNotNull("找不到源码目录，测试不能假装通过", dir)
+        val source = File(dir!!, "MainActivity.kt")
+        assertTrue("找不到 MainActivity.kt，测试不能假装通过", source.isFile)
+        val text = source.readText()
         assertFalse("showStage 不能再把 thumbnail 写死成 null", text.contains("thumbnail = null"))
         assertTrue("showStage 要按这一路的房间名取缩略图", text.contains("laneThumbnail("))
         assertTrue(text.contains("state.face(laneId)?.username"))

@@ -27,6 +27,8 @@ class ActivityPictureInPicture(
 ) : PictureInPictureControlling {
     private var receiverRegistered = false
     private var bound = false
+    private var notedWidth = 0.0
+    private var notedHeight = 0.0
 
     override var autoEnter: Boolean = stage.settings.autoEnterPip
         set(value) {
@@ -99,9 +101,13 @@ class ActivityPictureInPicture(
         }
     }
 
-    /** 视频尺寸变化时刷新比例。 */
+    /** 视频尺寸变化时刷新比例。无效尺寸忽略；尺寸没变不重复设置。 */
     fun noteVideoSize(width: Double, height: Double) {
         if (!supported) return
+        if (width <= 0.0 || height <= 0.0) return
+        if (width == notedWidth && height == notedHeight) return
+        notedWidth = width
+        notedHeight = height
         updateParams(enter = false, width = width, height = height)
     }
 

@@ -10,6 +10,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -290,6 +291,18 @@ class MainActivity : ComponentActivity() {
                     LaneID.TERTIARY -> null
                 }
                 if (current != null) {
+                    val pip = pictureInPicture
+                    if (pip != null) {
+                        DisposableEffect(pip, current, laneId, state.focusLane) {
+                            val listener: (Int, Int) -> Unit = { width, height ->
+                                if (stage.focusLane == laneId) pip.noteVideoSize(width.toDouble(), height.toDouble())
+                            }
+                            current.addVideoSizeListener(listener)
+                            val size = current.currentVideoSize()
+                            if (stage.focusLane == laneId) pip.noteVideoSize(size.width, size.height)
+                            onDispose { current.removeVideoSizeListener(listener) }
+                        }
+                    }
                     val thumbnail = laneThumbnail(state.face(laneId)?.username, thumbnails)
                     LaneSurface(lane = current, thumbnail = thumbnail, modifier = Modifier.fillMaxSize())
                 }

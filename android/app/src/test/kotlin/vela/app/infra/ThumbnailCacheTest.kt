@@ -1,6 +1,7 @@
 package vela.app.infra
 
 import android.graphics.Bitmap
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -10,6 +11,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -20,6 +22,7 @@ import org.robolectric.annotation.Config
 import vela.core.base.net.HTTPClient
 import vela.core.base.net.HTTPRequest
 import vela.core.base.net.HTTPResult
+import vela.core.base.net.UserAgent
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -35,6 +38,32 @@ class ThumbnailCacheTest {
         }
         assertEquals(1, calls.get())
         assertNull(cache.peek("http://127.0.0.1/missing.jpg"))
+    }
+
+    @Test
+    fun testImageRequestSendsBrowserIdentityWithImageAccept() {
+        val requests = CopyOnWriteArrayList<HTTPRequest>()
+        val cache = ThumbnailCache(
+            client = object : HTTPClient {
+                override suspend fun send(request: HTTPRequest): HTTPResult {
+                    requests.add(request)
+                    return HTTPResult(status = 200, data = byteArrayOf(5))
+                }
+            },
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+            decode = { Bitmap.createBitmap(8, 4, Bitmap.Config.ARGB_8888) },
+        )
+        val url = "http://127.0.0.1/room.jpg"
+        runBlocking { assertNotNull(cache.imageOrFetch(url)) }
+        assertEquals(1, requests.size)
+        val request = requests.first()
+        assertEquals(url, request.url)
+        assertEquals("图片请求要带 Safari User-Agent", UserAgent.safari, request.header("User-Agent"))
+        val accept = request.header("Accept")
+        assertNotNull("图片请求要声明 Accept", accept)
+        assertTrue("Accept 要用图片类型，实际是 $accept", accept!!.contains("image/"))
+        assertFalse("Accept 不能用 application/json", accept.contains("application/json"))
+        assertEquals("https://chaturbate.com/", request.header("Referer"))
     }
 
     @Test
