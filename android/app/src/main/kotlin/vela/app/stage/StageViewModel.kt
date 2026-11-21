@@ -1131,7 +1131,7 @@ internal class StageText(context: Context?) {
 
     fun connectFailed(): String = get(R.string.playchain_connect_failed, "连不上这路画面")
 
-    fun relayDown(): String = get(R.string.playchain_relay_down, "本地中继没能启动，暂时无法播放")
+    fun relayDown(): String = get(R.string.playchain_relay_down, "画面源没能接上，暂时无法播放")
 
     fun failure(failure: vela.core.stream.StreamFailure?): String = when (failure) {
         vela.core.stream.StreamFailure.geo -> get(R.string.playchain_failure_geo, "当前地区不可观看")

@@ -407,7 +407,7 @@ class PlaybackLane(
             player.stop()
             sessionOpen = false
             if (!hub.allowStart) return
-            lastError = "本地中继没能启动，暂时无法播放"
+            lastError = "画面源没能接上，暂时无法播放"
             failed = true
             publishFace()
             return

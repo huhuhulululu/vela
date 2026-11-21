@@ -1,6 +1,7 @@
 package vela.app
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
 import android.view.ViewGroup
@@ -8,8 +9,13 @@ import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
@@ -23,8 +29,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import vela.app.infra.AtomicFile
+import vela.app.infra.Endpoints
 import vela.app.infra.HttpClientImpl
 import vela.app.infra.Settings
+import vela.app.infra.ThumbnailCache
 import vela.app.lane.LaneSurface
 import vela.app.pip.ActivityPictureInPicture
 import vela.app.pip.PiPCoordinator
@@ -61,6 +69,7 @@ class MainActivity : ComponentActivity() {
 
     private var composeView: ComposeView? = null
     private var composed: Boolean = false
+    private val thumbnails: ThumbnailCache by lazy { ThumbnailCache(HttpClientImpl()) }
     private var nextExportId: Long = 1L
     private var pendingExport: ByteArray? = null
     private var pendingExportId: Long = 0L
@@ -281,7 +290,8 @@ class MainActivity : ComponentActivity() {
                     LaneID.TERTIARY -> null
                 }
                 if (current != null) {
-                    LaneSurface(lane = current, thumbnail = null, modifier = Modifier.fillMaxSize())
+                    val thumbnail = laneThumbnail(state.face(laneId)?.username, thumbnails)
+                    LaneSurface(lane = current, thumbnail = thumbnail, modifier = Modifier.fillMaxSize())
                 }
             }
         }
@@ -412,6 +422,19 @@ class MainActivity : ComponentActivity() {
         val message = getString(if (exporting) R.string.ui_export_failed else R.string.ui_import_failed)
         stage.showNotice(message)
     }
+}
+
+@Composable
+internal fun laneThumbnail(username: String?, cache: ThumbnailCache): Bitmap? {
+    val url = if (username.isNullOrBlank()) null else Endpoints.thumbnail(username)
+    var bitmap by remember(url) { mutableStateOf(cache.peek(url)) }
+    LaunchedEffect(url) {
+        if (url != null) {
+            val fetched = cache.imageOrFetch(url)
+            if (fetched != null) bitmap = fetched
+        }
+    }
+    return bitmap
 }
 
 internal fun installDebugHooks(context: Context) {

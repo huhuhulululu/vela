@@ -514,7 +514,7 @@ xcodebuild -project Vela.xcodeproj -scheme Vela -destination 'platform=macOS' \
 
 静音只关 `TRACK_TYPE_AUDIO`。主列表仍带独立音轨，取消静音不重建主列表、不重新 prepare。P1 在出画之后的 60 秒里，audio 播放列表与音频分片都是 0 次。
 
-`PlaybackLane`（`android/app/src/main/kotlin/vela/app/lane/PlaybackLane.kt`）暂停时调播放器 `stop()`，并停掉这一路的清单刷新，做到零网络；会话还留着。恢复按 `PlaybackPolicy.resumeAction`：不超过 15 秒在原源上重新 prepare，15 到 30 秒重建播放项，满 30 秒交给外面重新解析。序号回退且带 DISCONTINUITY 时原地重新 prepare，60 秒内最多 2 次，不占房间的那一次静默重试，也不进失败界面；同一条源会记住旧序号，所以这里换一条源来清掉记忆，档位地址不变。`localURL` 失败时界面仍写「本地中继没能启动，暂时无法播放」（`android/app/src/main/res/values/strings_playchain.xml` 的 `playchain_relay_down`，`android/app/src/main/kotlin/vela/app/lane/PlaybackLane.kt` 里同一句）。没有套接字可启，这句只表示进程内数据源没能登记。
+`PlaybackLane`（`android/app/src/main/kotlin/vela/app/lane/PlaybackLane.kt`）暂停时调播放器 `stop()`，并停掉这一路的清单刷新，做到零网络；会话还留着。恢复按 `PlaybackPolicy.resumeAction`：不超过 15 秒在原源上重新 prepare，15 到 30 秒重建播放项，满 30 秒交给外面重新解析。序号回退且带 DISCONTINUITY 时原地重新 prepare，60 秒内最多 2 次，不占房间的那一次静默重试，也不进失败界面；同一条源会记住旧序号，所以这里换一条源来清掉记忆，档位地址不变。`localURL` 失败时界面写「画面源没能接上，暂时无法播放」（`android/app/src/main/res/values/strings_playchain.xml` 的 `playchain_relay_down`，`android/app/src/main/kotlin/vela/app/lane/PlaybackLane.kt` 里同一句）。没有套接字可启，这句只表示进程内数据源没能登记。留边会使用当前房间的缩略图：`MainActivity` 按这一路 `LaneFace.username` 经 `Endpoints.thumbnail(username)` 从 `ThumbnailCache` 取图交给 `LaneSurface`，还没取到时保持 null，不挡首帧，下载也不在主线程。
 
 画面在 `LaneSurface`（`android/app/src/main/kotlin/vela/app/lane/LaneSurface.kt`）：`SurfaceView` 按 `DisplayFit.fitted` 居中，不裁切、不拉伸。横向画面在竖屏窗格里上下留边，留边区是该房间缩略图缩到长边 16 像素再放大；没有缩略图时用深色渐变，不铺大块纯黑。日志为 `display-check lane= gravity=fit presentation= bounds= videoRect= uncropped=`（`android/app/src/main/kotlin/vela/app/lane/DisplayCheck.kt`）。
 
