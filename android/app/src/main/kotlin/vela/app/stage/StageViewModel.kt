@@ -233,6 +233,8 @@ class StageViewModel(
     internal var ensureSecondary: (() -> Unit)? = null
     internal var releaseSecondaryLane: (() -> Unit)? = null
     internal var onLaneFocusChanged: ((LaneID) -> Unit)? = null
+    /** 焦点路画面尺寸。绑定播放路时同步订，不靠界面重组。 */
+    internal var onFocusVideoSize: ((Double, Double) -> Unit)? = null
     internal var onLanesChanged: (() -> Unit)? = null
     internal var thermalMonitor: ThermalMonitor? = null
     internal var thermalJob: Job? = null

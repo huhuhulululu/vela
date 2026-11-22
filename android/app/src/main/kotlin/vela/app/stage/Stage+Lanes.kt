@@ -350,6 +350,7 @@ internal fun StageViewModel.setFocus(id: LaneID) {
     if (laneCount <= 1 || focusLocked || id == focusLane) return
     if (id !in LaneID.active(laneCount)) return
     focusLane = id
+    noteFocusedLaneVideoSize()
     val now = now()
     primaryFocusLog.align(now, dwell.isActive, id == LaneID.PRIMARY)
     secondaryFocusLog.align(now, secondaryDwell.isActive, id == LaneID.SECONDARY)
@@ -473,11 +474,28 @@ internal fun StageViewModel.degradeLane(id: LaneID) {
     Log.i(LANE_TAG, "degrade secondary")
 }
 
+/** 焦点路已有画面尺寸时立刻交给画中画，不等下一次尺寸回调。 */
+internal fun StageViewModel.noteFocusedLaneVideoSize() {
+    val lane = when (focusLane) {
+        LaneID.PRIMARY -> primaryLane
+        LaneID.SECONDARY -> secondaryLane
+        LaneID.TERTIARY -> null
+    } ?: return
+    val size = lane.currentVideoSize()
+    if (size.width > 0.0 && size.height > 0.0) onFocusVideoSize?.invoke(size.width, size.height)
+}
+
 internal fun StageViewModel.bindLaneRouted(lane: PlaybackLane, webHost: android.widget.FrameLayout? = null) {
     installLaneFailure(lane)
     lane.onPlaybackFace = { syncFromPlayback(lane) }
+    if (lane.id == LaneID.PRIMARY || lane.id == LaneID.SECONDARY) {
+        lane.addVideoSizeListener { width, height ->
+            if (focusLane == lane.id) onFocusVideoSize?.invoke(width.toDouble(), height.toDouble())
+        }
+    }
     if (lane.id == LaneID.SECONDARY) {
         secondaryLane = lane
+        noteFocusedLaneVideoSize()
         val sink = LaneSink(lane)
         sink.setRefreshHandler { username, isRetry -> refreshSecondary(username, isRetry) }
         sink.setRenewHandler { username, cap -> renewRendition(username, cap) }
@@ -490,6 +508,7 @@ internal fun StageViewModel.bindLaneRouted(lane: PlaybackLane, webHost: android.
     }
     if (lane.id == LaneID.TERTIARY) return
     primaryLane = lane
+    noteFocusedLaneVideoSize()
     val context = appContext
     val root = Endpoints.siteRoot()
     val page = if (context != null && webHost != null) WebSidecarPage(context, root, webHost) else null
