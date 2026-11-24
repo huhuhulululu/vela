@@ -1,6 +1,7 @@
 package vela.app.sync
 
 import java.util.concurrent.Semaphore
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import vela.core.sync.SyncClock
 import vela.core.sync.SyncCode
@@ -18,6 +19,7 @@ import vela.core.sync.SyncLocalOp
 import vela.core.sync.SyncLocalSink
 import vela.core.sync.SyncMigrationReport
 import vela.core.sync.SyncPhase
+import vela.core.sync.SyncProjection
 import vela.core.sync.SyncPutRequest
 import vela.core.sync.SyncServerResponse
 import vela.core.sync.SyncStartupAction
@@ -47,6 +49,16 @@ sealed class SyncStartResult {
 
     /** 停止同步、需要用户「关闭再重开」或重新输入同步码的情况（第 11.4 节）。 */
     data class Stopped(val message: String) : SyncStartResult()
+}
+
+sealed class SyncLocalCreateResult {
+    data class Activated(
+        val code: String,
+        val fingerprint: String,
+        val report: SyncMigrationReport,
+    ) : SyncLocalCreateResult()
+
+    data class Failed(val message: String) : SyncLocalCreateResult()
 }
 
 sealed class SyncCreateResult {
@@ -122,6 +134,23 @@ class SyncService(
 
     internal val commitLock = Any()
     internal var committing: Boolean = false
+    internal var creating: Boolean = false
+    internal var clearing: Boolean = false
+    private var pendingRecoveryFlag: Boolean = false
+
+    val isCreating: Boolean
+        get() = synchronized(commitLock) { creating }
+
+    val isClearing: Boolean
+        get() = synchronized(commitLock) { clearing }
+
+    /** 磁盘留有待恢复或未收尾状态（如 CLEARING/DISABLING/CREATING 或暂停/密钥丢失的 ACTIVE），且当前未激活。 */
+    val hasPendingRecovery: Boolean
+        get() = !isActive && synchronized(commitLock) { pendingRecoveryFlag }
+
+    internal fun setPendingRecovery(value: Boolean) {
+        synchronized(commitLock) { pendingRecoveryFlag = value }
+    }
 
     /** 文档变化（本地操作或合并）：总在释放 gate 后派发，回调内可安全读取 [state]。 */
     var onDocumentChanged: ((SyncDocument) -> Unit)? = null
@@ -184,7 +213,10 @@ class SyncService(
         val lookup = env.keyStore.readEntry()
         val read = env.stateStore.load()
         // 状态文件坏掉：只进入「状态损坏」，不再读第二次，更不删密钥库里的 K（H4）。
-        if (read == SyncStateRead.Corrupted) return SyncStartResult.Attention(SyncStartupAction.StateCorrupted)
+        if (read == SyncStateRead.Corrupted) {
+            setPendingRecovery(false)
+            return SyncStartResult.Attention(SyncStartupAction.StateCorrupted)
+        }
 
         // 处理上次加入提交残留的快照（第 12.4 节、第 23 节第 14 条）。
         when (env.journal.status) {
@@ -196,9 +228,16 @@ class SyncService(
                 if (read is SyncStateRead.Present) {
                     retireSnapshot()
                 } else {
-                    if (lookup == SyncKeyLookup.Unavailable) return SyncStartResult.Unavailable
-                    if (!rollbackJoin(sink)) return SyncStartResult.NeedsRepair(SyncStatusText.joinRepair)
+                    if (lookup == SyncKeyLookup.Unavailable) {
+                        setPendingRecovery(false)
+                        return SyncStartResult.Unavailable
+                    }
+                    if (!rollbackJoin(sink)) {
+                        setPendingRecovery(false)
+                        return SyncStartResult.NeedsRepair(SyncStatusText.joinRepair)
+                    }
                     rolledBackAtStartup = true
+                    setPendingRecovery(false)
                     return SyncStartResult.NotEnabled
                 }
             }
@@ -220,17 +259,27 @@ class SyncService(
         }
 
         when (action) {
-            SyncStartupAction.NotEnabled -> return SyncStartResult.NotEnabled
-            SyncStartupAction.Skip -> return SyncStartResult.Unavailable
+            SyncStartupAction.NotEnabled -> {
+                setPendingRecovery(false)
+                return SyncStartResult.NotEnabled
+            }
+            SyncStartupAction.Skip -> {
+                setPendingRecovery(read is SyncStateRead.Present)
+                return SyncStartResult.Unavailable
+            }
             SyncStartupAction.Normal, SyncStartupAction.ResumeCreating -> {
                 val present = read as? SyncStateRead.Present
                 if (present == null || entryKeys == null || entryKeys.blobID != present.state.blobID) {
+                    setPendingRecovery(read is SyncStateRead.Present)
                     return SyncStartResult.Attention(SyncStartupAction.Mismatch)
                 }
                 var currentState = present.state
                 if (action == SyncStartupAction.ResumeCreating) {
                     currentState = SyncLifecycle.completeCreate(currentState, local(), env.wallClock()).first
-                    if (!env.stateStore.save(currentState)) return SyncStartResult.Failed(SyncFlowResult.StorageFailed)
+                    if (!env.stateStore.save(currentState)) {
+                        setPendingRecovery(true)
+                        return SyncStartResult.Failed(SyncFlowResult.StorageFailed)
+                    }
                 }
                 activate(currentState, entryKeys)
                 return SyncStartResult.Active
@@ -238,14 +287,21 @@ class SyncService(
             else -> Unit
         }
 
-        val stateOrigin = (read as? SyncStateRead.Present)?.state?.origin
+        val presentState = (read as? SyncStateRead.Present)?.state
+        val stateOrigin = presentState?.origin
         val transport = if (entryKeys != null && stateOrigin != null) {
             env.makeTransport(stateOrigin, entryKeys)
         } else {
             OfflineTransport
         }
-        val (recoveredAction, recoveredResult) = SyncLifecycle.recover(env.stateStore, env.keyStore, sink, transport)
+        val recoverySink = if (presentState != null) {
+            verifiedBarrierSink(sink, SyncProjection(presentState.doc).settings)
+        } else {
+            sink
+        }
+        val (recoveredAction, recoveredResult) = SyncLifecycle.recover(env.stateStore, env.keyStore, recoverySink, transport)
         if (recoveredResult != null && recoveredResult != SyncFlowResult.Done) {
+            setPendingRecovery(true)
             return SyncStartResult.Failed(recoveredResult)
         }
         return when (recoveredAction) {
@@ -254,8 +310,14 @@ class SyncService(
             SyncStartupAction.FinishDisabling,
             SyncStartupAction.FinishClearing,
             SyncStartupAction.FinishClearingLocally,
-            -> SyncStartResult.NotEnabled
-            else -> SyncStartResult.Attention(recoveredAction)
+            -> {
+                setPendingRecovery(false)
+                SyncStartResult.NotEnabled
+            }
+            else -> {
+                setPendingRecovery(read is SyncStateRead.Present)
+                SyncStartResult.Attention(recoveredAction)
+            }
         }
     }
 
@@ -278,6 +340,7 @@ class SyncService(
         this.keys = keys
         this.origin = state.origin
         this.coordinator = c
+        setPendingRecovery(false)
     }
 
     /** 只停协调器（不动磁盘上的状态与密钥库）：界面层摘线后迟到的流程结果用它收掉。 */
@@ -329,67 +392,112 @@ class SyncService(
 
     // --- 创建（第 12.3 节） ---
 
-    suspend fun create(origin: String, local: SyncLocalData): SyncCreateResult {
-        if (!SyncCode.isCanonicalOrigin(origin)) return SyncCreateResult.Failed("服务器地址无效")
+    /**
+     * 仅执行本机创建与激活（无网络挂起）：写 CREATING → KeyStore → 盖章 → 写 ACTIVE → activate()。
+     * 供 SyncHub 在发起首轮网络周期前连续完成本机激活与同步码发布，避免首轮等待期间丢编辑。
+     */
+    fun createLocal(origin: String, local: SyncLocalData): SyncLocalCreateResult {
+        if (!SyncCode.isCanonicalOrigin(origin)) return SyncLocalCreateResult.Failed("服务器地址无效")
         val k = try {
             env.random(32)
         } catch (_: Exception) {
-            return SyncCreateResult.Failed("系统随机源不可用")
+            return SyncLocalCreateResult.Failed("系统随机源不可用")
         }
-        if (k.size != 32) return SyncCreateResult.Failed("系统随机源不可用")
-        return create(k, origin, local)
+        if (k.size != 32) return SyncLocalCreateResult.Failed("系统随机源不可用")
+        return createLocal(k, origin, local)
     }
 
-    /** 用给定的 `K` 创建（新生成的，或加入时 404 后「仍用此码创建」）。 */
-    suspend fun create(key: ByteArray, origin: String, local: SyncLocalData): SyncCreateResult {
-        if (!SyncCode.isCanonicalOrigin(origin)) return SyncCreateResult.Failed("服务器地址无效")
-        when (env.journal.status) {
-            SyncJoinJournalStatus.NONE -> Unit
-            SyncJoinJournalStatus.PENDING -> return SyncCreateResult.Failed(SyncStatusText.joinRepairFirst)
-            SyncJoinJournalStatus.COMMITTED, SyncJoinJournalStatus.INCOMPLETE -> {
-                if (!env.journal.discard()) return SyncCreateResult.Failed("本机还有未清理的同步数据，请稍后再试")
+    fun createLocal(key: ByteArray, origin: String, local: SyncLocalData): SyncLocalCreateResult {
+        if (!SyncCode.isCanonicalOrigin(origin)) return SyncLocalCreateResult.Failed("服务器地址无效")
+        synchronized(commitLock) {
+            if (creating || committing || clearing) return SyncLocalCreateResult.Failed("同步正在处理中，请稍后再试")
+            creating = true
+        }
+        try {
+            when (env.journal.status) {
+                SyncJoinJournalStatus.NONE -> Unit
+                SyncJoinJournalStatus.PENDING -> return SyncLocalCreateResult.Failed(SyncStatusText.joinRepairFirst)
+                SyncJoinJournalStatus.COMMITTED, SyncJoinJournalStatus.INCOMPLETE -> {
+                    if (!env.journal.discard()) return SyncLocalCreateResult.Failed("本机还有未清理的同步数据，请稍后再试")
+                }
             }
-        }
-        if (env.stateStore.load() != SyncStateRead.None) {
-            return SyncCreateResult.Failed("本机还有未清理的同步状态，请先关闭同步")
-        }
-        val dev = randomDevice() ?: return SyncCreateResult.Failed("系统随机源不可用")
-        val derived = try {
-            deriveSyncKeys(key)
-        } catch (_: Exception) {
-            return SyncCreateResult.Failed("系统密钥派生不可用")
-        }
-        val code = SyncCode.format(key, origin, ::sha256) ?: return SyncCreateResult.Failed("同步码格式无效")
-        var state = SyncState(
-            phase = SyncPhase.CREATING,
-            origin = origin,
-            blobID = derived.blobID,
-            clock = SyncClock(dev = dev),
-        )
-        if (!env.stateStore.save(state)) return SyncCreateResult.Failed("本机保存失败")
-        when (env.keyStore.write(SyncKeyEntry(key, dev, derived.blobID))) {
-            SyncKeyWrite.OK -> Unit
-            SyncKeyWrite.UNAVAILABLE -> {
-                env.stateStore.delete()
-                return SyncCreateResult.Failed("系统密钥库暂时不可用，请稍后再试")
+            if (env.stateStore.load() != SyncStateRead.None) {
+                return SyncLocalCreateResult.Failed("本机还有未清理的同步状态，请先关闭同步")
             }
-            SyncKeyWrite.FAILED -> {
-                env.stateStore.delete()
-                return SyncCreateResult.Failed("无法写入系统密钥库")
+            val dev = randomDevice() ?: return SyncLocalCreateResult.Failed("系统随机源不可用")
+            val derived = try {
+                deriveSyncKeys(key)
+            } catch (_: Exception) {
+                return SyncLocalCreateResult.Failed("系统密钥派生不可用")
             }
+            val code = SyncCode.format(key, origin, ::sha256) ?: return SyncLocalCreateResult.Failed("同步码格式无效")
+            var state = SyncState(
+                phase = SyncPhase.CREATING,
+                origin = origin,
+                blobID = derived.blobID,
+                clock = SyncClock(dev = dev),
+            )
+            if (!env.stateStore.save(state)) return SyncLocalCreateResult.Failed("本机保存失败")
+            when (env.keyStore.write(SyncKeyEntry(key, dev, derived.blobID))) {
+                SyncKeyWrite.OK -> Unit
+                SyncKeyWrite.UNAVAILABLE -> {
+                    if (!env.stateStore.delete()) setPendingRecovery(true)
+                    return SyncLocalCreateResult.Failed("系统密钥库暂时不可用，请稍后再试")
+                }
+                SyncKeyWrite.FAILED -> {
+                    if (!env.stateStore.delete()) setPendingRecovery(true)
+                    return SyncLocalCreateResult.Failed("无法写入系统密钥库")
+                }
+            }
+            val (completedState, report) = SyncLifecycle.completeCreate(state, local, env.wallClock())
+            state = completedState
+            if (!env.stateStore.save(state)) {
+                // 磁盘已留 CREATING 且 Keystore 已写入：标记待恢复以阻断纯本机写入。
+                setPendingRecovery(true)
+                return SyncLocalCreateResult.Failed("本机保存失败")
+            }
+            activate(state, derived)
+            return SyncLocalCreateResult.Activated(code, derived.fingerprint, report)
+        } finally {
+            synchronized(commitLock) { creating = false }
         }
-        val (completedState, report) = SyncLifecycle.completeCreate(state, local, env.wallClock())
-        state = completedState
-        if (!env.stateStore.save(state)) return SyncCreateResult.Failed("本机保存失败")
-        activate(state, derived)
-        val first = runCycle() ?: SyncCycleResult.Transient
+    }
+
+    /** 执行创建后的首轮网络周期；取消回落 Transient；若罕见撞上 410 Gone 则撤销创建并清理。 */
+    suspend fun runCreateFirstCycle(): SyncCycleResult {
+        val first = try {
+            runCycle() ?: SyncCycleResult.Transient
+        } catch (_: CancellationException) {
+            SyncCycleResult.Transient
+        }
         if (first is SyncCycleResult.Halted && first.halt is SyncHalt.Gone) {
             deactivate()
-            env.keyStore.delete()
-            env.stateStore.delete()
+            val deletedKey = env.keyStore.delete()
+            val deletedState = env.stateStore.delete()
+            setPendingRecovery(!(deletedKey && deletedState))
+        }
+        return first
+    }
+
+    suspend fun create(origin: String, local: SyncLocalData): SyncCreateResult =
+        when (val localRes = createLocal(origin, local)) {
+            is SyncLocalCreateResult.Failed -> SyncCreateResult.Failed(localRes.message)
+            is SyncLocalCreateResult.Activated -> finishCreateWithFirstCycle(localRes)
+        }
+
+    /** 用给定的 `K` 创建（新生成的，或加入时 404 后「仍用此码创建」）。 */
+    suspend fun create(key: ByteArray, origin: String, local: SyncLocalData): SyncCreateResult =
+        when (val localRes = createLocal(key, origin, local)) {
+            is SyncLocalCreateResult.Failed -> SyncCreateResult.Failed(localRes.message)
+            is SyncLocalCreateResult.Activated -> finishCreateWithFirstCycle(localRes)
+        }
+
+    private suspend fun finishCreateWithFirstCycle(localRes: SyncLocalCreateResult.Activated): SyncCreateResult {
+        val first = runCreateFirstCycle()
+        if (first is SyncCycleResult.Halted && first.halt is SyncHalt.Gone) {
             return SyncCreateResult.Failed("生成的空间标识已被使用，请重试")
         }
-        return SyncCreateResult.Created(code, derived.fingerprint, report, first)
+        return SyncCreateResult.Created(localRes.code, localRes.fingerprint, localRes.report, first)
     }
 
     internal fun randomDevice(): Long? {
@@ -430,31 +538,54 @@ class SyncService(
         val current = live?.first ?: (env.stateStore.load() as? SyncStateRead.Present)?.state
         if (current == null) {
             // 只有密钥库条目（「同步状态丢失」或「状态损坏」时的关闭）：先删状态存储（清掉损坏标记），最后删条目（H4b）。
-            if (!env.stateStore.delete()) return SyncFlowResult.StorageFailed
-            return if (env.keyStore.delete()) SyncFlowResult.Done else SyncFlowResult.StorageFailed
+            if (!env.stateStore.delete()) {
+                setPendingRecovery(true)
+                return SyncFlowResult.StorageFailed
+            }
+            val ok = env.keyStore.delete()
+            setPendingRecovery(!ok)
+            return if (ok) SyncFlowResult.Done else SyncFlowResult.StorageFailed
         }
-        val result = SyncLifecycle.disable(current, env.stateStore, env.keyStore, sink)
+        val barrierSink = verifiedBarrierSink(sink, SyncProjection(current.doc).settings)
+        val result = SyncLifecycle.disable(current, env.stateStore, env.keyStore, barrierSink)
         if (result == SyncFlowResult.LocalSaveFailed && live != null) {
             activate(live.first, live.second)
+        } else {
+            setPendingRecovery(result != SyncFlowResult.Done)
         }
         return result
     }
 
-    /** 清除云端。网络暂时失败时状态停在 `CLEARING`，下次启动按第 12.1 节表格继续；屏障失败则恢复原样。 */
+    /** 清除云端。进行中及失败/取消留盘 `CLEARING` 期间持续阻断本机偏好写入；屏障失败则恢复原样。 */
     suspend fun clear(sink: SyncLocalSink): SyncFlowResult {
         if (!settleJoinSnapshot(sink)) return SyncFlowResult.StorageFailed
-        val live = detach() ?: return SyncFlowResult.StorageFailed
-        val result = SyncLifecycle.clear(
-            live.first,
-            env.stateStore,
-            env.keyStore,
-            sink,
-            env.makeTransport(live.first.origin, live.second),
-        )
-        if (result == SyncFlowResult.LocalSaveFailed) {
-            activate(live.first, live.second)
+        synchronized(commitLock) {
+            if (clearing || committing || creating) return SyncFlowResult.StorageFailed
+            clearing = true
         }
-        return result
+        try {
+            val live = detach() ?: return SyncFlowResult.StorageFailed
+            val barrierSink = verifiedBarrierSink(sink, SyncProjection(live.first.doc).settings)
+            val result = try {
+                SyncLifecycle.clear(
+                    live.first,
+                    env.stateStore,
+                    env.keyStore,
+                    barrierSink,
+                    env.makeTransport(live.first.origin, live.second),
+                )
+            } catch (_: CancellationException) {
+                SyncFlowResult.RemotePending
+            }
+            if (result == SyncFlowResult.LocalSaveFailed) {
+                activate(live.first, live.second)
+            } else {
+                setPendingRecovery(result != SyncFlowResult.Done)
+            }
+            return result
+        } finally {
+            synchronized(commitLock) { clearing = false }
+        }
     }
 }
 

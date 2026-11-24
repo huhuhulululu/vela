@@ -12,13 +12,42 @@ import vela.core.sync.SyncDocument
 import vela.core.sync.SyncKeys
 import vela.core.sync.SyncLocalData
 import vela.core.sync.SyncLocalOp
+import vela.core.sync.SyncLocalSink
 import vela.core.sync.SyncOpOutcome
 import vela.core.sync.SyncProjection
 import vela.core.sync.settingSyncedVeto
 import vela.core.taste.Taste
 
+/** 支持传播同步设置持久化结果（`SharedPreferences.Editor.commit()`）的本机落盘接口。 */
+interface SyncSettingsPersistSink : SyncLocalSink {
+    fun persistSettings(settings: Map<String, Boolean>): Boolean {
+        applySettings(settings)
+        return true
+    }
+}
+
+/** 包装 [SyncLocalSink]，在不改 `:core` 签名的前提下把同步设置 `commit()` 失败传播给 `SyncLifecycle.barrier`。 */
+internal fun verifiedBarrierSink(
+    sink: SyncLocalSink,
+    settings: Map<String, Boolean>,
+): SyncLocalSink = object : SyncLocalSink by sink {
+    override fun saveTaste(taste: Taste): Boolean {
+        if (!sink.saveTaste(taste)) return false
+        return if (sink is SyncSettingsPersistSink) {
+            sink.persistSettings(settings)
+        } else {
+            sink.applySettings(settings)
+            true
+        }
+    }
+
+    override fun applySettings(settings: Map<String, Boolean>) {
+        // 同步设置已在 saveTaste 阶段原子提交并校验 commit() 结果；不再重复写盘或吞掉失败。
+    }
+}
+
 /** 同步协调层与本机舞台状态之间的最小桥接接口，便于 JVM 单测注入内存实现。 */
-interface SyncLocalBridge : SyncJoinSink {
+interface SyncLocalBridge : SyncJoinSink, SyncSettingsPersistSink {
     val curationLoadOutcome: PreferenceLoadOutcome
     val tasteLoadOutcome: PreferenceLoadOutcome
     fun localData(): SyncLocalData
@@ -73,24 +102,27 @@ class StageSyncBridge(
     override fun saveTaste(taste: Taste): Boolean = stage.tasteStore.save(taste, stage.now())
 
     /**
-     * 投影或屏障写入两个同步设置：直接更新内存与本机设置，不经由用户意图入口，避免回声触发新的本地同步操作。
+     * 投影或屏障写入两个同步设置：使用单次可校验结果的 `commit()` 落盘，绝不因内存值相等跳过写盘，
+     * 且不经由用户意图入口，避免回声触发新的本地同步操作。
      */
-    override fun applySettings(settings: Map<String, Boolean>) {
-        settings[Settings.KEY_PUBLIC_ONLY]?.let { value ->
+    override fun persistSettings(settings: Map<String, Boolean>): Boolean {
+        val known = settings.filterKeys { it in SyncPrefs.SYNC_SETTING_KEYS }
+        if (known.isEmpty()) return true
+        if (!prefs.writeSyncSettings(known)) return false
+        known[Settings.KEY_PUBLIC_ONLY]?.let { value ->
             val changed = stage.publicOnly != value
-            if (changed || prefs.explicitBool(Settings.KEY_PUBLIC_ONLY) != value) {
-                stage.publicOnly = value
-                stage.settings.publicOnly = value
-                if (changed) stage.applySearch() else stage.publish()
-            }
+            stage.publicOnly = value
+            if (changed) stage.applySearch() else stage.publish()
         }
-        settings[Settings.KEY_INFO_ALWAYS]?.let { value ->
-            if (stage.infoAlwaysOn != value || prefs.explicitBool(Settings.KEY_INFO_ALWAYS) != value) {
-                stage.infoAlwaysOn = value
-                stage.settings.infoAlwaysOn = value
-                stage.publish()
-            }
+        known[Settings.KEY_INFO_ALWAYS]?.let { value ->
+            stage.infoAlwaysOn = value
+            stage.publish()
         }
+        return true
+    }
+
+    override fun applySettings(settings: Map<String, Boolean>) {
+        persistSettings(settings)
     }
 
     override fun persistPending(): Boolean {
@@ -131,7 +163,7 @@ class StageSyncBridge(
         if (nextTaste != stage.taste) {
             stage.commitTaste(nextTaste)
         }
-        applySettings(projection.settings)
+        persistSettings(projection.settings)
         stage.publish()
     }
 
@@ -168,12 +200,12 @@ class StageSyncBridge(
     }
 }
 
-/** 舞台写入入口共用的提交锁与同步寄存器钩子（对齐 Apple 端 `StageModel+Sync.swift`）。 */
+/** 舞台写入入口共用的提交锁/中间态阻断与同步寄存器钩子（对齐 Apple 端 `StageModel+Sync.swift`）。 */
 internal fun StageViewModel.syncLocalWriteAllowed(): Boolean = syncHub?.localWriteAllowed ?: true
 
 internal fun StageViewModel.rejectWhileSyncJoining(): Boolean {
     if (syncLocalWriteAllowed()) return false
-    showToast(SyncHub.COMMITTING_MESSAGE)
+    showToast(syncHub?.localWriteBlockedMessage() ?: SyncHub.COMMITTING_MESSAGE)
     return true
 }
 

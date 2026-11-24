@@ -20,6 +20,7 @@ import vela.core.sync.SyncCode
 import vela.core.sync.SyncCycleResult
 import vela.core.sync.SyncDocument
 import vela.core.sync.SyncFlowResult
+import vela.core.sync.SyncHalt
 import vela.core.sync.SyncLocalOp
 import vela.core.sync.SyncMigration
 import vela.core.sync.SyncMigrationReport
@@ -60,6 +61,7 @@ data class SyncUiState(
     val committing: Boolean = false,
     val joinStage: SyncUiJoinStage = SyncUiJoinStage.Idle,
     val savedCode: String? = null,
+    val revealedCode: String? = null,
     val notice: String? = null,
 )
 
@@ -68,6 +70,8 @@ data class SyncUiState(
  * - 实验开关默认关闭：关闭时不显示功能、不读密钥库、不发任何同步请求（验收 1）。
  * - minSdk < 26、探针 DISABLED 或未配置服务端地址时不显示入口；JOIN_ONLY 隐藏创建与 404 创建入口（验收 2、7）。
  * - 无常驻轮询，仅在离散触发点执行同步周期。
+ * - 开启、加入、404 创建、清除云端与查看同步码结果全部托管在 SyncHub 自身状态与长生命周期 scope，
+ *   离开面板、旋转屏幕或界面重建不会中途取消长事务。
  */
 class SyncHub(
     val service: SyncService,
@@ -102,12 +106,28 @@ class SyncHub(
     private var startJob: Job? = null
     private var editJob: Job? = null
     private var cycleJob: Job? = null
+    private var opJob: Job? = null
+    private var opToken: Any? = null
     private var joinJob: Job? = null
+    private var joinToken: Any? = null
     private var rerun = false
     private var joinGeneration = 0
 
     val isOn: Boolean get() = uiState.value.phase == SyncUiPhase.Active
-    val localWriteAllowed: Boolean get() = service.localWriteAllowed
+    val localWriteAllowed: Boolean
+        get() {
+            if (!service.localWriteAllowed) return false
+            if (wired && uiState.value.experimentEnabled && starting) return false
+            return true
+        }
+
+    fun localWriteBlockedMessage(): String = when {
+        service.isCommittingJoin || service.joinRepairPending -> COMMITTING_MESSAGE
+        service.isCreating -> "正在开启同步…"
+        service.isClearing -> "正在清除云端同步…"
+        wired && uiState.value.experimentEnabled && starting -> "正在恢复同步状态…"
+        else -> "同步正在收尾，请先完成清除或关闭同步。"
+    }
 
     private val nowU: ULong get() = wallClock().coerceAtLeast(0L).toULong()
 
@@ -161,7 +181,7 @@ class SyncHub(
         cycleJob?.cancel()
         cycleJob = null
         service.onDocumentChanged = null
-        mutable.update { it.copy(phase = SyncUiPhase.Loading) }
+        mutable.update { it.copy(phase = SyncUiPhase.Loading, savedCode = null, revealedCode = null) }
     }
 
     private fun launchStart() {
@@ -296,6 +316,7 @@ class SyncHub(
     fun onForeground() = trigger(SyncScheduler.Trigger.FOREGROUND)
 
     fun onBackground() {
+        dismissRevealedCode()
         cancelJoin()
         if (!visible || !wired || !isOn) return
         val s = service.state ?: return
@@ -322,6 +343,27 @@ class SyncHub(
         return result.outcome
     }
 
+    private fun launchOperation(block: suspend () -> Unit): Job? {
+        if (uiState.value.busy || opJob?.isActive == true || joinJob?.isActive == true) return null
+        val token = Any()
+        opToken = token
+        mutable.update { it.copy(busy = true) }
+        val job = scope.launch {
+            block()
+        }
+        if (opToken === token && job.isActive) {
+            opJob = job
+        }
+        job.invokeOnCompletion {
+            if (opToken === token) {
+                opToken = null
+                opJob = null
+                mutable.update { it.copy(busy = false) }
+            }
+        }
+        return job
+    }
+
     // --- 创建（第 12.3 节） ---
 
     fun enablePreview(): Result<SyncMigrationReport> {
@@ -333,51 +375,98 @@ class SyncHub(
         return Result.success(stamped.second)
     }
 
-    suspend fun enable() {
-        val origin = configuredOrigin ?: return
-        if (!canCreate || uiState.value.busy) return
-        if (enablePreview().isFailure) return
-        mutable.update { it.copy(busy = true) }
-        try {
-            val result = service.create(origin, bridge.localData())
-            if (abandonedAfterAwait()) return
-            when (result) {
-                is SyncCreateResult.Created -> {
-                    mutable.update { it.copy(savedCode = result.code) }
-                    activated()
-                    scheduler.record(result.firstCycle, nowU)
-                    mutable.update { it.copy(failure = SyncStatusText.cycle(result.firstCycle)) }
-                }
-                is SyncCreateResult.Failed -> showNotice(result.message)
+    /**
+     * 开启同步：在开始任何网络请求前先连续完成本机创建、激活与同步码发布，
+     * 再把首轮周期交由 SyncHub 自身长生命周期 scope 执行，避免首轮等待期间丢编辑或中途取消卡死。
+     */
+    fun startEnable(): Job? {
+        val origin = configuredOrigin ?: return null
+        if (!canCreate || uiState.value.busy || opJob?.isActive == true || joinJob?.isActive == true) return null
+        if (enablePreview().isFailure) return null
+        val created = when (val local = service.createLocal(origin, bridge.localData())) {
+            is SyncLocalCreateResult.Activated -> local
+            is SyncLocalCreateResult.Failed -> {
+                showNotice(local.message)
+                return null
             }
-        } finally {
-            mutable.update { it.copy(busy = false) }
         }
+        mutable.update { it.copy(savedCode = created.code) }
+        activated()
+        return launchOperation {
+            val first = service.runCreateFirstCycle()
+            if (abandonedAfterAwait()) return@launchOperation
+            finishCreateFirstCycle(first)
+        }
+    }
+
+    suspend fun enable() {
+        startEnable()?.join()
+    }
+
+    private fun finishCreateFirstCycle(first: SyncCycleResult) {
+        if (first is SyncCycleResult.Halted && first.halt is SyncHalt.Gone) {
+            editJob?.cancel()
+            editJob = null
+            scheduler = SyncScheduler()
+            mutable.update {
+                it.copy(
+                    phase = if (service.hasPendingRecovery) {
+                        SyncUiPhase.Attention("本机保存失败，请稍后关闭同步重试。")
+                    } else {
+                        SyncUiPhase.Off
+                    },
+                    failure = null,
+                    fingerprint = null,
+                    hasPending = false,
+                    lastSuccessAt = null,
+                    savedCode = null,
+                    revealedCode = null,
+                )
+            }
+            showNotice("生成的空间标识已被使用，请重试")
+            return
+        }
+        scheduler.record(first, nowU)
+        mutable.update { it.copy(failure = SyncStatusText.cycle(first)) }
+        refreshStatus()
     }
 
     fun dismissSavedCode() = mutable.update { it.copy(savedCode = null) }
 
     fun revealCode(): String? = service.currentCode()
 
+    /** 通过设备身份验证后展示完整同步码，状态保存在 SyncHub 避免验证途中界面重建丢失。 */
+    fun revealAfterAuth() {
+        val code = revealCode() ?: return
+        mutable.update { it.copy(revealedCode = code) }
+    }
+
+    fun dismissRevealedCode() {
+        if (uiState.value.revealedCode != null) {
+            mutable.update { it.copy(revealedCode = null) }
+        }
+    }
+
     // --- 加入（第 12.4 节） ---
 
-    suspend fun prepareJoin(text: String) {
-        if (!canJoin || uiState.value.busy) return
-        val myJob = kotlinx.coroutines.currentCoroutineContext()[Job]
-        joinJob = myJob
+    /** 在 SyncHub 自身长生命周期 scope 启动加入检查，只由用户主动取消、进后台或摘线中断。 */
+    fun startPrepareJoin(text: String): Job? {
+        if (!canJoin || uiState.value.busy || opJob?.isActive == true || joinJob?.isActive == true) return null
+        val token = Any()
+        joinToken = token
         mutable.update { it.copy(busy = true) }
-        try {
+        val job = scope.launch {
             if (uiState.value.phase != SyncUiPhase.Off) {
                 val closed = service.disable(bridge)
                 if (closed != SyncFlowResult.Done) {
                     mutable.update { it.copy(joinStage = SyncUiJoinStage.Failed(SyncStatusText.flow(closed))) }
-                    return
+                    return@launch
                 }
                 mutable.update { it.copy(phase = SyncUiPhase.Off) }
             }
             if (!SyncMigration.canEnable(bridge.curationLoadOutcome, bridge.tasteLoadOutcome)) {
                 mutable.update { it.copy(joinStage = SyncUiJoinStage.Failed("收藏或口味文件读取异常，先处理后再加入。")) }
-                return
+                return@launch
             }
             mutable.update { it.copy(joinStage = SyncUiJoinStage.Checking) }
             joinGeneration += 1
@@ -386,7 +475,7 @@ class SyncHub(
             if (abandonedAfterAwait() || generation != joinGeneration) {
                 if (prepared is SyncJoinPrepared.Preview) prepared.ticket.cancel()
                 if (generation == joinGeneration) mutable.update { it.copy(joinStage = SyncUiJoinStage.Idle) }
-                return
+                return@launch
             }
             val nextStage = when (prepared) {
                 SyncJoinPrepared.InvalidCode -> SyncUiJoinStage.Failed("同步码无效")
@@ -396,93 +485,126 @@ class SyncHub(
                 is SyncJoinPrepared.Failed -> SyncUiJoinStage.Failed(prepared.message)
             }
             mutable.update { it.copy(joinStage = nextStage) }
-        } finally {
-            if (joinJob === myJob) joinJob = null
-            mutable.update { it.copy(busy = false) }
         }
+        if (joinToken === token && job.isActive) {
+            joinJob = job
+        }
+        job.invokeOnCompletion {
+            if (joinToken === token) {
+                joinToken = null
+                joinJob = null
+                mutable.update { it.copy(busy = false) }
+            }
+        }
+        return job
+    }
+
+    suspend fun prepareJoin(text: String) {
+        startPrepareJoin(text)?.join()
+    }
+
+    /** 在 SyncHub 自身长生命周期 scope 提交加入，离开面板/旋转不打断，主动取消走取消语义。 */
+    fun startConfirmJoin(): Job? {
+        val stage = uiState.value.joinStage as? SyncUiJoinStage.Preview ?: return null
+        if (uiState.value.busy || opJob?.isActive == true || joinJob?.isActive == true) return null
+        val ticket = stage.ticket
+        val generation = joinGeneration
+        val token = Any()
+        joinToken = token
+        mutable.update { it.copy(busy = true, committing = true) }
+        val job = scope.launch {
+            try {
+                val result = service.commitJoin(
+                    ticket,
+                    takeLocal = { bridge.localData() },
+                    sink = bridge,
+                    holdLockAfterJoin = true,
+                )
+                if (abandonedAfterAwait()) {
+                    mutable.update { it.copy(joinStage = SyncUiJoinStage.Idle) }
+                    return@launch
+                }
+                when (result) {
+                    SyncJoinCommit.Joined -> {
+                        mutable.update { it.copy(joinStage = SyncUiJoinStage.Idle) }
+                        activated()
+                        if (service.env.journal.exists) {
+                            showNotice("已加入同步；临时文件没能删除，下次关闭或启动时再清理。")
+                        }
+                    }
+                    SyncJoinCommit.Cancelled -> {
+                        mutable.update { it.copy(joinStage = SyncUiJoinStage.Idle) }
+                        bridge.reloadSyncedSettingsFromStore()
+                    }
+                    is SyncJoinCommit.Reconfirm -> {
+                        if (generation != joinGeneration || ticket.isCancelled) {
+                            result.ticket.cancel()
+                            mutable.update { it.copy(joinStage = SyncUiJoinStage.Idle) }
+                            return@launch
+                        }
+                        mutable.update { it.copy(joinStage = SyncUiJoinStage.Preview(result.ticket)) }
+                        showNotice("云端或本机数据有变化，请再确认一次。")
+                    }
+                    is SyncJoinCommit.Failed -> {
+                        mutable.update { it.copy(joinStage = SyncUiJoinStage.Idle) }
+                        bridge.reloadSyncedSettingsFromStore()
+                        showNotice(result.message)
+                    }
+                    is SyncJoinCommit.NeedsRepair -> {
+                        mutable.update {
+                            it.copy(
+                                joinStage = SyncUiJoinStage.Idle,
+                                phase = SyncUiPhase.Attention(result.message),
+                            )
+                        }
+                    }
+                }
+            } finally {
+                service.releaseJoinCommit()
+            }
+        }
+        if (joinToken === token && job.isActive) {
+            joinJob = job
+        }
+        job.invokeOnCompletion {
+            service.releaseJoinCommit()
+            if (joinToken === token) {
+                joinToken = null
+                joinJob = null
+                mutable.update { it.copy(busy = false, committing = false) }
+            }
+        }
+        return job
     }
 
     suspend fun confirmJoin() {
-        val stage = uiState.value.joinStage as? SyncUiJoinStage.Preview ?: return
-        if (uiState.value.busy) return
-        val ticket = stage.ticket
-        val generation = joinGeneration
-        val myJob = kotlinx.coroutines.currentCoroutineContext()[Job]
-        joinJob = myJob
-        mutable.update { it.copy(busy = true, committing = true) }
-        try {
-            val result = service.commitJoin(
-                ticket,
-                takeLocal = { bridge.localData() },
-                sink = bridge,
-                holdLockAfterJoin = true,
-            )
-            if (abandonedAfterAwait()) {
+        startConfirmJoin()?.join()
+    }
+
+    /** 404 时「仍用此码创建」；探针分级为 JOIN_ONLY 时禁止创建，先连续完成本机激活再跑首轮周期。 */
+    fun startCreateFromJoin(): Job? {
+        if (!canCreate || uiState.value.busy || opJob?.isActive == true || joinJob?.isActive == true) return null
+        val notFound = uiState.value.joinStage as? SyncUiJoinStage.NotFound ?: return null
+        val code = notFound.code
+        when (val local = service.createLocal(code.key, code.origin, bridge.localData())) {
+            is SyncLocalCreateResult.Activated -> Unit
+            is SyncLocalCreateResult.Failed -> {
                 mutable.update { it.copy(joinStage = SyncUiJoinStage.Idle) }
-                return
+                showNotice(local.message)
+                return null
             }
-            when (result) {
-                SyncJoinCommit.Joined -> {
-                    mutable.update { it.copy(joinStage = SyncUiJoinStage.Idle) }
-                    activated()
-                    if (service.env.journal.exists) {
-                        showNotice("已加入同步；临时文件没能删除，下次关闭或启动时再清理。")
-                    }
-                }
-                SyncJoinCommit.Cancelled -> {
-                    mutable.update { it.copy(joinStage = SyncUiJoinStage.Idle) }
-                    bridge.reloadSyncedSettingsFromStore()
-                }
-                is SyncJoinCommit.Reconfirm -> {
-                    if (generation != joinGeneration || ticket.isCancelled) {
-                        result.ticket.cancel()
-                        mutable.update { it.copy(joinStage = SyncUiJoinStage.Idle) }
-                        return
-                    }
-                    mutable.update { it.copy(joinStage = SyncUiJoinStage.Preview(result.ticket)) }
-                    showNotice("云端或本机数据有变化，请再确认一次。")
-                }
-                is SyncJoinCommit.Failed -> {
-                    mutable.update { it.copy(joinStage = SyncUiJoinStage.Idle) }
-                    bridge.reloadSyncedSettingsFromStore()
-                    showNotice(result.message)
-                }
-                is SyncJoinCommit.NeedsRepair -> {
-                    mutable.update {
-                        it.copy(
-                            joinStage = SyncUiJoinStage.Idle,
-                            phase = SyncUiPhase.Attention(result.message),
-                        )
-                    }
-                }
-            }
-        } finally {
-            if (joinJob === myJob) joinJob = null
-            service.releaseJoinCommit()
-            mutable.update { it.copy(busy = false, committing = false) }
+        }
+        mutable.update { it.copy(joinStage = SyncUiJoinStage.Idle) }
+        activated()
+        return launchOperation {
+            val first = service.runCreateFirstCycle()
+            if (abandonedAfterAwait()) return@launchOperation
+            finishCreateFirstCycle(first)
         }
     }
 
-    /** 404 时「仍用此码创建」；探针分级为 JOIN_ONLY 时禁止创建。 */
     suspend fun createFromJoin() {
-        if (!canCreate || uiState.value.busy) return
-        val notFound = uiState.value.joinStage as? SyncUiJoinStage.NotFound ?: return
-        mutable.update { it.copy(busy = true) }
-        try {
-            val result = service.createWithCode(notFound.code, bridge.localData())
-            if (abandonedAfterAwait()) return
-            mutable.update { it.copy(joinStage = SyncUiJoinStage.Idle) }
-            when (result) {
-                is SyncCreateResult.Created -> {
-                    activated()
-                    scheduler.record(result.firstCycle, nowU)
-                    mutable.update { it.copy(failure = SyncStatusText.cycle(result.firstCycle)) }
-                }
-                is SyncCreateResult.Failed -> showNotice(result.message)
-            }
-        } finally {
-            mutable.update { it.copy(busy = false) }
-        }
+        startCreateFromJoin()?.join()
     }
 
     fun cancelJoin() {
@@ -490,8 +612,9 @@ class SyncHub(
         val cancelledTicket = if (current is SyncUiJoinStage.Preview) current.ticket.cancel() else true
         if (!cancelledTicket) return
         joinGeneration += 1
-        joinJob?.cancel()
+        val active = joinJob
         joinJob = null
+        active?.cancel()
         mutable.update { it.copy(joinStage = SyncUiJoinStage.Idle) }
     }
 
@@ -507,17 +630,16 @@ class SyncHub(
         }
     }
 
+    /** 在 SyncHub 自身长生命周期 scope 执行清除云端，不随设置面板销毁或旋转中断。 */
+    fun startClearCloud(): Job? = launchOperation {
+        editJob?.cancel()
+        val result = service.clear(bridge)
+        if (abandonedAfterAwait()) return@launchOperation
+        finishFlow(result)
+    }
+
     suspend fun clearCloud() {
-        if (uiState.value.busy) return
-        mutable.update { it.copy(busy = true) }
-        try {
-            editJob?.cancel()
-            val result = service.clear(bridge)
-            if (abandonedAfterAwait()) return
-            finishFlow(result)
-        } finally {
-            mutable.update { it.copy(busy = false) }
-        }
+        startClearCloud()?.join()
     }
 
     private fun finishFlow(result: SyncFlowResult) {
@@ -532,13 +654,15 @@ class SyncHub(
                     fingerprint = null,
                     hasPending = false,
                     lastSuccessAt = null,
+                    savedCode = null,
+                    revealedCode = null,
                 )
             }
         } else {
             val text = SyncStatusText.flow(result)
             showNotice(text)
             if (!service.isActive && uiState.value.phase == SyncUiPhase.Active) {
-                mutable.update { it.copy(phase = SyncUiPhase.Attention(text)) }
+                mutable.update { it.copy(phase = SyncUiPhase.Attention(text), revealedCode = null) }
             }
         }
     }
