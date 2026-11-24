@@ -487,6 +487,11 @@ final class SyncJoinRealFilesTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: r.stateURL.path), "前提：改名隔离失败，坏文件留在原处")
 
         chmod(dir, 0o700)
+        let probe = SyncState(phase: .creating, origin: ServiceFixture.origin, blobID: ServiceFixture.keys.blobID, clock: SyncClock(dev: 7))
+        XCTAssertFalse(r.backing.save(probe), "前提：底层只读标记已置上")
+        // 移走坏文件而保留损坏标记：`disable` 与 `create` 的 `load()` 都会在 `SyncBackupExcludedStore` 短路，
+        // 不会再调底层 `inner.load()`，从而真正检验 `inner.delete()` 复位只读标记。
+        try FileManager.default.removeItem(at: r.stateURL)
         // 不调用 r.restart()：同一进程内关闭后直接重新开启。
         XCTAssertEqual(r.service.disable(sink: r.sink), .done)
         XCTAssertNil(r.keys.entry)
