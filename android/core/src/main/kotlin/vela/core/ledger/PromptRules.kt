@@ -4,8 +4,8 @@ import vela.core.base.model.FeedSource
 import vela.core.base.model.Room
 import vela.core.base.model.RoomQuery
 import vela.core.base.model.ShowState
-import vela.core.base.model.lowerRoot
 import vela.core.base.model.trimSwiftWhitespace
+import vela.core.sites.SiteMode
 
 /** 常看收藏提示何时算「问过」、何时可以显示。 */
 enum class SuggestEnd {
@@ -38,17 +38,25 @@ object SuggestRules {
 
 /** 列表为空时的说明：按原因区分，用户知道该去哪里处理。 */
 object EmptyListCopy {
+    const val noFavoritesYet: String = "还没有收藏，在房间里按 ⌘D 收藏"
+
     fun message(
         catalogError: String?,
         query: RoomQuery,
         catalog: List<Room>,
         source: FeedSource,
         favoriteCount: Int,
+        siteMode: SiteMode = SiteMode.chaturbate,
+        hasUnsupportedSiteFilter: Boolean = false,
+        searching: Boolean = false,
     ): String {
         if (catalogError != null) return catalogError
         if (catalog.isEmpty()) {
             if (source == FeedSource.favorites) {
-                return if (favoriteCount == 0) "还没有收藏，在房间里按 ⌘D 收藏" else "收藏的人现在都不在线"
+                return if (favoriteCount == 0) noFavoritesYet else "收藏的人现在都不在线"
+            }
+            if (siteMode == SiteMode.cam4 && !searching && (hasUnsupportedSiteFilter || source == FeedSource.fresh)) {
+                return "Cam4 不支持按地区、标签或新开播筛选"
             }
             return "目录里现在没有房间，可以稍后重试"
         }
@@ -57,9 +65,9 @@ object EmptyListCopy {
             val withoutText = query.copy(text = "")
             if (catalog.any { withoutText.matches(it) }) return "没有匹配「$text」的房间。回车搜索全站"
         }
-        val unblocked = catalog.filter { it.username.lowerRoot() !in query.blocked }
+        val unblocked = catalog.filter { it.identity !in query.blocked }
         if (unblocked.isEmpty()) return "目录里的房间都在屏蔽名单里"
-        val allowed = unblocked.filter { room -> query.only?.contains(room.username.lowerRoot()) ?: true }
+        val allowed = unblocked.filter { room -> query.only?.contains(room.identity) ?: true }
         if (allowed.isEmpty()) return "收藏的人现在都不在线"
         if (query.hidden.isNotEmpty() && allowed.all { RoomQuery.isHidden(it, query.hidden) }) {
             return "目录里的房间都被「我的口味」里不想看的标签过滤掉了"

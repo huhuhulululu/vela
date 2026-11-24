@@ -73,6 +73,26 @@ class RoomKeyTests {
     }
 
     @Test
+    fun testSiteIDRejectsTrailingNewlineAndKelvinLowercase() {
+        assertFalse(SiteID.isValidID("cb\n"))
+        assertFalse(SiteID.cam4.isValidName("ab\n"))
+        assertNull(RoomKey.parsing("cb\n:alice"))
+        assertNull(RoomKey(SiteID.cam4, "\u212Aa"))
+        assertNull(vela.core.sync.SyncKeys.roomKey("\u212Aa"))
+        assertNull(vela.core.sync.SyncKeys.roomKey("c4:\u212Aa"))
+        assertFalse(SiteKeys.disk("xx\n:ab").startsWith("xx\n:"))
+    }
+
+    @Test
+    fun testSiteModeDirectRoom() {
+        assertEquals("Alice", SiteMode.chaturbate.directRoom("Alice")?.ref)
+        assertEquals("Alice", SiteMode.mixed.directRoom("Alice")?.ref)
+        assertEquals("c4:alice", SiteMode.cam4.directRoom("Alice")?.ref)
+        assertEquals("c4:alice", SiteMode.chaturbate.directRoom("c4:Alice")?.ref)
+        assertNull(SiteMode.cam4.directRoom("x"))
+    }
+
+    @Test
     fun testCodableRoundTripAndNormalizeRef() {
         val key = RoomKey.parsing("cb:Alice")
         assertNotNull(key)

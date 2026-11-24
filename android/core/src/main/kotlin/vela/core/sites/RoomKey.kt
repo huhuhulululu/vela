@@ -11,6 +11,7 @@ import kotlinx.serialization.encoding.Encoder
 import vela.core.base.model.Room
 import vela.core.base.model.lowerRoot
 import vela.core.base.model.trimSwiftWhitespace
+import vela.core.sync.SyncKeys
 
 /**
  * 站点短 id。`cb` 是 Chaturbate，`c4` 是 Cam4。
@@ -34,16 +35,26 @@ enum class SiteID(val wire: String) {
      */
     fun isValidName(name: String): Boolean = when (this) {
         chaturbate -> Room.isValidUsername(name)
-        cam4 -> cam4Name.matches(name)
+        cam4 -> {
+            val bytes = name.toByteArray(Charsets.UTF_8)
+            bytes.size in 2..30 && bytes.all { isASCIILower(it) || isASCIIDigit(it) || it == '_'.code.toByte() }
+        }
     }
 
     companion object {
         const val idPattern: String = "^[a-z][a-z0-9]{1,7}$"
 
-        private val idRegex = Regex(idPattern)
-        private val cam4Name = Regex("^[a-z0-9_]{2,30}$")
+        fun isValidID(raw: String): Boolean {
+            val bytes = raw.toByteArray(Charsets.UTF_8)
+            if (bytes.size !in 2..8 || !isASCIILower(bytes[0])) return false
+            for (i in 1 until bytes.size) {
+                if (!isASCIILower(bytes[i]) && !isASCIIDigit(bytes[i])) return false
+            }
+            return true
+        }
 
-        fun isValidID(raw: String): Boolean = idRegex.matches(raw)
+        private fun isASCIILower(c: Byte): Boolean = c in 'a'.code.toByte()..'z'.code.toByte()
+        private fun isASCIIDigit(c: Byte): Boolean = c in '0'.code.toByte()..'9'.code.toByte()
 
         fun fromWire(raw: String): SiteID? = entries.firstOrNull { it.wire == raw }
     }
@@ -82,7 +93,7 @@ class RoomKey private constructor(
         /** 名字不合法返回 null。`c4` 会先把名字折成小写。 */
         operator fun invoke(site: SiteID, name: String): RoomKey? {
             val trimmed = name.trimSwiftWhitespace()
-            val normalized = if (site == SiteID.cam4) trimmed.lowerRoot() else trimmed
+            val normalized = if (site == SiteID.cam4) SyncKeys.asciiLower(trimmed) else trimmed
             if (!site.isValidName(normalized)) return null
             return RoomKey(site, normalized)
         }
@@ -112,7 +123,7 @@ class RoomKey private constructor(
         fun normalizeRef(any: String): String {
             val trimmed = any.trimSwiftWhitespace()
             if (!trimmed.contains(':')) return trimmed.lowerRoot()
-            val key = parsing(trimmed) ?: parsing(trimmed.lowerRoot())
+            val key = parsing(trimmed) ?: parsing(SyncKeys.asciiLower(trimmed))
             return key?.normalized ?: trimmed.lowerRoot()
         }
 
@@ -120,7 +131,7 @@ class RoomKey private constructor(
         fun siteOfRef(ref: String): SiteID {
             val colon = ref.indexOf(':')
             if (colon < 0) return SiteID.chaturbate
-            return SiteID.fromWire(ref.substring(0, colon).lowerRoot()) ?: SiteID.chaturbate
+            return SiteID.fromWire(SyncKeys.asciiLower(ref.substring(0, colon))) ?: SiteID.chaturbate
         }
     }
 }
@@ -146,12 +157,12 @@ object RoomKeySerializer : KSerializer<RoomKey> {
 internal object SiteKeys {
     fun disk(stored: String): String {
         val trimmed = stored.trimSwiftWhitespace()
-        val key = RoomKey.parsing(trimmed) ?: RoomKey.parsing(trimmed.lowerRoot())
+        val key = RoomKey.parsing(trimmed) ?: RoomKey.parsing(SyncKeys.asciiLower(trimmed))
         if (key != null) return key.raw
         val colon = trimmed.indexOf(':')
         if (colon >= 0) {
             val siteRaw = trimmed.substring(0, colon)
-            if (SiteID.isValidID(siteRaw.lowerRoot())) return trimmed
+            if (SiteID.isValidID(SyncKeys.asciiLower(siteRaw))) return trimmed
         }
         if (trimmed.isEmpty()) return trimmed
         return "cb:$trimmed"
@@ -160,14 +171,14 @@ internal object SiteKeys {
     /** cb 去掉前缀（保留名字原样），其他已知站点用 ref；认不出则原样返回。 */
     fun memory(stored: String): String {
         val trimmed = stored.trimSwiftWhitespace()
-        val key = RoomKey.parsing(trimmed) ?: RoomKey.parsing(trimmed.lowerRoot())
+        val key = RoomKey.parsing(trimmed) ?: RoomKey.parsing(SyncKeys.asciiLower(trimmed))
         if (key != null) return key.ref
         val colon = trimmed.indexOf(':')
         if (colon < 0) return trimmed
-        val siteRaw = trimmed.substring(0, colon).lowerRoot()
+        val siteRaw = SyncKeys.asciiLower(trimmed.substring(0, colon))
         val name = trimmed.substring(colon + 1)
         if (siteRaw == SiteID.chaturbate.wire) return name
-        if (siteRaw == SiteID.cam4.wire) return "c4:${name.lowerRoot()}"
+        if (siteRaw == SiteID.cam4.wire) return "c4:${SyncKeys.asciiLower(name)}"
         return trimmed
     }
 }
@@ -190,6 +201,14 @@ enum class SiteMode {
     fun filterFavorites(names: List<String>): List<String> {
         val allowed = sites.toSet()
         return names.filter { RoomKey.siteOfRef(it) in allowed }
+    }
+
+    /** 搜索框回车直达：带站点前缀按前缀；裸名在 Cam4 模式按 c4，其余按 cb。名字不合法返回 null。 */
+    fun directRoom(text: String): Room? {
+        val trimmed = text.trimSwiftWhitespace()
+        if (':' in trimmed) return RoomKey.parsing(trimmed)?.let(Room::direct)
+        val site = if (this == cam4) SiteID.cam4 else SiteID.chaturbate
+        return RoomKey(site, trimmed)?.let(Room::direct)
     }
 
     companion object {

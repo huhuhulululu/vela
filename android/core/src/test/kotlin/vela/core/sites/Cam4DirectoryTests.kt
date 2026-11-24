@@ -206,6 +206,34 @@ class Cam4DirectoryTests {
         assertEquals(SiteCapabilities.strictMaster, c4.capabilities)
     }
 
+    @Test
+    fun testDecodeAdvancesCursorByRawUserCountAndMatchesBareArrayTotal() {
+        val objectJSON = """
+        {
+          "totalCount": 500,
+          "users": [
+            {"username": "bad-name", "gender": "female", "viewers": 10},
+            {"username": "valid_one", "gender": "female", "viewers": 20}
+          ]
+        }
+        """.trimIndent().encodeToByteArray()
+        val page = Cam4Directory.decode(objectJSON, requestLimit = 2, requestOffset = 0, now = now, viewerRegions = emptySet())
+        assertEquals(listOf("valid_one"), page.rooms.map { it.username })
+        assertEquals(500, page.total)
+        assertEquals(2, page.nextOffset, "原页返回了 2 条，游标应推进到 2 而非过滤后的 1")
+
+        val arrayJSON = """
+        [
+          {"username": "bad-name", "gender": "female", "viewers": 10},
+          {"username": "valid_one", "gender": "female", "viewers": 20}
+        ]
+        """.trimIndent().encodeToByteArray()
+        val bare = Cam4Directory.decode(arrayJSON, requestLimit = 2, requestOffset = 0, now = now, viewerRegions = emptySet())
+        assertEquals(listOf("valid_one"), bare.rooms.map { it.username })
+        assertEquals(2, bare.total)
+        assertEquals(2, bare.nextOffset)
+    }
+
     private fun fixture(): ByteArray {
         val stream = checkNotNull(javaClass.getResourceAsStream("/sites/cam4-directory.json"))
         return stream.use { it.readBytes() }

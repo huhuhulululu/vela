@@ -7,7 +7,6 @@ import vela.core.base.site.CatalogQuery
 import vela.core.base.site.SiteSearchText
 import vela.core.feed.CatalogAPI
 import vela.core.feed.CatalogWindow
-import vela.core.feed.PageMerge
 
 /**
  * 舞台取目录的入口：`cb` 原样走 [CatalogAPI]；`c4` 只问 Cam4；
@@ -57,30 +56,7 @@ class SiteDirectory(
     /** 与 [CatalogAPI.fetchPages] 同一循环：没取满、上一页是满页、游标没到底就接着取。 */
     suspend fun fetchPages(query: CatalogQuery, pages: Int): CatalogPage {
         if (mode == SiteMode.chaturbate) return chaturbate.fetchPages(query, pages)
-        val size = query.limit.coerceAtLeast(1).coerceAtMost(CatalogQuery.maxPageSize)
-        var last = fetch(query)
-        var merged = last
-        var fetched = 1
-        while (
-            CatalogWindow.shouldContinue(
-                fetched = fetched,
-                pages = pages,
-                lastCount = last.rooms.size,
-                pageSize = size,
-                nextOffset = last.nextOffset,
-                total = last.total,
-            )
-        ) {
-            val nextOffset = last.nextOffset
-            last = fetch(query.copyWith(nextOffset))
-            if (last.rooms.isEmpty()) {
-                if (last.nextOffset > nextOffset) merged = PageMerge.appended(merged, last)
-                break
-            }
-            merged = PageMerge.appended(merged, last)
-            fetched += 1
-        }
-        return merged
+        return CatalogWindow.collect(query, pages, ::fetch)
     }
 
     private suspend fun fetchMixed(query: CatalogQuery): CatalogPage {

@@ -189,9 +189,9 @@ FeedCache 的随机性质测试只断言不变量。Kotlin 用同一个种子，
 
 ## sites 暂缓项（欠账）
 
-`android/parity/skip*.tsv` 里理由以 `deferred:sites-app` 或 `deferred:sites-sync` 开头的行，是安卓侧确实缺实现、不应写成 Apple 专属跳过的多站点用例（共 17 条）：
+`android/parity/skip*.tsv` 里理由以 `deferred:sites-app` 或 `deferred:sites-sync` 开头的行，是安卓侧确实缺实现、不应写成 Apple 专属跳过的多站点用例（共 21 条）：
 
-- `deferred:sites-app`（13 条）：安卓 `:app` 尚未接入站点模式、Cam4 起播/站点头/严格主列表失败、启动键迁移与直达前缀解析（含 `LaneHub`/`LaneHttpHeaders` 按源传站点 Referer/Origin）。
+- `deferred:sites-app`（17 条）：安卓 `:app` 尚未接入站点模式、Cam4 起播/站点头/严格主列表失败、启动键迁移、直达前缀解析、切站回滚与舞台空态文案接线（含 `LaneHub`/`LaneHttpHeaders` 按源传站点 Referer/Origin）。
   1. `Tests/VelaRelayTests/RelayMultiSourceTests.swift#testEachSourceSendsItsOwnSiteHeaders`
   2. `Tests/VelaPhoneTests/SiteWiringTests.swift#testSiteModeDefaultsToChaturbateAndIsRemembered`
   3. `Tests/VelaPhoneTests/SiteWiringTests.swift#testStartupMigratesStoredKeysOnceAndKeepsData`
@@ -205,9 +205,13 @@ FeedCache 的随机性质测试只断言不变量。Kotlin 用同一个种子，
   11. `Tests/VelaPhoneTests/SiteWiringTests.swift#testSyncProjectionKeepsCam4Entries`
   12. `Tests/VelaPhoneTests/SiteWiringTests.swift#testDirectRoomFollowsPrefixThenSiteMode`
   13. `Tests/VelaPhoneTests/SiteWiringTests.swift#testCam4FavoritesPageOnlyQueriesCam4AndSkipsChaturbate`
+  14. `Tests/VelaPhoneTests/SiteWiringTests.swift#testCam4BareSearchFocusesExistingRoomAndPreservesMetadata`
+  15. `Tests/VelaPhoneTests/SiteWiringTests.swift#testRetryAfterChallengeSiteSearchUsesModeDirectFallback`
+  16. `Tests/VelaPhoneTests/SiteWiringTests.swift#testEmptyMessageCam4FavoritesAndSearchNotOverridden`
+  17. `Tests/VelaPhoneTests/SiteWiringTests.swift#testChooseSiteFailureRollsBackModeAndDirectory`
 - `deferred:sites-sync`（4 条）：安卓 `:core` 的 `SyncKeys`/`SyncProjection`/`SyncMigration` 尚未支持 `c4:` 多站点房间键归一化与投影。
-  14. `Tests/VelaCoreTests/SyncSitesTests.swift#testRoomKeyUsesSiteNormalization`
-  15. `Tests/VelaCoreTests/SyncSitesTests.swift#testCam4FavoritesAndBlocksRoundTripWithoutLoss`
-  16. `Tests/VelaCoreTests/SyncSitesTests.swift#testProjectionKeepsCam4AndSkipsUnknownSites`
-  17. `Tests/VelaCoreTests/SyncSitesTests.swift#testLegacyBareLocalNamesMigrateAsChaturbate`
+  18. `Tests/VelaCoreTests/SyncSitesTests.swift#testRoomKeyUsesSiteNormalization`
+  19. `Tests/VelaCoreTests/SyncSitesTests.swift#testCam4FavoritesAndBlocksRoundTripWithoutLoss`
+  20. `Tests/VelaCoreTests/SyncSitesTests.swift#testProjectionKeepsCam4AndSkipsUnknownSites`
+  21. `Tests/VelaCoreTests/SyncSitesTests.swift#testLegacyBareLocalNamesMigrateAsChaturbate`
 - 待对应安卓实现落地后必须补齐 Kotlin 测试并删掉这些暂缓行；收尾时 `grep -rn 'deferred:sites-' android/parity` 必须无输出。

@@ -17,3 +17,7 @@ Tests/VelaPhoneTests/SiteWiringTests.swift	testDeferredMigrationRecordsNoVersion
 Tests/VelaPhoneTests/SiteWiringTests.swift	testSyncProjectionKeepsCam4Entries	deferred:sites-app 安卓 App 层站点接线与同步的站点键支持尚未做，编排者 2026-11-24 裁决暂缓（舞台同步投影尚未接入 Cam4 键）
 Tests/VelaPhoneTests/SiteWiringTests.swift	testDirectRoomFollowsPrefixThenSiteMode	deferred:sites-app 安卓 App 层站点接线与同步的站点键支持尚未做，编排者 2026-11-24 裁决暂缓（直达输入尚未按站点前缀与当前模式解析）
 Tests/VelaPhoneTests/SiteWiringTests.swift	testCam4FavoritesPageOnlyQueriesCam4AndSkipsChaturbate	deferred:sites-app 安卓 App 层站点接线与同步的站点键支持尚未做，编排者 2026-11-24 裁决暂缓（收藏来源尚未按站点模式分发）
+Tests/VelaPhoneTests/SiteWiringTests.swift	testCam4BareSearchFocusesExistingRoomAndPreservesMetadata	deferred:sites-app 安卓 App 层站点接线与同步的站点键支持尚未做，编排者 2026-11-24 裁决暂缓（舞台搜索直达尚未接入站点模式与已有房间保留）
+Tests/VelaPhoneTests/SiteWiringTests.swift	testRetryAfterChallengeSiteSearchUsesModeDirectFallback	deferred:sites-app 安卓 App 层站点接线与同步的站点键支持尚未做，编排者 2026-11-24 裁决暂缓（舞台质询后重试全站搜索尚未接入站点模式直达）
+Tests/VelaPhoneTests/SiteWiringTests.swift	testEmptyMessageCam4FavoritesAndSearchNotOverridden	deferred:sites-app 安卓 App 层站点接线与同步的站点键支持尚未做，编排者 2026-11-24 裁决暂缓（舞台空列表文案尚未接入站点模式与按模式收藏数）
+Tests/VelaPhoneTests/SiteWiringTests.swift	testChooseSiteFailureRollsBackModeAndDirectory	deferred:sites-app 安卓 App 层站点接线与同步的站点键支持尚未做，编排者 2026-11-24 裁决暂缓（舞台切站与失败回滚尚未接线）

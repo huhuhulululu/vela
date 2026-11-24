@@ -65,9 +65,9 @@ class Cam4Adapter(
             for (room in filtered(raw, query).rooms) {
                 if (seen.add(room.identity)) collected.add(room)
             }
-            val advanced = raw.nextOffset > cursor
+            val upstreamStep = raw.nextOffset - cursor
             cursor = raw.nextOffset
-            if (!needsFilter || collected.size >= limit || raw.rooms.size < limit || !advanced || cursor >= total || scans >= maxFilterScans) {
+            if (!needsFilter || collected.size >= limit || upstreamStep < limit || upstreamStep <= 0 || cursor >= total || scans >= maxFilterScans) {
                 break
             }
         }
@@ -170,7 +170,7 @@ class Cam4Adapter(
         val keywords = SiteSearchText.normalized(query.keywords)
         if (keywords != null) {
             val needle = keywords.lowerRoot()
-            rooms = rooms.filter { needle in it.username.lowerRoot() }
+            rooms = rooms.filter { needle in it.username.lowerRoot() || needle in it.identity }
         }
         return CatalogPage(rooms = rooms, total = page.total, nextOffset = page.nextOffset)
     }

@@ -62,8 +62,8 @@ object Cam4Directory {
         val parsed = parse(data)
         val limit = requestLimit.coerceIn(1, maxPageSize)
         val rooms = parsed.users.mapNotNull { it.room(now, viewerRegions) }
-        val total = parsed.total ?: rooms.size
-        val step = minOf(rooms.size, limit)
+        val total = parsed.total ?: parsed.users.size
+        val step = minOf(parsed.users.size, limit)
         return CatalogPage(rooms = rooms, total = total, nextOffset = requestOffset + step)
     }
 

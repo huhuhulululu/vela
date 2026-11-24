@@ -305,6 +305,83 @@ class Cam4StreamTests {
         assertEquals("40", query(requests[1].url, "resultsPerPage"))
     }
 
+    @Test
+    fun testFilteredScanContinuesWhenRawPageDropsInvalidUsername() = runBlocking {
+        val client = ScriptClient(
+            mutableListOf(
+                page(listOf(user("bad-name", hls = hls, gender = "female"), user("f1", hls = hls, gender = "female")), total = 6),
+                page(listOf(user("m1", hls = hls, gender = "male"), user("m2", hls = hls, gender = "male")), total = 6),
+            ),
+        )
+        val adapter = Cam4Adapter(client, backoff = null, viewerRegions = emptySet())
+        val result = adapter.fetchDirectory(CatalogQuery(gender = Gender.male, limit = 2, offset = 0))
+        assertEquals(listOf("m1", "m2"), result.rooms.map { it.username })
+        assertEquals(4, result.nextOffset)
+        val pages = client.requests.map { query(it.url, "page") }
+        assertEquals(listOf("1", "2"), pages)
+    }
+
+    @Test
+    fun testMultiPageCollectContinuesPastMaxFilterScansShortPage() = runBlocking {
+        val client = ScriptClient(
+            mutableListOf(
+                page(listOf(user("b1", hls = hls, blocked = listOf("US")), user("b2", hls = hls, blocked = listOf("US"))), total = 20),
+                page(listOf(user("b3", hls = hls, blocked = listOf("US")), user("b4", hls = hls, blocked = listOf("US"))), total = 20),
+                page(listOf(user("ok1", hls = hls), user("b5", hls = hls, blocked = listOf("US"))), total = 20),
+                page(listOf(user("b6", hls = hls, blocked = listOf("US")), user("b7", hls = hls, blocked = listOf("US"))), total = 20),
+                page(listOf(user("b8", hls = hls, blocked = listOf("US")), user("b9", hls = hls, blocked = listOf("US"))), total = 20),
+                page(listOf(user("ok2", hls = hls), user("ok3", hls = hls)), total = 20),
+                page(listOf(user("ok4", hls = hls), user("ok5", hls = hls)), total = 20),
+            ),
+        )
+        val adapter = Cam4Adapter(client, backoff = null, viewerRegions = setOf("US"))
+        val dir = SiteDirectory(
+            mode = SiteMode.cam4,
+            registry = SiteRegistry(listOf(adapter)),
+            chaturbate = vela.core.feed.CatalogAPI(client, backoff = null),
+        )
+        val merged = dir.fetchPages(CatalogQuery(limit = 2, offset = 0), pages = 3)
+        assertEquals(listOf("ok1", "ok2", "ok3", "ok4", "ok5"), merged.rooms.map { it.username })
+        assertEquals(14, merged.nextOffset)
+    }
+
+    @Test
+    fun testMultiPageCollectContinuesPastMaxFilterScansEmptyPage() = runBlocking {
+        val client = ScriptClient(
+            mutableListOf(
+                page(listOf(user("b1", hls = hls, blocked = listOf("US")), user("b2", hls = hls, blocked = listOf("US"))), total = 20),
+                page(listOf(user("b3", hls = hls, blocked = listOf("US")), user("b4", hls = hls, blocked = listOf("US"))), total = 20),
+                page(listOf(user("b5", hls = hls, blocked = listOf("US")), user("b6", hls = hls, blocked = listOf("US"))), total = 20),
+                page(listOf(user("b7", hls = hls, blocked = listOf("US")), user("b8", hls = hls, blocked = listOf("US"))), total = 20),
+                page(listOf(user("b9", hls = hls, blocked = listOf("US")), user("b10", hls = hls, blocked = listOf("US"))), total = 20),
+                page(listOf(user("ok1", hls = hls), user("ok2", hls = hls)), total = 20),
+            ),
+        )
+        val adapter = Cam4Adapter(client, backoff = null, viewerRegions = setOf("US"))
+        val dir = SiteDirectory(
+            mode = SiteMode.cam4,
+            registry = SiteRegistry(listOf(adapter)),
+            chaturbate = vela.core.feed.CatalogAPI(client, backoff = null),
+        )
+        val merged = dir.fetchPages(CatalogQuery(limit = 2, offset = 0), pages = 2)
+        assertEquals(listOf("ok1", "ok2"), merged.rooms.map { it.username })
+        assertEquals(12, merged.nextOffset)
+    }
+
+    @Test
+    fun testKeywordsFilterMatchesCam4Prefix() = runBlocking {
+        val client = ScriptClient(
+            mutableListOf(
+                page(listOf(user("sample_one", hls = hls), user("other_two", hls = hls)), total = 4),
+                page(listOf(user("other_three", hls = hls), user("other_four", hls = hls)), total = 4),
+            ),
+        )
+        val adapter = Cam4Adapter(client, backoff = null, viewerRegions = emptySet())
+        val result = adapter.fetchDirectory(CatalogQuery(limit = 2, offset = 0, keywords = "c4:sample_one"))
+        assertEquals(listOf("sample_one"), result.rooms.map { it.username })
+        assertEquals(2, client.requests.size)
+    }
+
     private fun user(
         name: String,
         hls: String? = null,

@@ -129,7 +129,7 @@ object FavoriteResolver {
             } else {
                 val entry = known[key]
                 if (entry != null) {
-                    val status = if (entry.room.show.isPlayable) {
+                    val status = if (entry.room.isCatalogPlayable) {
                         FavoriteStatus.Online(entry.room)
                     } else {
                         FavoriteStatus.Offline
