@@ -478,7 +478,6 @@ T18、T18b、T19 的实跑（2026-11-18，分支 `feat/ios-pr3`）。全程静�
 | 三轮中位数 | 1.90% | 35.9 MB | 1.81 秒 | 0 | 全部满足 |
 | idle | 0.0% | 30.6 MB | | 0 | PASS |
 
-
 ## macOS 体积门与 Release -Osize（2026-11-19，站点抽象 `sites/core`）
 
 站点抽象（Phase A `b2daf71`）与接线（Phase B `60934ec`）让 macOS 的 PERF_PROBE Release 超出体积门：探针 `app_size_mb` 按 `du -sk` / 1024 保留一位小数，要求不超过 3.7 + 0.3，即 `.app` 不超过 4147 KB。
@@ -528,3 +527,51 @@ G-mac 两组（`ssh localhost` 回环，`perf-probe.sh --build --fixed-stream --
 
     两边 16 轮都没有超过 2.22 秒的样本，起播与资源几乎相同；此前 RSS 的差异在串行复测里也消失（90.0 对 89.4 MB）。
   - 工具注意：两个 perf-probe 同时启动会在开头的「等他人」循环里互相等待（实测互等 10 分钟以上），G-mac 必须在确认机器空闲后串行跑。
+
+## 安卓（里程碑 A，单窗）
+
+与上面的 macOS、iOS 数字分开。安卓不走 `scripts/perf-probe.sh`，也不用 G-mac 的门。这里只写代码里已经在跑的门，以及仓库里已经有的一次 JVM 测量。模拟器上的 PSS 与 CPU 没有入库，不编造。
+
+### 方法
+
+- 不访问真实站点。直播用 `scripts/make-test-stream.sh` 与 `scripts/serve-test-stream.py`（只绑 127.0.0.1，端口由系统分配）。目录用 `android/tools/fixtures/` 里的合成 JSON。
+- 播放用 perf 构建，仪器包用 debug。`android/tools/emu-modes/e2e-a.sh` 注明了原因：脚手架没有 perf 的 androidTest 变体，所以应用打 perf、仪器包打 debug。全程静音。
+- 模拟器作业在 `.github/workflows/android.yml` 的 `android-emulator`，入口 `android/tools/emulator-run.sh`。单路、质询、后台、里程碑 A 分别是 `android/tools/emu-modes/lane.sh`、`android/tools/emu-modes/challenge.sh`、`android/tools/emu-modes/background.sh`、`android/tools/emu-modes/e2e-a.sh`。
+- 首帧墙钟由 `android/app/src/hooks/kotlin/vela/app/hooks/PerfProbe.kt` 记 `onRenderedFirstFrame`。这个类只编进 debug 与 perf，release 里没有。
+- 资源：播放期间每 5 秒采 `dumpsys meminfo vela.app` 的 TOTAL PSS、`dumpsys cpuinfo`，以及进程 `stat` 的 utime+stime。一行样本是 `cpu_percent`、`cpu_ticks`、`cpuinfo_total_percent`、`pss_kb`、`t`。汇总打印一个 JSON：`schema` 为 1，`interval_s` 为 5，`package` 为 `vela.app`，加 `sample_count` 与 `samples`。结果文件名是 e2e-a-resources.json，写在作业的结果目录，不进仓库。样本少于 3、没有 PSS、或没有 CPU 字段，脚本失败。
+
+### 已经写进测试的门
+
+这些是断言，不是某次实测的中位数。
+
+| 门 | 代码里的断言 | 出处 |
+|---|---|---|
+| 首帧 | 墙钟 ≤ 8 秒 | `android/app/src/androidTest/kotlin/vela/app/lane/LaneEmulatorTest.kt` |
+| 比例 | `display-check` 含 `uncropped=true`；留边纯黑占比 < 0.95 | 同上；`android/tools/emu-modes/e2e-a.sh` 在有 logcat 时也要求 `uncropped=true` 和 `first-frame lane=` |
+| 静音稳态 | 窗口 ≥ 50 秒；音频播放列表 ≤ 1 次；音频分片 0 | `android/tools/emu-modes/e2e-a.sh` |
+| 流量 | 媒体字节 × 8 ÷（主列表最高 `BANDWIDTH` × 时长）≤ 1.15 | 同上 |
+| 暂停 | 标记之间的媒体请求为 0 | 同上 |
+| 后台 | 回桌面 5 秒后没有 ExoPlayer 播放线程、没有 WebView 进程；之后 30 秒请求为 0；这 30 秒的 utime+stime 增量 ≤ 30 tick | `android/app/src/androidTest/kotlin/vela/app/lifecycle/BackgroundEmulatorTest.kt` 与 `android/tools/emu-modes/e2e-a.sh` |
+| 体积与清单 | release ≤ 5120 KB；权限只有 `INTERNET`、`ACCESS_NETWORK_STATE` 和 `*.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`；`allowBackup=false`；没有 service 与开机 receiver；R8 mapping 不含 `vela.app.hooks` | `android/tools/check-apk.sh` |
+
+计划第 7 节写的是后台 30 秒增量 ≤ 1 tick。落地的仪器测试放宽到 ≤ 30 tick，注释写明：播放中一核就有上百 tick，30 tick 不到一核 30 秒的 1%，当空闲噪声。本文以测试为准，不把 1 tick 写成已经在跑的门。
+
+### P1（2026-11-18，JVM，不是手机）
+
+出处 `android/docs/spike-ll-hls.md`。Robolectric、API 34、墙钟。伪上游只绑 127.0.0.1。结论是不回退到移植中继：分片用改写后的真实地址，静音只关音轨，直播目标偏移维持 3 秒，低延迟标签要去掉。摘录（窗口都是出画之后的墙钟，不是虚拟时间折算）：
+
+| 项 | 数字 |
+|---|---|
+| 去掉低延迟标签后 60 秒请求 | 61（原生低延迟 269）；长连接 0（原生 119） |
+| 静音、出画后 60 秒 | audio.m3u8 为 0，音频分片为 0（chunkless 开或关一样） |
+| 受控 403 续期 | `onPlayerError` 0，最大空窗 106 毫秒 |
+| R1 两种分片地址 | 各重新 prepare 1 次，约 5.6 秒恢复出画 |
+| R2、R3 两种地址 | 播放错误 0，空窗约 0.4 秒 |
+| 1.5×T 抖动、10 分钟 | PlaylistStuck 0，`onPlayerError` 0，再缓冲 205，最大空窗 1136 毫秒 |
+| 目标偏移 3 秒对默认 | 再缓冲 17 对 14，最大空窗都约 1.1 秒 |
+
+这是 Robolectric 里的一次测量，不能当成手机上的 PSS 或 CPU。
+
+### 还没有的基线
+
+仓库里没有模拟器资源采样的 JSON（作业写在结果目录，文件名 e2e-a-resources.json），也没有模拟器上的 PSS、CPU 中位数。计划写里程碑 A 的首测写入本文，之后按基线 +10% 做门。首测数字不在这棵树上，本文不编造，也不把「+10%」写成一个具体的 KB 或百分比。`android/PORTING.md` 文末的 `apk_bytes=667213` 是脚手架当时的空壳包，不是现在的 `:app`。体积门仍是 `android/tools/check-apk.sh` 的 5120 KB；等有一次当前 release 包的实测，再把字节数记进来。

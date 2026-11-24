@@ -1,0 +1,5 @@
+# swift_file	swift_test	kotlin_id
+# 类名对不上、但 Kotlin 已执行同一行为的显式映射。
+swift_file	swift_test	kotlin_id
+Tests/VelaSyncTests/SyncCryptoVectorsTests.swift	testCryptoVectors	vela.core.sync.SyncVectorsTests#testGoldenVectors
+Tests/VelaSyncTests/SyncJoinTransactionTests.swift	testOrphanKeychainEntryIsRemovedAtStartup	vela.core.sync.SyncLifecycleTests#testRecoverDeletesOrphanEntry

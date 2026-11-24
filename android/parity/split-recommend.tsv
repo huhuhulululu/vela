@@ -1,0 +1,5 @@
+# swift_file	swift_test	kotlin_id
+# C6c 用例与 Swift 同名。测试类名与 Swift 文件名一致
+# （FeedRankingTests、RecommendTuningTests、RecommendScenarioTests、FreshCamsTests、FeedReorderTests）。
+# FeedReorderTests.swift 里还有 FeedBlockTests，方法名唯一，parity 按方法名回落到该类。
+# 不需要显式映射。

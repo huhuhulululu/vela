@@ -1,0 +1,5 @@
+# C5 跳过。三列制表符：swift_file、swift_test、reason。
+swift_file	swift_test	reason
+Tests/VelaCoreTests/ShortcutSearchTests.swift	testPlainKeysOnlyWhenNothingElseOwnsTheKeyboard	不移植 ShortcutGate
+Tests/VelaCoreTests/VelaCoreTests.swift	testWheelCommitsOneRoom	不移植 WheelInterpreter（指针滚轮）
+Tests/VelaCoreTests/VelaCoreTests.swift	testPresenceIsConditional	不移植 Presence

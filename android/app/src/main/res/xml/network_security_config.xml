@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 不给 WebView 放行回环明文。环回和链路本地也要走来源代理，不能靠全局明文例外直连。 -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+</network-security-config>

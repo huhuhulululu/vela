@@ -56,7 +56,7 @@ python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); del d["samples"]
 gate "$T/base.json" "$T/nosamples.json"; check "删掉 samples 判不合格" "$([ $? -eq 1 ] && echo 1 || echo 0)"
 mut() { # 名称 python 表达式（修改 d）
     python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); exec(sys.argv[2]); open(sys.argv[3],"w").write(json.dumps(d))' "$T/good.json" "$2" "$T/m.json"
-    case "$2" in *NaN*) sed -i '' 's/"cpu_avg": *"NaN"/"cpu_avg": NaN/' "$T/m.json" ;; esac
+    case "$2" in *NaN*) sed 's/"cpu_avg": *"NaN"/"cpu_avg": NaN/' "$T/m.json" >"$T/m.tmp" && mv "$T/m.tmp" "$T/m.json" ;; esac
     gate "$T/base.json" "$T/m.json"; check "$1 判不合格" "$([ $? -eq 1 ] && echo 1 || echo 0)"
 }
 mut "samples=0" 'd["samples"]=0'

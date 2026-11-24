@@ -1,0 +1,3 @@
+# swift_file	swift_test	kotlin_id
+# L0a 已移植的用例与 Swift 同名，测试类名与 Swift 文件名一致（BOMShapeTests、EndpointBackoffTests、VelaCoreTests）。
+# parity 按类名后缀对上，这里不需要显式映射。改名只发生在类型上，见 l0a.notes.md。

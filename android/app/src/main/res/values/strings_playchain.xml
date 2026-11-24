@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="playchain_challenge_title">确认访问</string>
+    <string name="playchain_challenge_body">站点要求确认这次访问。完成后回到播放器即可，画面不会在这个窗口里播放。</string>
+    <string name="playchain_challenge_done">已完成，继续播放</string>
+    <string name="playchain_challenge_close">关闭</string>
+    <string name="playchain_needs_confirm">需要确认访问后才能播放</string>
+    <string name="playchain_challenge_skip">站点连续要求确认，这一间先跳过</string>
+    <string name="playchain_connect_failed">连不上这路画面</string>
+    <string name="playchain_relay_down">本地中继没能启动，暂时无法播放</string>
+    <string name="playchain_failure_geo">当前地区不可观看</string>
+    <string name="playchain_failure_private">私密表演</string>
+    <string name="playchain_failure_group">群组表演</string>
+    <string name="playchain_failure_away">暂时离开</string>
+    <string name="playchain_failure_offline">已离线</string>
+    <string name="playchain_failure_hidden">隐藏中</string>
+    <string name="playchain_failure_password">需要房间密码</string>
+    <string name="playchain_failure_unavailable">暂时无法播放</string>
+</resources>
