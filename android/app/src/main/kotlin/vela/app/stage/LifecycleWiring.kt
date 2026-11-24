@@ -107,10 +107,10 @@ class LifecycleWiring(
 
     fun moveTo(next: PhoneScenePhase) {
         if (next == phase) return
-        // 已在画中画后台序列中时，迟到的 onPause/onStart 不得把阶段退回 INACTIVE。
+        // 已在画中画后台序列（含退出小窗待恢复/待停止）中时，迟到或过渡态的 onPause/onStart 不得把阶段退回 INACTIVE。
         if (next == PhoneScenePhase.INACTIVE &&
             phase == PhoneScenePhase.BACKGROUND &&
-            pipCoordinator?.pictureInPicturePlaying == true
+            pipCoordinator?.inPictureInPictureBackground == true
         ) {
             return
         }

@@ -47,6 +47,7 @@ class PictureInPictureVideoSizeTest {
     @Before
     fun setUp() {
         RecordingPipParamsShadow.recorded.clear()
+        RecordingPipParamsShadow.inPipMode = false
         val context = ApplicationProvider.getApplicationContext<Context>()
         shadowOf(context.packageManager)
             .setSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE, true)
@@ -57,6 +58,7 @@ class PictureInPictureVideoSizeTest {
         opened.forEach { runCatching { it.close() } }
         opened.clear()
         RecordingPipParamsShadow.recorded.clear()
+        RecordingPipParamsShadow.inPipMode = false
     }
 
     @Test
@@ -335,6 +337,155 @@ class PictureInPictureVideoSizeTest {
     }
 
     @Test
+    fun testDismissingPipOnStopWhileSystemStillReportsInPipStopsImmediately() {
+        val (controller, stage, wiring, pip, directory) = buildPipActivityHarness("vela-pip-stop-inpip")
+        try {
+            wiring.moveTo(vela.core.lifecycle.PhoneScenePhase.ACTIVE)
+            stage.notePlaying("alice")
+            ShadowLooper.idleMainLooper()
+
+            controller.pause()
+            wiring.moveTo(vela.core.lifecycle.PhoneScenePhase.INACTIVE)
+            RecordingPipParamsShadow.inPipMode = true
+            pip.onPictureInPictureModeChanged(true)
+            ShadowLooper.idleMainLooper()
+            assertEquals(vela.core.lifecycle.PhoneScenePhase.BACKGROUND, wiring.phase)
+            assertEquals(vela.core.base.lane.PlaybackLaneRole.PRIMARY, stage.lifecycleEpoch.allowedLane)
+
+            // 真实系统在 onStop 先于 modeChanged(false)（或锁屏/退后台不发 modeChanged(false)）时，
+            // onStop 触发瞬间 !isFinishing 且 isInPictureInPictureMode 仍为 true，必须立刻全停。
+            controller.stop()
+            wiring.moveTo(vela.core.lifecycle.PhoneScenePhase.BACKGROUND)
+            ShadowLooper.idleMainLooper()
+            assertTrue("onStop 时即便系统尚未翻回 isInPictureInPictureMode 也必须立即关门", !stage.playbackGateOpen)
+            assertEquals("onStop 后不得继续放行焦点路", null, stage.lifecycleEpoch.allowedLane)
+            assertEquals(
+                vela.core.lifecycle.PiPPolicy.State.NONE,
+                wiring.pipCoordinator?.pictureInPictureState,
+            )
+            assertTrue(!stage.pictureInPicture)
+
+            // 随后到达的 modeChanged(false) 应幂等忽略，不得重开或报错。
+            RecordingPipParamsShadow.inPipMode = false
+            pip.onPictureInPictureModeChanged(false)
+            ShadowLooper.idleMainLooper()
+            assertTrue(!stage.playbackGateOpen)
+            assertEquals(null, stage.lifecycleEpoch.allowedLane)
+        } finally {
+            pip.detach()
+            controller.destroy()
+            directory.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun testDismissingPipModeChangedBeforeOnStopWithIntermediatePauseStillStopsImmediately() {
+        val (controller, stage, wiring, pip, directory) = buildPipActivityHarness("vela-pip-order-bounce")
+        try {
+            wiring.moveTo(vela.core.lifecycle.PhoneScenePhase.ACTIVE)
+            stage.notePlaying("alice")
+            ShadowLooper.idleMainLooper()
+
+            controller.pause()
+            wiring.moveTo(vela.core.lifecycle.PhoneScenePhase.INACTIVE)
+            RecordingPipParamsShadow.inPipMode = true
+            pip.onPictureInPictureModeChanged(true)
+            ShadowLooper.idleMainLooper()
+            assertEquals(vela.core.lifecycle.PhoneScenePhase.BACKGROUND, wiring.phase)
+
+            // modeChanged(false) 先到（仍 STARTED），随后任务退场前穿插一次 onPause/onStart（moveTo(INACTIVE)），再 onStop。
+            RecordingPipParamsShadow.inPipMode = false
+            pip.onPictureInPictureModeChanged(false)
+            ShadowLooper.idleMainLooper()
+            wiring.moveTo(vela.core.lifecycle.PhoneScenePhase.INACTIVE)
+            controller.stop()
+            wiring.moveTo(vela.core.lifecycle.PhoneScenePhase.BACKGROUND)
+            ShadowLooper.idleMainLooper()
+
+            assertEquals(vela.core.lifecycle.PhoneScenePhase.BACKGROUND, wiring.phase)
+            assertTrue("中间出现 INACTIVE 抖动后收到 onStop 仍必须立即全停", !stage.playbackGateOpen)
+            assertEquals(null, stage.lifecycleEpoch.allowedLane)
+            assertEquals(
+                vela.core.lifecycle.PiPPolicy.State.NONE,
+                wiring.pipCoordinator?.pictureInPictureState,
+            )
+        } finally {
+            pip.detach()
+            controller.destroy()
+            directory.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun testFinishInPipWithoutModeChangedFalseStopsAllAndClearsPipState() {
+        val (controller, stage, wiring, pip, directory) = buildPipActivityHarness("vela-pip-finish")
+        val activity = controller.get()
+        try {
+            wiring.moveTo(vela.core.lifecycle.PhoneScenePhase.ACTIVE)
+            stage.notePlaying("alice")
+            ShadowLooper.idleMainLooper()
+
+            controller.pause()
+            wiring.moveTo(vela.core.lifecycle.PhoneScenePhase.INACTIVE)
+            RecordingPipParamsShadow.inPipMode = true
+            pip.onPictureInPictureModeChanged(true)
+            ShadowLooper.idleMainLooper()
+
+            // AOSP 14 在画中画里调用 finish() 会直接走 onStop -> onDestroy，不派发 onPictureInPictureModeChanged(false)，
+            // 因此销毁后的 Activity 上 isInPictureInPictureMode 仍保持 true。
+            activity.finish()
+            controller.stop()
+            wiring.moveTo(vela.core.lifecycle.PhoneScenePhase.BACKGROUND)
+            pip.detach()
+            controller.destroy()
+            ShadowLooper.idleMainLooper()
+
+            assertTrue(activity.isInPictureInPictureMode)
+            assertTrue(activity.isDestroyed)
+            assertTrue("finish 关闭画中画后必须关掉播放门", !stage.playbackGateOpen)
+            assertEquals("finish 关闭画中画后不得继续放行焦点路", null, stage.lifecycleEpoch.allowedLane)
+            assertEquals(
+                vela.core.lifecycle.PiPPolicy.State.NONE,
+                wiring.pipCoordinator?.pictureInPictureState,
+            )
+            assertTrue(!stage.pictureInPicture)
+        } finally {
+            pip.detach()
+            directory.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun testDetachWhileInPipWithoutOnStopStillStopsAll() {
+        val (controller, stage, wiring, pip, directory) = buildPipActivityHarness("vela-pip-detach-direct")
+        try {
+            wiring.moveTo(vela.core.lifecycle.PhoneScenePhase.ACTIVE)
+            stage.notePlaying("alice")
+            ShadowLooper.idleMainLooper()
+
+            controller.pause()
+            wiring.moveTo(vela.core.lifecycle.PhoneScenePhase.INACTIVE)
+            RecordingPipParamsShadow.inPipMode = true
+            pip.onPictureInPictureModeChanged(true)
+            ShadowLooper.idleMainLooper()
+
+            // 极端情形：未经过 onStop 直接走 onDestroy/detach，也必须补发停播并归零画中画状态。
+            pip.detach()
+            ShadowLooper.idleMainLooper()
+            assertTrue("直接 detach 后必须关掉播放门", !stage.playbackGateOpen)
+            assertEquals(null, stage.lifecycleEpoch.allowedLane)
+            assertEquals(
+                vela.core.lifecycle.PiPPolicy.State.NONE,
+                wiring.pipCoordinator?.pictureInPictureState,
+            )
+            assertTrue(!stage.pictureInPicture)
+        } finally {
+            controller.destroy()
+            directory.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
     fun testPausedStateChangesDoNotRefreshParamsUntilResumed() {
         val (controller, stage, _, pip, directory) = buildPipActivityHarness("vela-pip-pause-suppress")
         try {
@@ -431,7 +582,7 @@ class PictureInPictureVideoSizeTest {
     }
 }
 
-/** 系统影子不记 setPictureInPictureParams，这里补一层记录，供断言比例用。 */
+/** 系统影子不记 setPictureInPictureParams，这里补一层记录与可编程的 isInPictureInPictureMode，供断言比例与关闭时序用。 */
 @Implements(Activity::class)
 class RecordingPipParamsShadow : ShadowActivity() {
     @Implementation(minSdk = 26)
@@ -439,7 +590,13 @@ class RecordingPipParamsShadow : ShadowActivity() {
         recorded.add(params)
     }
 
+    @Implementation(minSdk = 24)
+    public override fun isInPictureInPictureMode(): Boolean = inPipMode
+
     companion object {
         val recorded = CopyOnWriteArrayList<PictureInPictureParams>()
+
+        @Volatile
+        var inPipMode: Boolean = false
     }
 }

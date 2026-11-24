@@ -39,9 +39,26 @@ class PiPCoordinator(
         get() = pictureInPictureState == PiPPolicy.State.ACTIVE ||
             pictureInPictureState == PiPPolicy.State.STARTING
 
+    /** 仍处于画中画或后台恢复等待中，期间迟到/过渡态 onPause/onStart 不得把阶段退回 INACTIVE。 */
+    val inPictureInPictureBackground: Boolean
+        get() = pictureInPicturePlaying || continuing
+
     private var continuing = false
     private var restoreRequested = false
     private var fallbackRunnable: Runnable? = null
+    private val recentEventLog = ArrayDeque<String>(MAX_RECENT_EVENTS)
+
+    @Synchronized
+    fun recentEvents(limit: Int = MAX_RECENT_EVENTS): List<String> =
+        recentEventLog.toList().takeLast(limit.coerceAtLeast(0))
+
+    @Synchronized
+    private fun recordEvent(entry: String) {
+        if (recentEventLog.size >= MAX_RECENT_EVENTS) {
+            recentEventLog.removeFirst()
+        }
+        recentEventLog.addLast(entry)
+    }
 
     fun syncAudioHook() {
         audio()?.pictureInPictureActive = pictureInPicturePlaying
@@ -52,6 +69,7 @@ class PiPCoordinator(
         pip?.autoEnter = enabled
         stage.autoEnterPip = enabled
         stage.publishPipFlags()
+        recordEvent("auto-enter=$enabled")
         Log.i(TAG, "pip auto-enter ${if (enabled) "on" else "off"}")
     }
 
@@ -79,6 +97,7 @@ class PiPCoordinator(
     fun onContinued(actions: List<PhoneLifecycleAction>) {
         val focus = continuedLane(actions) ?: return
         continuing = true
+        recordEvent("continued(lane=$focus,state=$pictureInPictureState)")
         Log.i(TAG, "pip continue lane=$focus state=$pictureInPictureState")
         if (pictureInPictureState != PiPPolicy.State.ACTIVE) {
             armFallback("timeout")
@@ -86,6 +105,7 @@ class PiPCoordinator(
     }
 
     fun onReturningToForeground() {
+        recordEvent("return-fg(state=$pictureInPictureState)")
         cancelFallback()
         continuing = false
         restoreRequested = false
@@ -107,6 +127,7 @@ class PiPCoordinator(
         when (event) {
             PiPEvent.WillStart -> {
                 pictureInPictureState = PiPPolicy.State.STARTING
+                recordEvent("WillStart(phase=${wiring.phase})")
                 stage.syncLaneCountLock(true)
                 stage.setPipSolo(true)
                 stage.focusLocked = true
@@ -116,6 +137,7 @@ class PiPCoordinator(
             }
             PiPEvent.DidStart -> {
                 pictureInPictureState = PiPPolicy.State.ACTIVE
+                recordEvent("DidStart(phase=${wiring.phase},cont=$continuing)")
                 stage.syncLaneCountLock(true)
                 stage.focusLocked = true
                 stage.publishPipFlags()
@@ -125,11 +147,13 @@ class PiPCoordinator(
                     cancelFallback()
                 } else if (wiring.phase == PhoneScenePhase.BACKGROUND) {
                     Log.i(TAG, "pip late-start closed")
+                    recordEvent("late-start-abort")
                     pip?.abort()
                 }
             }
             is PiPEvent.Failed -> {
                 pictureInPictureState = PiPPolicy.State.NONE
+                recordEvent("Failed(${event.message},phase=${wiring.phase},cont=$continuing)")
                 stage.syncLaneCountLock(false)
                 stage.setPipSolo(false)
                 stage.focusLocked = false
@@ -138,16 +162,22 @@ class PiPCoordinator(
                 Log.i(TAG, "pip failed error=${event.message}")
                 if (continuing && wiring.phase == PhoneScenePhase.BACKGROUND) {
                     fallbackStop("failed")
+                } else {
+                    cancelFallback()
+                    continuing = false
+                    restoreRequested = false
                 }
             }
             PiPEvent.WillStop -> {
                 pictureInPictureState = PiPPolicy.State.STOPPING
+                recordEvent("WillStop(phase=${wiring.phase})")
                 stage.syncLaneCountLock(true)
                 stage.publishPipFlags()
                 syncAudioHook()
             }
             PiPEvent.DidStop -> {
                 pictureInPictureState = PiPPolicy.State.NONE
+                recordEvent("DidStop(phase=${wiring.phase},cont=$continuing,restore=$restoreRequested)")
                 stage.syncLaneCountLock(false)
                 stage.setPipSolo(false)
                 stage.focusLocked = false
@@ -165,6 +195,7 @@ class PiPCoordinator(
             }
             PiPEvent.RestoreRequested -> {
                 restoreRequested = true
+                recordEvent("RestoreRequested(phase=${wiring.phase})")
             }
         }
     }
@@ -207,6 +238,7 @@ class PiPCoordinator(
 
     private fun armFallback(reason: String) {
         cancelFallback()
+        recordEvent("arm-fallback($reason)")
         val delayMs = (fallbackDelaySeconds.coerceAtLeast(0.0) * 1000.0).toLong()
         val runnable = Runnable {
             fallbackRunnable = null
@@ -225,6 +257,7 @@ class PiPCoordinator(
     }
 
     private fun fallbackStop(reason: String) {
+        recordEvent("fallback-stop($reason)")
         Log.i(TAG, "pip fallback-stop reason=$reason")
         if (pictureInPictureState != PiPPolicy.State.NONE) {
             pip?.abort()
@@ -245,12 +278,14 @@ class PiPCoordinator(
         if (wiring.phase != PhoneScenePhase.BACKGROUND) return
         val input = pictureInPictureInput() ?: return
         val ended = input.copy(pictureInPicture = PiPPolicy.State.STOPPING)
+        recordEvent("stop-all")
         wiring.applyPictureInPictureStop(ended)
         Log.i(TAG, "pip background stop-all")
     }
 
     companion object {
         private const val TAG = "vela.pip"
+        private const val MAX_RECENT_EVENTS = 16
 
         fun continuedLane(actions: List<PhoneLifecycleAction>): PlaybackLaneRole? {
             for (action in actions) {
