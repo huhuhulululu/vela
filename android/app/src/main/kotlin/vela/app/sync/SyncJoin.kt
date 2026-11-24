@@ -1,5 +1,6 @@
 package vela.app.sync
 
+import kotlinx.coroutines.CancellationException
 import vela.core.sync.SyncClock
 import vela.core.sync.SyncCode
 import vela.core.sync.SyncCycleResult
@@ -16,6 +17,7 @@ import vela.core.sync.SyncMigration
 import vela.core.sync.SyncMigrationReport
 import vela.core.sync.SyncOpenResult
 import vela.core.sync.SyncPhase
+import vela.core.sync.SyncProjection
 import vela.core.sync.SyncPutRequest
 import vela.core.sync.SyncReplica
 import vela.core.sync.SyncServerResponse
@@ -255,7 +257,12 @@ private suspend fun SyncService.commitLocked(
         val next = t.remoteVer + 1
         val envelope = codec.seal(t.replica.doc.encoded(), next)
             ?: return SyncJoinCommit.Failed("系统随机源不可用，未加入")
-        val response = transport.put(SyncPutRequest(t.remoteVer, next, envelope, t.remoteEpoch))
+        val response = try {
+            transport.put(SyncPutRequest(t.remoteVer, next, envelope, t.remoteEpoch))
+        } catch (cancelled: CancellationException) {
+            if (original.isCancelled) return SyncJoinCommit.Cancelled
+            throw cancelled
+        }
         if (original.isCancelled) return SyncJoinCommit.Cancelled
         when (response) {
             is SyncServerResponse.Stored -> {
@@ -355,7 +362,8 @@ private fun SyncService.commitLocally(
         lastSeenHash = envelopeHash,
         migrated = true,
     )
-    if (!SyncLifecycle.barrier(state.doc, sink)) return undo(failed)
+    val barrierSink = verifiedBarrierSink(sink, SyncProjection(state.doc).settings)
+    if (!SyncLifecycle.barrier(state.doc, barrierSink)) return undo(failed)
     // 定局：写「已开启」之前与取消由同一把锁裁决。
     if (!original.finalize()) return undo(SyncJoinCommit.Cancelled)
     // 「已开启」最后写。
@@ -405,12 +413,16 @@ val SyncService.joinRepairPending: Boolean
 val SyncService.isCommittingJoin: Boolean
     get() = synchronized(commitLock) { committing }
 
-/** 本机收藏、屏蔽、口味与同步设置的写操作是否允许（提交中与待修复期间一律拒绝，不排队）。 */
+/**
+ * 本机收藏、屏蔽、口味与同步设置的写操作是否允许：
+ * 创建未激活完、加入提交中、加入待修复、清除中、清除失败待重试及其他待恢复状态一律拒绝（不排队），
+ * 防止写入在随后恢复屏障或旧文档投影时被覆盖丢失（观看账本不在同步与快照域内，照常记录）。
+ */
 val SyncService.localWriteAllowed: Boolean
-    get() = !isCommittingJoin && !joinRepairPending
+    get() = !isCreating && !isCommittingJoin && !isClearing && !joinRepairPending && !hasPendingRecovery
 
 private fun SyncService.beginCommit(): Boolean = synchronized(commitLock) {
-    if (committing) return false
+    if (committing || creating || clearing) return false
     committing = true
     true
 }

@@ -27,7 +27,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,7 +42,6 @@ import androidx.compose.ui.unit.sp
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
-import kotlinx.coroutines.launch
 import vela.app.ui.TextAction
 import vela.app.ui.theme.Theme
 import vela.core.sync.SyncScheduler
@@ -129,21 +127,16 @@ private fun SyncPanelBody(
     onRequestReveal: ((onGranted: () -> Unit) -> Unit)?,
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     var mode by remember { mutableStateOf(SyncPanelMode.HOME) }
     var codeInput by remember { mutableStateOf("") }
     var enableLines by remember { mutableStateOf<List<String>>(emptyList()) }
     var enableError by remember { mutableStateOf<String?>(null) }
     var confirmClear by remember { mutableStateOf(false) }
-    var revealed by remember { mutableStateOf<String?>(null) }
     var showPrivacy by remember { mutableStateOf(false) }
 
     DisposableEffect(hub) {
         hub.trigger(SyncScheduler.Trigger.PANEL)
-        onDispose {
-            revealed = null
-            hub.cancelJoin()
-        }
+        onDispose { }
     }
 
     val saved = ui.savedCode
@@ -160,7 +153,7 @@ private fun SyncPanelBody(
         return
     }
 
-    val revealedCode = revealed
+    val revealedCode = ui.revealedCode
     if (revealedCode != null) {
         SyncCodeCard(
             title = "查看同步码",
@@ -169,7 +162,7 @@ private fun SyncPanelBody(
             note = "不要截图分享，不要发给别人。",
             doneLabel = "关闭",
             onCopy = { SyncClipboard.copySensitive(context, revealedCode) },
-            onDone = { revealed = null },
+            onDone = { hub.dismissRevealedCode() },
         )
         return
     }
@@ -182,7 +175,7 @@ private fun SyncPanelBody(
             TextAction("重试", { hub.syncNow() }, Modifier.testTag("sync-retry"))
         }
         is SyncUiPhase.Attention -> {
-            if (mode == SyncPanelMode.JOINING) {
+            if (ui.joinStage != SyncUiJoinStage.Idle || mode == SyncPanelMode.JOINING) {
                 SyncJoinFlow(
                     hub = hub,
                     ui = ui,
@@ -197,13 +190,13 @@ private fun SyncPanelBody(
             } else {
                 SyncNote(phase.message, Theme.live)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextAction("关闭同步", { hub.disable() }, Modifier.testTag("sync-disable"), Theme.live)
-                    TextAction("输入同步码", { mode = SyncPanelMode.JOINING }, Modifier.testTag("sync-join-entry"))
+                    TextAction("关闭同步", { if (!ui.busy) hub.disable() }, Modifier.testTag("sync-disable"), Theme.live)
+                    TextAction("输入同步码", { if (!ui.busy) mode = SyncPanelMode.JOINING }, Modifier.testTag("sync-join-entry"))
                 }
             }
         }
         SyncUiPhase.Off -> {
-            if (ui.joinStage is SyncUiJoinStage.Preview || mode == SyncPanelMode.JOINING) {
+            if (ui.joinStage != SyncUiJoinStage.Idle || mode == SyncPanelMode.JOINING) {
                 SyncJoinFlow(
                     hub = hub,
                     ui = ui,
@@ -229,44 +222,48 @@ private fun SyncPanelBody(
                             text = if (ui.busy) "正在开启…" else "同意并开启",
                             onClick = {
                                 if (!ui.busy) {
-                                    scope.launch {
-                                        hub.enable()
-                                        mode = SyncPanelMode.HOME
-                                    }
+                                    hub.startEnable()
+                                    mode = SyncPanelMode.HOME
                                 }
                             },
                             modifier = Modifier.testTag("sync-enable-confirm"),
                         )
-                        TextAction("取消", { mode = SyncPanelMode.HOME }, color = Theme.textSecondary)
+                        if (!ui.busy) {
+                            TextAction("取消", { mode = SyncPanelMode.HOME }, color = Theme.textSecondary)
+                        }
                     }
                 }
             } else {
                 SyncNote("在多台设备之间同步收藏、屏蔽与「不想看」。内容在本机加密后才上传。")
                 SyncNote("其他设备已开启过就选「我已有同步码」。")
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (ui.canCreate) {
+                if (ui.busy) {
+                    SyncNote("正在开启…", Theme.champagne)
+                } else {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (ui.canCreate) {
+                            TextAction(
+                                text = "在这台设备上开启同步",
+                                onClick = {
+                                    hub.enablePreview()
+                                        .onSuccess { report ->
+                                            enableLines = SyncStatusText.reportLines(report)
+                                            enableError = null
+                                        }
+                                        .onFailure { err ->
+                                            enableLines = emptyList()
+                                            enableError = err.message ?: "无法开启同步"
+                                        }
+                                    mode = SyncPanelMode.ENABLING
+                                },
+                                modifier = Modifier.testTag("sync-create-entry"),
+                            )
+                        }
                         TextAction(
-                            text = "在这台设备上开启同步",
-                            onClick = {
-                                hub.enablePreview()
-                                    .onSuccess { report ->
-                                        enableLines = SyncStatusText.reportLines(report)
-                                        enableError = null
-                                    }
-                                    .onFailure { err ->
-                                        enableLines = emptyList()
-                                        enableError = err.message ?: "无法开启同步"
-                                    }
-                                mode = SyncPanelMode.ENABLING
-                            },
-                            modifier = Modifier.testTag("sync-create-entry"),
+                            text = "我已有同步码",
+                            onClick = { mode = SyncPanelMode.JOINING },
+                            modifier = Modifier.testTag("sync-join-entry"),
                         )
                     }
-                    TextAction(
-                        text = "我已有同步码",
-                        onClick = { mode = SyncPanelMode.JOINING },
-                        modifier = Modifier.testTag("sync-join-entry"),
-                    )
                 }
                 PrivacyBlock(showPrivacy) { showPrivacy = !showPrivacy }
             }
@@ -280,17 +277,17 @@ private fun SyncPanelBody(
             } ?: "尚未同步成功"
             SyncNote(lastText + if (ui.hasPending) "，有待同步的改动" else "")
             ui.failure?.let { SyncNote(it, Theme.live) }
-            if (confirmClear) {
+            if (ui.busy) {
+                SyncNote("正在处理…", Theme.champagne)
+            } else if (confirmClear) {
                 SyncNote("将删除云端数据，所有设备停止同步；各设备本地数据保留。", Theme.live)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextAction(
-                        text = if (ui.busy) "正在清除…" else "确定清除",
+                        text = "确定清除",
                         onClick = {
                             if (!ui.busy) {
-                                scope.launch {
-                                    hub.clearCloud()
-                                    confirmClear = false
-                                }
+                                hub.startClearCloud()
+                                confirmClear = false
                             }
                         },
                         modifier = Modifier.testTag("sync-clear-confirm"),
@@ -310,7 +307,7 @@ private fun SyncPanelBody(
                             } else if (onRequestReveal == null) {
                                 hub.showNotice("当前无法验证设备身份，无法查看同步码。")
                             } else {
-                                onRequestReveal { revealed = hub.revealCode() }
+                                onRequestReveal { hub.revealAfterAuth() }
                             }
                         },
                         modifier = Modifier.testTag("sync-reveal-code"),
@@ -333,7 +330,6 @@ private fun SyncJoinFlow(
     onCodeInputChange: (String) -> Unit,
     onLeave: () -> Unit,
 ) {
-    val scope = rememberCoroutineScope()
     SyncNote("加入已有的同步", Theme.textPrimary)
     when (val stage = ui.joinStage) {
         is SyncUiJoinStage.Preview -> {
@@ -346,10 +342,8 @@ private fun SyncJoinFlow(
                     text = if (ui.busy) "正在加入…" else "确认加入",
                     onClick = {
                         if (!ui.busy) {
-                            scope.launch {
-                                hub.confirmJoin()
-                                onCodeInputChange("")
-                            }
+                            onCodeInputChange("")
+                            hub.startConfirmJoin()
                         }
                     },
                     modifier = Modifier.testTag("sync-join-confirm"),
@@ -362,19 +356,19 @@ private fun SyncJoinFlow(
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (ui.canCreate) {
                     TextAction(
-                        text = "仍用此码创建",
+                        text = if (ui.busy) "正在创建…" else "仍用此码创建",
                         onClick = {
                             if (!ui.busy) {
-                                scope.launch {
-                                    hub.createFromJoin()
-                                    onCodeInputChange("")
-                                }
+                                onCodeInputChange("")
+                                hub.startCreateFromJoin()
                             }
                         },
                         modifier = Modifier.testTag("sync-join-create-anyway"),
                     )
                 }
-                TextAction("取消", onLeave, Modifier.testTag("sync-join-cancel"), Theme.textSecondary)
+                if (!ui.busy) {
+                    TextAction("取消", onLeave, Modifier.testTag("sync-join-cancel"), Theme.textSecondary)
+                }
             }
         }
         else -> {
@@ -408,7 +402,7 @@ private fun SyncJoinFlow(
                     onClick = {
                         if (!ui.busy && codeInput.isNotBlank()) {
                             val raw = codeInput
-                            scope.launch { hub.prepareJoin(raw) }
+                            hub.startPrepareJoin(raw)
                         }
                     },
                     modifier = Modifier.testTag("sync-join-next"),
