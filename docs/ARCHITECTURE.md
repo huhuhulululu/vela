@@ -489,14 +489,14 @@ xcodebuild -project Vela.xcodeproj -scheme Vela -destination 'platform=macOS' \
 | `android/core/src/main/kotlin/vela/core/selection` | 联合选房与一路停留结算 |
 | `android/core/src/main/kotlin/vela/core/audio` | `AudioFocusPlan`：焦点步骤，不碰 Android API |
 | `android/core/src/main/kotlin/vela/core/sync` | 跨设备同步协议核心（S4）：同步码、文档/HLC/合并/投影、P-256/HKDF/AES-GCM、状态机、生命周期与调度 |
-| `android/app/src/main/kotlin/vela/app/MainActivity.kt` | 入口；Compose `StageScreen`，双路各挂 `LaneFrame`；创建 `PiPCoordinator`，设备支持时挂 `ActivityPictureInPicture`。偏好放在应用私有目录里名为 Vela 的子目录 |
+| `android/app/src/main/kotlin/vela/app/MainActivity.kt` | 入口；Compose `StageScreen`，双路各挂 `LaneFrame`；创建 `PiPCoordinator`（设备支持时挂 `ActivityPictureInPicture`）与 `SyncHub`（配置服务端地址且平台支持时 `attach()`，提供零权限锁屏验证回调）。偏好放在应用私有目录里名为 Vela 的子目录 |
 | `android/app/src/main/kotlin/vela/app/infra` | 不存 cookie 的 HTTP、设置、原子写文件、缩略图缓存、空的 `Probe` |
 | `android/app/src/main/kotlin/vela/app/playback` | 进程内数据源 `LaneHub` / `LaneDataSource`、播放器默认值 `LaneEngine`、列表请求 `LaneHttp` |
 | `android/app/src/main/kotlin/vela/app/lane` | 一路播放 `PlaybackLane`、ExoPlayer 封装、`ThermalMonitor`、`SurfaceView` 画面 |
-| `android/app/src/main/kotlin/vela/app/stage` | `StageViewModel`（含 `setPipSolo`、`focusLocked`、`laneCountLocked`）；`Stage+Lanes.kt` 双路选房、焦点、热降档、横屏与画中画共用的可见性；目录、起播、收藏、口味；`LifecycleWiring` 主副路会话并接 `PiPCoordinator`；侧车 |
+| `android/app/src/main/kotlin/vela/app/stage` | `StageViewModel`（含 `setPipSolo`、`focusLocked`、`laneCountLocked`、`syncHub`）；`Stage+Lanes.kt` 双路选房、焦点、热降档、横屏与画中画共用的可见性；目录、起播、收藏、口味（写入入口接入同步提交锁与 `SyncHub.perform`）；`LifecycleWiring` 主副路会话并接 `PiPCoordinator` 与 `SyncHub` 前后台转发；侧车 |
 | `android/app/src/main/kotlin/vela/app/pip` | `ActivityPictureInPicture`（系统参数、比例、静音 RemoteAction、自动进入）、`PiPCoordinator`（状态机与 3 秒回退）、`PiPAspect`、`PiPFallback`、`PiPEvent`、`PictureInPictureControlling` |
-| `android/app/src/main/kotlin/vela/app/sync` | 跨设备同步 App 层接线（S6，见 `android/docs/sync.md`）：minSdk 26 门槛、P-256 探针分级、`AndroidKeyStore` 密钥包裹、`HttpURLConnection` 传输、启动检查屏障、加入快照事务、`SyncHub` 与 `SyncPanel` |
-| `android/app/src/main/kotlin/vela/app/ui` | `StageScreen`（单窗分页 + 竖屏双格切换）、`DualStageScreen`、顶栏、收藏夹、口味（底部可选挂 `SyncSettingsSection`）、质询、年龄确认 |
+| `android/app/src/main/kotlin/vela/app/sync` | 跨设备同步 App 层接线（S6，见 `android/docs/sync.md`）：minSdk 26 门槛、P-256 探针分级、`AndroidKeyStore` 密钥包裹、`HttpURLConnection` 传输（含总期限与取消断连）、启动检查屏障、加入快照事务、`SyncHub` 与 `SyncPanel`（查看同步码前强制身份验证） |
+| `android/app/src/main/kotlin/vela/app/ui` | `StageScreen`（单窗分页 + 竖屏双格切换，透传 `syncHub` 与身份验证回调）、`DualStageScreen`、顶栏、收藏夹、口味（底部挂 `SyncSettingsSection`）、质询、年龄确认 |
 | `android/app/src/main/kotlin/vela/app/audio` | 双路时只听焦点路；`AudioFocusRequest` 执行 `AudioFocusPlan` |
 | `android/app/src/hooks/kotlin/vela/app/hooks` | 仅 debug / perf：首帧记录、站点根地址覆盖、仪器测试用的空宿主 |
 

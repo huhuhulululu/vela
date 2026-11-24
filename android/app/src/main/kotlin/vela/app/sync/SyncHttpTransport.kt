@@ -3,10 +3,16 @@ package vela.app.sync
 import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import vela.core.sync.SyncDerived
 import vela.core.sync.SyncEncoding
@@ -22,11 +28,13 @@ import vela.core.sync.signMessage
  * 基于平台 `HttpURLConnection` 的同步传输（docs/plans/sync.md 第 4.3、9、10.1 节）：
  * 不引入新依赖、不跟随重定向、不带 Cookie、不使用缓存，`User-Agent` 固定为 `Vela-Sync/2`，
  * 响应体流式读取严格封顶于 [SyncHttp.maxResponseBytes]（802,048 字节）。
+ * 取消或超出总期限 [totalTimeoutMs] 时立即断开底层连接并中断阻塞 I/O。
  */
 class SyncHttpTransport(
     base: String,
     val keys: SyncDerived,
     private val timeoutMs: Int = REQUEST_TIMEOUT_MS,
+    private val totalTimeoutMs: Int = timeoutMs,
     private val extraHeaders: Map<String, String> = emptyMap(),
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : SyncTransport {
@@ -73,73 +81,134 @@ class SyncHttpTransport(
         method: String,
         body: ByteArray?,
         kind: SyncHttp.Kind,
-    ): SyncServerResponse = withContext(dispatcher) {
-        val conn = try {
-            URL(urlText).openConnection() as HttpURLConnection
-        } catch (_: Exception) {
-            return@withContext SyncServerResponse.Transient
+    ): SyncServerResponse = coroutineScope {
+        val deadlineMs = totalTimeoutMs.toLong().coerceAtLeast(1L)
+        val deadlineNanos = System.nanoTime() + deadlineMs * 1_000_000L
+        val connRef = AtomicReference<HttpURLConnection?>(null)
+        val threadRef = AtomicReference<Thread?>(null)
+        val terminated = AtomicBoolean(false)
+
+        fun abort() {
+            if (terminated.compareAndSet(false, true)) {
+                connRef.getAndSet(null)?.let { runCatching { it.disconnect() } }
+                threadRef.get()?.interrupt()
+            }
         }
-        val cancelHandle = currentCoroutineContext()[Job]?.invokeOnCompletion { cause ->
-            if (cause != null) runCatching { conn.disconnect() }
+
+        // 独立监控协程：协程取消或总期限到达时立刻断开连接并中断阻塞读写线程。
+        val watcher = launch(Dispatchers.Default) {
+            try {
+                delay(deadlineMs)
+                abort()
+            } catch (cancelled: CancellationException) {
+                abort()
+                throw cancelled
+            }
         }
+
         try {
-            conn.requestMethod = method
-            conn.instanceFollowRedirects = false
-            conn.useCaches = false
-            conn.connectTimeout = timeoutMs
-            conn.readTimeout = timeoutMs
-            conn.setRequestProperty("User-Agent", USER_AGENT)
-            conn.setRequestProperty("Accept", "application/json")
-            conn.setRequestProperty("Cache-Control", "no-store")
-            conn.setRequestProperty("Accept-Encoding", "identity")
-            for ((k, v) in extraHeaders) {
-                conn.setRequestProperty(k, v)
+            withContext(dispatcher) {
+                threadRef.set(Thread.currentThread())
+                try {
+                    if (terminated.get() || !currentCoroutineContext().isActive) {
+                        if (!currentCoroutineContext().isActive) throw CancellationException()
+                        return@withContext SyncServerResponse.Transient
+                    }
+                    val conn = URL(urlText).openConnection() as HttpURLConnection
+                    connRef.set(conn)
+                    if (terminated.get() || !currentCoroutineContext().isActive) {
+                        runCatching { conn.disconnect() }
+                        if (!currentCoroutineContext().isActive) throw CancellationException()
+                        return@withContext SyncServerResponse.Transient
+                    }
+                    val initialTimeout = remainingTimeoutMs(deadlineNanos)
+                        ?: return@withContext SyncServerResponse.Transient
+                    conn.requestMethod = method
+                    conn.instanceFollowRedirects = false
+                    conn.useCaches = false
+                    conn.connectTimeout = initialTimeout
+                    conn.readTimeout = initialTimeout
+                    conn.setRequestProperty("User-Agent", USER_AGENT)
+                    conn.setRequestProperty("Accept", "application/json")
+                    conn.setRequestProperty("Cache-Control", "no-store")
+                    conn.setRequestProperty("Accept-Encoding", "identity")
+                    conn.setRequestProperty("Connection", "close")
+                    for ((k, v) in extraHeaders) {
+                        conn.setRequestProperty(k, v)
+                    }
+                    if (body != null) {
+                        conn.doOutput = true
+                        conn.setRequestProperty("Content-Type", "application/json")
+                        conn.setFixedLengthStreamingMode(body.size)
+                        conn.outputStream.use { it.write(body) }
+                    }
+                    val status = conn.responseCode
+                    if (terminated.get()) return@withContext SyncServerResponse.Transient
+                    // 3xx 一律拒绝跟随并归为暂时故障。
+                    if (status in 300..399) return@withContext SyncServerResponse.Transient
+                    val declaredLength = conn.contentLengthLong
+                    if (declaredLength > SyncHttp.maxResponseBytes.toLong()) {
+                        return@withContext SyncServerResponse.Transient
+                    }
+                    val responseBytes = readBounded(conn, status, deadlineNanos, terminated)
+                        ?: return@withContext SyncServerResponse.Transient
+                    val headers = HashMap<String, String>()
+                    conn.getHeaderField("Content-Length")?.let { headers["Content-Length"] = it }
+                    conn.getHeaderField("Retry-After")?.let { headers["Retry-After"] = it }
+                    SyncHttp.interpret(status, headers, responseBytes, kind)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    if (!currentCoroutineContext().isActive) throw CancellationException()
+                    SyncServerResponse.Transient
+                } finally {
+                    terminated.set(true)
+                    threadRef.set(null)
+                    connRef.getAndSet(null)?.let { runCatching { it.disconnect() } }
+                    // 清掉当前工作线程可能残留的中断标记，避免影响线程池复用。
+                    Thread.interrupted()
+                }
             }
-            if (body != null) {
-                conn.doOutput = true
-                conn.setRequestProperty("Content-Type", "application/json")
-                conn.setFixedLengthStreamingMode(body.size)
-                conn.outputStream.use { it.write(body) }
-            }
-            val status = conn.responseCode
-            // 3xx 一律拒绝跟随并归为暂时故障。
-            if (status in 300..399) return@withContext SyncServerResponse.Transient
-            val declaredLength = conn.contentLengthLong
-            if (declaredLength > SyncHttp.maxResponseBytes.toLong()) {
-                return@withContext SyncServerResponse.Transient
-            }
-            val responseBytes = readBounded(conn, status) ?: return@withContext SyncServerResponse.Transient
-            val headers = HashMap<String, String>()
-            conn.getHeaderField("Content-Length")?.let { headers["Content-Length"] = it }
-            conn.getHeaderField("Retry-After")?.let { headers["Retry-After"] = it }
-            SyncHttp.interpret(status, headers, responseBytes, kind)
-        } catch (_: Exception) {
-            SyncServerResponse.Transient
         } finally {
-            cancelHandle?.dispose()
-            runCatching { conn.disconnect() }
+            terminated.set(true)
+            watcher.cancel()
         }
     }
 
-    private fun readBounded(conn: HttpURLConnection, status: Int): ByteArray? {
+    private fun remainingTimeoutMs(deadlineNanos: Long): Int? {
+        val remNanos = deadlineNanos - System.nanoTime()
+        if (remNanos <= 0L) return null
+        val remMs = (remNanos + 999_999L) / 1_000_000L
+        return minOf(remMs, timeoutMs.toLong()).coerceAtLeast(1L).toInt()
+    }
+
+    private fun readBounded(
+        conn: HttpURLConnection,
+        status: Int,
+        deadlineNanos: Long,
+        terminated: AtomicBoolean,
+    ): ByteArray? {
         val stream = try {
             if (status < 400) conn.inputStream else conn.errorStream
         } catch (_: Exception) {
             conn.errorStream
         } ?: return ByteArray(0)
-        return stream.use { input ->
-            val out = ByteArrayOutputStream()
-            val buf = ByteArray(8192)
-            var total = 0
-            while (true) {
-                val n = input.read(buf)
-                if (n < 0) break
-                total += n
-                if (total > SyncHttp.maxResponseBytes) return null
-                out.write(buf, 0, n)
+        val out = ByteArrayOutputStream()
+        val buf = ByteArray(8192)
+        var total = 0
+        while (true) {
+            if (terminated.get() || System.nanoTime() >= deadlineNanos) return null
+            val n = stream.read(buf)
+            if (n < 0) break
+            total += n
+            if (total > SyncHttp.maxResponseBytes || terminated.get() || System.nanoTime() >= deadlineNanos) {
+                return null
             }
-            out.toByteArray()
+            out.write(buf, 0, n)
         }
+        // 不在此处提前 stream.close()：由外层 finally 先 disconnect() 拆掉底层连接，
+        // 避免提前把带 Connection: close 的连接归还 KeepAliveCache 或在超限时排空剩余响应体。
+        return out.toByteArray()
     }
 
     companion object {

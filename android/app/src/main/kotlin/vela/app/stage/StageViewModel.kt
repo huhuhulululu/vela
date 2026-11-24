@@ -24,7 +24,13 @@ import vela.app.R
 import vela.app.infra.Settings
 import vela.app.lane.PlaybackLane
 import vela.app.lane.ThermalMonitor
+import vela.app.sync.SyncHub
+import vela.app.sync.rejectWhileSyncJoining
+import vela.app.sync.syncSetting
+import vela.app.sync.syncedCuration
 import vela.core.base.io.DeferredSaver
+import vela.core.sync.SyncLocalOp
+import vela.core.sync.SyncScheduler
 import vela.core.base.lane.LaneCursor
 import vela.core.base.lane.LaneEndReason
 import vela.core.base.lane.LaneID
@@ -211,6 +217,7 @@ class StageViewModel(
     internal var onEnterPictureInPicture: (() -> Unit)? = null
     internal var onTogglePictureInPicture: (() -> Unit)? = null
     internal var onSetAutoEnterPip: ((Boolean) -> Unit)? = null
+    internal var syncHub: SyncHub? = null
     internal var thermal: PhoneThermalState = PhoneThermalState.NOMINAL
     internal val laneQuality: LaneQuality = LaneQuality()
     internal var screenScale: Double = 1.0
@@ -410,8 +417,10 @@ class StageViewModel(
             StageIntent.ToggleMute -> toggleMute()
             is StageIntent.SetVolume -> setVolume(intent.value)
             StageIntent.ToggleInfo -> {
+                if (rejectWhileSyncJoining()) return
                 infoAlwaysOn = !infoAlwaysOn
                 settings.infoAlwaysOn = infoAlwaysOn
+                syncSetting(Settings.KEY_INFO_ALWAYS, infoAlwaysOn)
                 publish()
             }
             is StageIntent.Step -> when {
@@ -436,9 +445,18 @@ class StageViewModel(
                 }
                 retryPlayback(intent.target)
             }
-            is StageIntent.RemoveFavorite -> commitCuration(curation.unfavoriting(intent.name), null)
-            is StageIntent.RestoreFavorite -> commitCuration(curation.restoringFavorite(intent.name), null)
-            is StageIntent.Unblock -> commitCuration(curation.unblocking(intent.name), null)
+            is StageIntent.RemoveFavorite -> {
+                val next = syncedCuration(SyncLocalOp.Unfavorite(intent.name)) { curation.unfavoriting(intent.name) } ?: return
+                commitCuration(next, null)
+            }
+            is StageIntent.RestoreFavorite -> {
+                val next = syncedCuration(SyncLocalOp.RestoreFavorite(intent.name)) { curation.restoringFavorite(intent.name) } ?: return
+                commitCuration(next, null)
+            }
+            is StageIntent.Unblock -> {
+                val next = syncedCuration(SyncLocalOp.Unblock(intent.name)) { curation.unblocking(intent.name) } ?: return
+                commitCuration(next, null)
+            }
             is StageIntent.AddFavorite -> addFavorite(intent.name)
             is StageIntent.PlayFavorite -> playFavorite(intent.name)
             StageIntent.RefreshFavorites -> track { refreshFavorites() }
@@ -999,6 +1017,9 @@ class StageViewModel(
         chromeVisible = true
         publish()
         if (next == StageSurface.Taste || next == StageSurface.Filters) track { loadHotTagsIfStale() }
+        if (next == StageSurface.Curation || next == StageSurface.Taste) {
+            syncHub?.trigger(SyncScheduler.Trigger.PANEL)
+        }
         if (next == StageSurface.Curation) {
             track { refreshFavoritesIfStale() }
             track { refreshLastBroadcastsIfStale() }

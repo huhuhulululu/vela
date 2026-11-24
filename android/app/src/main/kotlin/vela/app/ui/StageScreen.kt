@@ -53,6 +53,7 @@ import vela.app.stage.StageContract
 import vela.app.stage.StageIntent
 import vela.app.stage.StageSurface
 import vela.app.stage.StageUiState
+import vela.app.sync.SyncHub
 import vela.app.ui.agegate.AgeGateScreen
 import vela.app.ui.theme.ChampagneButton
 import vela.app.ui.theme.Theme
@@ -73,6 +74,8 @@ fun StageScreen(
     modifier: Modifier = Modifier,
     challengeUrl: String? = null,
     onImportFavorites: (() -> Unit)? = null,
+    syncHub: SyncHub? = null,
+    onRequestSyncReveal: ((onGranted: () -> Unit) -> Unit)? = null,
     player: @Composable (LaneID, Room) -> Unit = { _, _ -> },
 ) {
     val state by stage.state.collectAsState()
@@ -98,7 +101,7 @@ fun StageScreen(
                 onQuit = { dispatch(StageIntent.Quit) },
             )
         } else {
-            StageBody(state, dispatch, challengeUrl, onImportFavorites, player)
+            StageBody(state, dispatch, challengeUrl, onImportFavorites, syncHub, onRequestSyncReveal, player)
         }
     }
 }
@@ -109,6 +112,8 @@ private fun StageBody(
     dispatch: (StageIntent) -> Unit,
     challengeUrl: String?,
     onImportFavorites: (() -> Unit)?,
+    syncHub: SyncHub?,
+    onRequestSyncReveal: ((onGranted: () -> Unit) -> Unit)?,
     player: @Composable (LaneID, Room) -> Unit,
 ) {
     var volumeOpen by remember { mutableStateOf(false) }
@@ -184,7 +189,13 @@ private fun StageBody(
                 onDismiss = { dispatch(StageIntent.DismissSurfaces) },
                 onImport = onImportFavorites,
             )
-            StageSurface.Taste -> TasteSheet(state, dispatch, onDismiss = { dispatch(StageIntent.DismissSurfaces) })
+            StageSurface.Taste -> TasteSheet(
+                state = state,
+                dispatch = dispatch,
+                onDismiss = { dispatch(StageIntent.DismissSurfaces) },
+                syncHub = syncHub,
+                onRequestSyncReveal = onRequestSyncReveal,
+            )
             StageSurface.Challenge -> ChallengeSheet(
                 onDone = { dispatch(StageIntent.RetryAfterChallenge) },
                 onClose = { dispatch(StageIntent.DismissChallenge) },

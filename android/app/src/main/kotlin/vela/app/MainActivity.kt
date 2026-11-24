@@ -1,6 +1,9 @@
 package vela.app
 
+import android.app.KeyguardManager
+import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
@@ -41,6 +44,7 @@ import vela.app.stage.LifecycleWiring
 import vela.app.stage.StageIntent
 import vela.app.stage.StageViewModel
 import vela.app.stage.challengeEntryUrl
+import vela.app.sync.SyncHub
 import vela.app.ui.StageScreen
 import vela.core.base.lane.LaneID
 import vela.core.base.model.Prefs
@@ -67,6 +71,9 @@ class MainActivity : ComponentActivity() {
     var pictureInPicture: ActivityPictureInPicture? = null
         private set
 
+    var syncHub: SyncHub? = null
+        private set
+
     private var composeView: ComposeView? = null
     private var composed: Boolean = false
     private val thumbnails: ThumbnailCache by lazy { ThumbnailCache(HttpClientImpl()) }
@@ -75,6 +82,7 @@ class MainActivity : ComponentActivity() {
     private var pendingExportId: Long = 0L
     private var pendingExportUri: String? = null
     private var pendingUriId: Long = 0L
+    private var pendingSyncReveal: (() -> Unit)? = null
 
     private val createFavorites = registerForActivityResult(
         ActivityResultContracts.CreateDocument("application/json"),
@@ -84,6 +92,46 @@ class MainActivity : ComponentActivity() {
 
     private val openFavorites = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) importFavoritesFrom(uri)
+    }
+
+    private val confirmSyncReveal = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        onSyncRevealResult(result.resultCode)
+    }
+
+    internal fun onSyncRevealResult(resultCode: Int) {
+        val grant = pendingSyncReveal
+        pendingSyncReveal = null
+        if (resultCode == RESULT_OK) grant?.invoke()
+    }
+
+    @Suppress("DEPRECATION")
+    internal fun requestSyncCodeReveal(
+        intentFactory: (() -> Intent?)? = null,
+        onGranted: () -> Unit,
+    ) {
+        val km = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
+        if (km?.isDeviceSecure != true) {
+            syncHub?.showNotice("这台设备没有设置锁屏密码，无法查看同步码。")
+            return
+        }
+        val intent = if (intentFactory != null) {
+            intentFactory()
+        } else {
+            km.createConfirmDeviceCredentialIntent("查看同步码", "验证锁屏密码以查看完整同步码")
+        }
+        if (intent == null) {
+            syncHub?.showNotice("当前无法验证设备身份，无法查看同步码。")
+            return
+        }
+        pendingSyncReveal = onGranted
+        try {
+            confirmSyncReveal.launch(intent)
+        } catch (_: ActivityNotFoundException) {
+            pendingSyncReveal = null
+            syncHub?.showNotice("当前无法验证设备身份，无法查看同步码。")
+        }
     }
 
     internal fun launchFavoriteImport() {
@@ -166,6 +214,18 @@ class MainActivity : ComponentActivity() {
         this.stage = stage
         this.session = session
         this.wiring = wiring
+        val syncHub = SyncHub.createIfSupported(
+            context = applicationContext,
+            stage = stage,
+            syncDir = directory,
+            scope = lifecycleScope,
+        )
+        this.syncHub = syncHub
+        stage.syncHub = syncHub
+        if (syncHub != null) {
+            wiring.attachSync(syncHub)
+            syncHub.attach()
+        }
         val coordinator = PiPCoordinator(
             stage = stage,
             wiring = wiring,
@@ -254,6 +314,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        pendingSyncReveal = null
         pictureInPicture?.detach()
         pictureInPicture = null
         if (this::wiring.isInitialized) {
@@ -272,6 +333,7 @@ class MainActivity : ComponentActivity() {
         }
         val stage = this.stage
         val session = this.session
+        val hub = this.syncHub
         view.setContent {
             val state by stage.state.collectAsState()
             val primary by session.lane.collectAsState()
@@ -282,6 +344,8 @@ class MainActivity : ComponentActivity() {
                 stage = stage,
                 challengeUrl = challengeEntryUrl(),
                 onImportFavorites = { launchFavoriteImport() },
+                syncHub = hub,
+                onRequestSyncReveal = { onGranted -> requestSyncCodeReveal(onGranted = onGranted) },
             ) { laneId, _ ->
                 val current = when (laneId) {
                     LaneID.PRIMARY -> primary

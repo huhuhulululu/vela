@@ -1,6 +1,10 @@
 package vela.app.stage
 
 import android.util.Log
+import vela.app.sync.rejectWhileSyncJoining
+import vela.app.sync.syncedClearVetoes
+import vela.app.sync.syncedUnveto
+import vela.app.sync.syncedVeto
 import vela.core.base.lane.RoomTarget
 import vela.core.base.model.FeedSource
 import vela.core.recommend.Recommender
@@ -81,24 +85,29 @@ internal fun StageViewModel.commitTasteAndRearrange(next: Taste) {
 
 internal fun StageViewModel.boostTaste(key: String) {
     if (key.isEmpty()) return
+    if (!syncedUnveto(key)) return
     commitTasteAndRearrange(taste.boosting(key, now()))
 }
 
 internal fun StageViewModel.vetoTaste(key: String) {
     if (key.isEmpty()) return
+    if (!syncedVeto(key)) return
     commitTasteAndRearrange(taste.vetoing(key, now()))
 }
 
 internal fun StageViewModel.restoreTaste(key: String) {
     if (key.isEmpty()) return
+    if (!syncedUnveto(key)) return
     commitTasteAndRearrange(taste.restoring(key, now()))
 }
 
 internal fun StageViewModel.removeTaste(key: String) {
+    if (!syncedUnveto(key)) return
     commitTasteAndRearrange(taste.removing(key))
 }
 
 internal fun StageViewModel.setLearningPaused(paused: Boolean) {
+    if (rejectWhileSyncJoining()) return
     commitTaste(taste.settingPaused(paused))
     if (paused) {
         favoriteSuggest = null
@@ -111,11 +120,13 @@ internal fun StageViewModel.setLearningPaused(paused: Boolean) {
 }
 
 internal fun StageViewModel.resetTasteProfile() {
+    if (!syncedClearVetoes()) return
     commitTaste(taste.resettingProfile())
     showToast(text.tasteReset())
 }
 
 internal fun StageViewModel.clearAllPreferences() {
+    if (!syncedClearVetoes()) return
     dwell.discard()
     commitTaste(taste.erased())
     tasteSaver.flush()
@@ -129,6 +140,7 @@ internal fun StageViewModel.clearAllPreferences() {
 }
 
 internal fun StageViewModel.markNotInterested(target: RoomTarget?) {
+    if (rejectWhileSyncJoining()) return
     if (!accepts(target)) return
     val room = feed.current ?: return
     commitTaste(taste.rejecting(room, dwellSource, now()))

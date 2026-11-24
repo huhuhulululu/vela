@@ -362,7 +362,8 @@ private fun SyncService.commitLocally(
     if (!env.stateStore.save(state)) return undo(failed)
     retireSnapshot()
     activate(state, t.keys)
-    onDocumentChanged?.invoke(state.doc)
+    recordPendingDoc(state.doc)
+    drainDocNotification()
     return SyncJoinCommit.Joined
 }
 

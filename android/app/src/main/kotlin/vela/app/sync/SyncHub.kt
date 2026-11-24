@@ -102,6 +102,7 @@ class SyncHub(
     private var startJob: Job? = null
     private var editJob: Job? = null
     private var cycleJob: Job? = null
+    private var joinJob: Job? = null
     private var rerun = false
     private var joinGeneration = 0
 
@@ -132,7 +133,10 @@ class SyncHub(
                 return
             }
         }
-        prefs.experimentSync = on
+        if (!prefs.setExperimentSync(on)) {
+            showNotice("本机保存失败，请重试。")
+            return
+        }
         mutable.update { it.copy(experimentEnabled = on, notice = null) }
         if (on) wire() else unwire()
     }
@@ -359,6 +363,8 @@ class SyncHub(
 
     suspend fun prepareJoin(text: String) {
         if (!canJoin || uiState.value.busy) return
+        val myJob = kotlinx.coroutines.currentCoroutineContext()[Job]
+        joinJob = myJob
         mutable.update { it.copy(busy = true) }
         try {
             if (uiState.value.phase != SyncUiPhase.Off) {
@@ -391,6 +397,7 @@ class SyncHub(
             }
             mutable.update { it.copy(joinStage = nextStage) }
         } finally {
+            if (joinJob === myJob) joinJob = null
             mutable.update { it.copy(busy = false) }
         }
     }
@@ -400,6 +407,8 @@ class SyncHub(
         if (uiState.value.busy) return
         val ticket = stage.ticket
         val generation = joinGeneration
+        val myJob = kotlinx.coroutines.currentCoroutineContext()[Job]
+        joinJob = myJob
         mutable.update { it.copy(busy = true, committing = true) }
         try {
             val result = service.commitJoin(
@@ -448,6 +457,7 @@ class SyncHub(
                 }
             }
         } finally {
+            if (joinJob === myJob) joinJob = null
             service.releaseJoinCommit()
             mutable.update { it.copy(busy = false, committing = false) }
         }
@@ -477,8 +487,11 @@ class SyncHub(
 
     fun cancelJoin() {
         val current = uiState.value.joinStage
-        if (current is SyncUiJoinStage.Preview) current.ticket.cancel()
+        val cancelledTicket = if (current is SyncUiJoinStage.Preview) current.ticket.cancel() else true
+        if (!cancelledTicket) return
         joinGeneration += 1
+        joinJob?.cancel()
+        joinJob = null
         mutable.update { it.copy(joinStage = SyncUiJoinStage.Idle) }
     }
 
@@ -550,9 +563,10 @@ class SyncHub(
             configuredOriginOverride: String? = null,
             probe: () -> SyncProbeReport = { SyncProbe.run(sdkInt) },
         ): SyncHub? = SyncPlatformGate.loadIfSupported(sdkInt) {
+            val origin = SyncConfig.configuredOrigin(configuredOriginOverride, context) ?: return@loadIfSupported null
             installAndroidUnicodeIfAvailable()
-            val origin = SyncConfig.configuredOrigin(configuredOriginOverride, context)
-            val capability = if (origin != null) probe().capability else SyncCapability.DISABLED
+            val capability = probe().capability
+            if (!SyncEntryPolicy.showEntry(sdkInt, capability, origin)) return@loadIfSupported null
             val prefs = SyncPrefs(stage.settings.preferences)
             val bridge = StageSyncBridge(stage, prefs)
             val service = SyncService(

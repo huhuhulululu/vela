@@ -4,6 +4,9 @@ import android.util.Log
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.isActive
+import vela.app.infra.Settings
+import vela.app.sync.rejectWhileSyncJoining
+import vela.app.sync.syncSetting
 import vela.core.base.model.FeedSource
 import vela.core.base.model.Gender
 import vela.core.base.model.Region
@@ -134,9 +137,11 @@ internal fun StageViewModel.chooseRegion(value: Region?) {
 }
 
 internal fun StageViewModel.setPublicOnly(value: Boolean) {
+    if (rejectWhileSyncJoining()) return
     if (publicOnly == value) return
     publicOnly = value
     settings.publicOnly = value
+    syncSetting(Settings.KEY_PUBLIC_ONLY, value)
     applySearch()
 }
 

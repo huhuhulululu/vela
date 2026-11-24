@@ -55,6 +55,7 @@ fun TasteSheet(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
     syncHub: SyncHub? = null,
+    onRequestSyncReveal: ((onGranted: () -> Unit) -> Unit)? = null,
 ) {
     var likedExpanded by remember { mutableStateOf(false) }
     var dislikedExpanded by remember { mutableStateOf(false) }
@@ -129,7 +130,7 @@ fun TasteSheet(
                 )
                 GenderSection(taste.genders, dispatch)
                 if (syncHub != null) {
-                    SyncSettingsSection(syncHub)
+                    SyncSettingsSection(syncHub, onRequestReveal = onRequestSyncReveal)
                 }
             }
             Footer(taste.paused, confirm, dispatch) { confirm = it }

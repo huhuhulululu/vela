@@ -8,6 +8,7 @@ import vela.app.infra.Settings
  * 同步相关的本机偏好读写（复用 `com.vela.stage`，不改动 `Settings.kt`）：
  * - 实验开关 `experimentSync` 默认关闭（验收 1）。
  * - 显式值读取/移除接口，用于区分「未设置」与「显式设过」（第 14.1 节、M9）。
+ * - 所有写入均传播 `SharedPreferences.Editor.commit()` 的持久化结果。
  */
 class SyncPrefs(
     val preferences: SharedPreferences,
@@ -19,18 +20,21 @@ class SyncPrefs(
     var experimentSync: Boolean
         get() = preferences.getBoolean(KEY_EXPERIMENT_SYNC, false)
         set(value) {
-            preferences.edit().putBoolean(KEY_EXPERIMENT_SYNC, value).commit()
+            setExperimentSync(value)
         }
+
+    fun setExperimentSync(value: Boolean): Boolean =
+        preferences.edit().putBoolean(KEY_EXPERIMENT_SYNC, value).commit()
 
     fun hasExplicitValue(key: String): Boolean = preferences.contains(key)
 
     fun explicitBool(key: String): Boolean? =
         if (preferences.contains(key)) preferences.getBoolean(key, false) else null
 
-    fun setExplicit(key: String, value: Boolean?) {
+    fun setExplicit(key: String, value: Boolean?): Boolean {
         val editor = preferences.edit()
         if (value == null) editor.remove(key) else editor.putBoolean(key, value)
-        editor.commit()
+        return editor.commit()
     }
 
     fun readSyncSettings(): Map<String, Boolean> {
@@ -41,12 +45,12 @@ class SyncPrefs(
         return out
     }
 
-    fun writeSyncSettings(values: Map<String, Boolean?>) {
+    fun writeSyncSettings(values: Map<String, Boolean?>): Boolean {
         val editor = preferences.edit()
         for ((k, v) in values) {
             if (v == null) editor.remove(k) else editor.putBoolean(k, v)
         }
-        editor.commit()
+        return editor.commit()
     }
 
     companion object {
