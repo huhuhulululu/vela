@@ -304,6 +304,37 @@ class PictureInPictureVideoSizeTest {
     }
 
     @Test
+    fun testDismissingPipWhenModeChangedArrivesBeforeOnStopStopsImmediately() {
+        val (controller, stage, wiring, pip, directory) = buildPipActivityHarness("vela-pip-dismiss-order")
+        try {
+            wiring.moveTo(vela.core.lifecycle.PhoneScenePhase.ACTIVE)
+            stage.notePlaying("alice")
+            ShadowLooper.idleMainLooper()
+
+            // 自动进入画中画（无 onStop）。
+            controller.pause()
+            wiring.moveTo(vela.core.lifecycle.PhoneScenePhase.INACTIVE)
+            pip.onPictureInPictureModeChanged(true)
+            ShadowLooper.idleMainLooper()
+            assertEquals(vela.core.lifecycle.PhoneScenePhase.BACKGROUND, wiring.phase)
+
+            // 部分设备关闭小窗时先回调 onPictureInPictureModeChanged(false)（此时仍 STARTED），紧接着回调 onStop。
+            pip.onPictureInPictureModeChanged(false)
+            ShadowLooper.idleMainLooper()
+            controller.stop()
+            wiring.moveTo(vela.core.lifecycle.PhoneScenePhase.BACKGROUND)
+            ShadowLooper.idleMainLooper()
+
+            assertTrue("收到紧随其后的 onStop 后应立即全停，不等 3 秒超时", !stage.playbackGateOpen)
+            assertEquals("关闭画中画后不得继续放行焦点路", null, stage.lifecycleEpoch.allowedLane)
+        } finally {
+            pip.detach()
+            controller.destroy()
+            directory.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
     fun testPausedStateChangesDoNotRefreshParamsUntilResumed() {
         val (controller, stage, _, pip, directory) = buildPipActivityHarness("vela-pip-pause-suppress")
         try {

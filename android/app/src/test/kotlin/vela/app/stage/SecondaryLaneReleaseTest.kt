@@ -125,4 +125,91 @@ class SecondaryLaneReleaseTest {
       directory.toFile().deleteRecursively()
     }
   }
+
+  @Test
+  fun testSuspendLanesAndReleaseSecondaryClearStageReferences() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    context.getSharedPreferences(Settings.PREFS_NAME, Context.MODE_PRIVATE).edit().clear().commit()
+    val settings = Settings(context)
+    settings.ageConfirmed = true
+    settings.muted = true
+    val directory = Files.createTempDirectory("vela-secondary-clear")
+    val activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().get()
+    val stage = StageViewModel(
+      settings = settings,
+      http = scriptHttp { catalogBody(listOf("ada", "bob")) },
+      directory = directory,
+      context = activity,
+    )
+    val session = AppPlaybackSession(
+      activity = activity,
+      stage = stage,
+      disposeComposition = {},
+      restoreComposition = {},
+    )
+    try {
+      stage.setDual(true)
+      session.ensureLane()
+      session.ensureSecondary()
+      assertNotNull(stage.primaryLane)
+      assertNotNull(stage.secondaryLane)
+      assertNotNull(stage.secondarySink)
+
+      // 画中画路径释放副路时，必须一并清空 stage.secondaryLane / stage.secondarySink，避免回前台挂到已 release 的播放器。
+      session.releaseSecondaryLane()
+      assertNull(session.secondaryLaneForTest)
+      assertNull("releaseSecondaryLane 应清空 stage.secondaryLane", stage.secondaryLane)
+      assertNull("releaseSecondaryLane 应清空 stage.secondarySink", stage.secondarySink)
+
+      // 重新建立双路后走全停 suspendLanes，两路舞台引用均应清空。
+      session.ensureSecondary()
+      assertNotNull(stage.secondaryLane)
+      session.suspendLanes()
+      assertNull("suspendLanes 应清空 stage.primaryLane", stage.primaryLane)
+      assertNull("suspendLanes 应清空 stage.secondaryLane", stage.secondaryLane)
+      assertNull("suspendLanes 应清空 stage.secondarySink", stage.secondarySink)
+    } finally {
+      session.releaseLeftovers()
+      stage.close()
+      directory.toFile().deleteRecursively()
+    }
+  }
+
+  @Test
+  fun testCreatingPrimaryLaneDoesNotClearSecondaryObserver() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    context.getSharedPreferences(Settings.PREFS_NAME, Context.MODE_PRIVATE).edit().clear().commit()
+    val settings = Settings(context)
+    settings.ageConfirmed = true
+    settings.muted = true
+    val directory = Files.createTempDirectory("vela-secondary-observer")
+    val activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().get()
+    val stage = StageViewModel(
+      settings = settings,
+      http = scriptHttp { catalogBody(listOf("ada", "bob")) },
+      directory = directory,
+      context = activity,
+    )
+    val session = AppPlaybackSession(
+      activity = activity,
+      stage = stage,
+      disposeComposition = {},
+      restoreComposition = {},
+    )
+    try {
+      stage.setDual(true)
+      // 先建副路，再建主路（冷启动恢复或副路焦点画中画回前台时序）。
+      session.ensureSecondary()
+      val secondary = session.secondaryLaneForTest
+      assertNotNull(secondary)
+      assertNotNull("副路创建后应装上观察器", secondary!!.onPlaybackFace)
+
+      session.ensureLane()
+      assertNotNull("创建主路不得清掉仍存活的副路 onPlaybackFace", secondary.onPlaybackFace)
+    } finally {
+      session.releaseLeftovers()
+      stage.close()
+      directory.toFile().deleteRecursively()
+    }
+  }
 }

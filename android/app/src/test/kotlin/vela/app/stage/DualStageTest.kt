@@ -3,6 +3,7 @@ package vela.app.stage
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import java.nio.file.Files
+import kotlinx.coroutines.launch
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -599,6 +600,121 @@ class DualStageTest {
             assertTrue("副路隐藏后不得再起播: $played", played.isEmpty())
         } finally {
             gate.complete(Unit)
+            stage.close()
+        }
+    }
+
+    @Test
+    fun testHidingPrimaryCancelsPrefetchAwayAndSkipAndDisallowsLane() = harness.onStage {
+        val http = streamHttp()
+        val stage = stage(http)
+        try {
+            stage.ageConfirmed = true
+            install(stage, "alice", "bob", "claire")
+            stage.setDual(true)
+            stage.setFocus(LaneID.SECONDARY)
+
+            // 模拟主路上挂着预取、离开重试与失败自动跳过任务。
+            stage.awayDelayOverrideMillis = 60_000L
+            stage.skipDelayMillis = 60_000L
+            val token = stage.laneFace.generation
+            stage.scheduleAwayRetry("alice", token, afterSeconds = 60.0)
+            stage.scheduleSkip(token)
+            val fakePrefetch = stage.scope.launch { kotlinx.coroutines.delay(60_000L) }
+            stage.prefetchJob = fakePrefetch
+            val awayBefore = stage.awayJob
+            val skipBefore = stage.skipJob
+            assertTrue(awayBefore != null && awayBefore.isActive)
+            assertTrue(skipBefore != null && skipBefore.isActive)
+            assertTrue(fakePrefetch.isActive)
+
+            // 进入画中画仅焦点路（焦点在副路）：隐藏主路必须取消主路的预取、离开重试与跳过任务。
+            stage.setPipSolo(true)
+            assertFalse("主路应被隐藏", stage.laneFace.visible)
+            assertTrue("隐藏主路必须取消 prefetchJob", fakePrefetch.isCancelled)
+            assertTrue("隐藏主路必须取消 awayJob", awayBefore!!.isCancelled)
+            assertTrue("隐藏主路必须取消 skipJob", skipBefore!!.isCancelled)
+
+            // 画中画期间即使主路触发 startPlayback 也不得启动 prefetchJob。
+            stage.setPipSolo(false)
+            stage.setFocus(LaneID.PRIMARY)
+            stage.pictureInPicture = true
+            stage.prefetchEnabled = true
+            var played = 0
+            stage.bindPlayback(recordingVolumeSink("primary", ArrayList(), onPlay = { played += 1 }))
+            stage.requestPlay()
+            stage.awaitUntil { played > 0 }
+            assertNull("画中画期间主路起播不得启动预取任务", stage.prefetchJob)
+        } finally {
+            stage.close()
+        }
+    }
+
+    @Test
+    fun testSecondaryResolutionExceptionStopsPreviousPlayback() = harness.onStage {
+        val http = object : vela.core.base.net.HTTPClient {
+            override suspend fun send(request: vela.core.base.net.HTTPRequest): vela.core.base.net.HTTPResult {
+                if (request.url.contains("claire")) {
+                    throw java.io.IOException("network-boom")
+                }
+                val url = request.url
+                return when {
+                    url.contains("chatvideocontext") -> vela.core.base.net.HTTPResult(
+                        status = 200,
+                        data = """{"room_status":"public","hls_source":"https://cdn.example/live/master.m3u8"}""".toByteArray(),
+                    )
+                    url.contains("master.m3u8") -> vela.core.base.net.HTTPResult(
+                        status = 200,
+                        data = (
+                            "#EXTM3U\n" +
+                                "#EXT-X-STREAM-INF:BANDWIDTH=2000000,RESOLUTION=1280x720\n" +
+                                "chunklist_720.m3u8\n"
+                            ).toByteArray(),
+                    )
+                    else -> vela.core.base.net.HTTPResult(status = 200, data = """{"rooms":[],"total_count":0}""".toByteArray())
+                }
+            }
+        }
+        val stage = stage(http)
+        try {
+            stage.ageConfirmed = true
+            install(stage, "alice", "bob", "claire")
+            stage.setDual(true)
+            var stops = 0
+            val played = ArrayList<String>()
+            stage.secondarySink = object : PlaybackSink {
+                override val lastError: String? = null
+                override val failed: Boolean = false
+                override fun play(
+                    rendition: StreamRendition,
+                    username: String,
+                    peakBitrate: Double,
+                    allowed: Boolean,
+                    isRetry: Boolean,
+                ) {
+                    played.add(username)
+                }
+                override fun stop() {
+                    stops += 1
+                }
+                override fun setVolume(volume: Double, muted: Boolean) = Unit
+                override fun setAllowed(allowed: Boolean) = Unit
+                override fun refreshFinished(reason: String?, report: Boolean) = Unit
+                override fun setRefreshHandler(handler: ((String, Boolean) -> Unit)?) = Unit
+                override fun setRenewHandler(handler: (suspend (String, Double) -> StreamRendition?)?) = Unit
+            }
+
+            // 副路先成功起播 bob。
+            stage.requestLane(LaneID.SECONDARY)
+            stage.awaitUntil { played.contains("bob") }
+            stops = 0
+
+            // 切换到 claire，解析抛出 IOException；必须停止旧房 bob 的播放源再标失败。
+            assertTrue(stage.moveLane(LaneID.SECONDARY, 1, userInitiated = true))
+            stage.awaitUntil { stage.secondaryFace?.playback == LanePlayback.Failed }
+            assertEquals("claire", stage.secondaryCursor?.username)
+            assertTrue("副路切房解析抛异常后必须停止旧播放源，实际 stops=$stops", stops >= 1)
+        } finally {
             stage.close()
         }
     }

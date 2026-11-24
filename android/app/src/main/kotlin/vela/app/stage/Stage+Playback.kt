@@ -284,7 +284,7 @@ private fun StageViewModel.hubReady(token: Int): Boolean {
 
 private fun StageViewModel.laneAllowed(): Boolean {
     if (surface == StageSurface.Challenge) return false
-    if (!ageConfirmed || laneFace.manuallyPaused || feed.current == null) return false
+    if (!ageConfirmed || laneFace.manuallyPaused || !laneFace.visible || feed.current == null) return false
     return degradedHold.gate(true)
 }
 
@@ -380,7 +380,7 @@ private fun StageViewModel.startPlayback(username: String, target: PlayTarget, c
         showPlaybackNote(if (reported == null || reported == relay) reported ?: text.failure(null) else reported, failed = true)
         return
     }
-    if (prefetchEnabled) {
+    if (prefetchEnabled && !lifecycleEpoch.suspended && !pictureInPicture) {
         val token = laneFace.generation
         prefetchJob?.cancel()
         prefetchJob = scope.launch { prefetchAhead(token) }
@@ -631,7 +631,7 @@ internal fun StageViewModel.scheduleSkip(token: Int) {
     skipJob?.cancel()
     skipJob = scope.launch {
         delay(skipDelayMillis.coerceAtLeast(0L))
-        if (token != laneFace.generation || !isActive) return@launch
+        if (token != laneFace.generation || !isActive || !laneAllowed() || lifecycleEpoch.suspended) return@launch
         autoSkip()
     }
 }
