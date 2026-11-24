@@ -48,6 +48,7 @@ final class NoJournal: SyncJoinJournal {
 final class FileJoinJournal: SyncJoinJournal {
     static let completeMarker = "complete"
     static let committedMarker = "committed"
+    static let settingsFile = "settings.json"
 
     let dir: URL
     let files: [URL]
@@ -57,6 +58,18 @@ final class FileJoinJournal: SyncJoinJournal {
     /// 写一个小文件；测试可注入失败。
     var writeFile: (URL, Data) -> Bool = { url, data in
         FileManager.default.createFile(atPath: url.path, contents: data, attributes: [.posixPermissions: 0o600])
+    }
+    /// 原子换回单个文件（同卷 rename(2)）；测试可注入中断。
+    var renameItem: (URL, URL) -> Bool = { from, to in
+        rename(from.path, to.path) == 0
+    }
+    /// 删除单个文件或目录；测试可注入中断。
+    var removeItem: (URL) -> Bool = { url in
+        (try? FileManager.default.removeItem(at: url)) != nil
+    }
+    /// 读取快照里的设置文件；测试可注入中断。
+    var readFile: (URL) -> Data? = { url in
+        FileManager.default.contents(atPath: url.path)
     }
     private let fm = FileManager.default
 
@@ -70,7 +83,7 @@ final class FileJoinJournal: SyncJoinJournal {
 
     private func copyURL(_ f: URL, in d: URL) -> URL { d.appendingPathComponent(f.lastPathComponent) }
     private func absentURL(_ f: URL, in d: URL) -> URL { d.appendingPathComponent("absent-" + f.lastPathComponent) }
-    private func settingsURL(in d: URL) -> URL { d.appendingPathComponent("settings.json") }
+    private func settingsURL(in d: URL) -> URL { d.appendingPathComponent(Self.settingsFile) }
     private func has(_ name: String) -> Bool { fm.fileExists(atPath: dir.appendingPathComponent(name).path) }
 
     /// 同目录下残留的临时构建目录。
@@ -82,10 +95,12 @@ final class FileJoinJournal: SyncJoinJournal {
     }
 
     /// 只看发布目录（写操作闸门每次都会问，不扫目录）。崩溃留下的临时目录从未发布、不会被换回，下次快照或删除时清掉。
+    /// 完整性要求 `complete` 与 `settings.json` 同时存在：构建时二者一并原子发布，换回不删 `settings.json`，
+    /// 只有删快照中途中断才可能缺 `settings.json`，按 `.incomplete` 直接清理，不再永久卡在「需要修复」。
     var status: SyncJoinJournalStatus {
         guard fm.fileExists(atPath: dir.path) else { return .none }
         if has(Self.committedMarker) { return .committed }
-        return has(Self.completeMarker) ? .pending : .incomplete
+        return has(Self.completeMarker) && has(Self.settingsFile) ? .pending : .incomplete
     }
 
     func snapshot() -> Bool {
@@ -130,17 +145,19 @@ final class FileJoinJournal: SyncJoinJournal {
     func restore() -> Bool {
         guard status == .pending else { return false }
         for f in files {
-            if fm.fileExists(atPath: copyURL(f, in: dir).path) {
+            let copy = copyURL(f, in: dir)
+            let absent = absentURL(f, in: dir)
+            if fm.fileExists(atPath: copy.path) {
                 // 同卷原子替换：rename(2) 覆盖目标。
-                guard rename(copyURL(f, in: dir).path, f.path) == 0 else { return false }
-            } else if fm.fileExists(atPath: absentURL(f, in: dir).path) {
+                guard renameItem(copy, f) else { return false }
+            } else if fm.fileExists(atPath: absent.path) {
                 if fm.fileExists(atPath: f.path) {
-                    guard (try? fm.removeItem(at: f)) != nil else { return false }
+                    guard removeItem(f) else { return false }
                 }
-                guard (try? fm.removeItem(at: absentURL(f, in: dir))) != nil else { return false }
+                guard removeItem(absent) else { return false }
             }
         }
-        guard let data = fm.contents(atPath: settingsURL(in: dir).path),
+        guard let data = readFile(settingsURL(in: dir)),
               let saved = try? JSONDecoder().decode([String: Bool].self, from: data) else { return false }
         var values: [String: Bool?] = [:]
         for key in settingKeys { values[key] = saved[key] }
@@ -150,9 +167,26 @@ final class FileJoinJournal: SyncJoinJournal {
 
     func discard() -> Bool {
         var ok = true
-        for d in [dir] + temporaries where fm.fileExists(atPath: d.path) {
-            if (try? fm.removeItem(at: d)) == nil { ok = false }
+        if fm.fileExists(atPath: dir.path), !removeSnapshotDirectory(dir) { ok = false }
+        for d in temporaries where fm.fileExists(atPath: d.path) {
+            if !removeItem(d) { ok = false }
         }
         return ok
+    }
+
+    /// 删发布快照目录：先删完整性标记，再逐个删其余条目，最后删空目录。
+    /// 删标记前失败：快照完整保留，重启可再次换回；删标记后中断：目录转为 `.incomplete`（或保持 `.committed`），
+    /// 重启直接删掉，不会留下「缺 `settings.json` 的未提交快照」。
+    private func removeSnapshotDirectory(_ d: URL) -> Bool {
+        let complete = d.appendingPathComponent(Self.completeMarker)
+        if fm.fileExists(atPath: complete.path) {
+            guard removeItem(complete) else { return false }
+        }
+        if let names = try? fm.contentsOfDirectory(atPath: d.path) {
+            for name in names.sorted() {
+                guard removeItem(d.appendingPathComponent(name)) else { return false }
+            }
+        }
+        return removeItem(d)
     }
 }
