@@ -256,4 +256,39 @@ class RoomKeyTests {
         assertEquals("alice", revealed.primary.username)
         assertEquals("c4:alice", revealed.secondary?.username)
     }
+
+    @Test
+    fun testRelativePlaylistResolutionDropsMasterQuery() {
+        val master = java.net.URI.create("https://cdn.example/live/master.m3u8?token=abc")
+        val cases = listOf(
+            "media/720.m3u8" to "https://cdn.example/live/media/720.m3u8",
+            "/hls/720.m3u8" to "https://cdn.example/hls/720.m3u8",
+            "../other/720.m3u8" to "https://cdn.example/other/720.m3u8",
+            "720.m3u8?rendition=1" to "https://cdn.example/live/720.m3u8?rendition=1",
+            "https://other.example/a.m3u8?x=1" to "https://other.example/a.m3u8?x=1",
+        )
+        for ((reference, expected) in cases) {
+            val playlist = """
+                #EXTM3U
+                #EXT-X-STREAM-INF:BANDWIDTH=2500000,RESOLUTION=1280x720
+                $reference
+            """.trimIndent()
+            val selected = vela.core.base.play.StreamRendition.select(playlist, master, Double.POSITIVE_INFINITY)
+            assertNotNull(selected, reference)
+            assertEquals(expected, selected.video.toString(), reference)
+            assertFalse(selected.isUnselected)
+            val ladder = vela.core.hls.PlaylistLadder.mediaURL(playlist, master, Double.POSITIVE_INFINITY)
+            assertNotNull(ladder, reference)
+            assertEquals(expected, ladder.toString(), reference)
+        }
+        val single = """
+            #EXTM3U
+            #EXT-X-STREAM-INF:BANDWIDTH=2500000,RESOLUTION=1280x720
+            720/index.m3u8
+        """.trimIndent()
+        val only = vela.core.base.play.StreamRendition.select(single, master, 1.0)
+        assertNotNull(only)
+        assertEquals("https://cdn.example/live/720/index.m3u8", only.video.toString())
+        assertFalse(only.video.toString().contains("token"))
+    }
 }
