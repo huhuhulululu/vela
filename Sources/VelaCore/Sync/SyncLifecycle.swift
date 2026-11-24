@@ -213,3 +213,35 @@ public enum SyncLifecycle {
         return (next, report)
     }
 }
+
+/// macOS 同步码剪贴板退出清理的判定与观察者生命周期（docs/plans/sync.md 第 4.3、23 节）。
+/// 退出清理独立于实验开关的接线状态：只要本次运行里接过同步（进而可能复制过同步码），
+/// 即使之后关闭实验开关，退出时仍执行清理；且仅当剪贴板仍是那次写入（`changeCount` 未变）时才清空。
+public struct SyncPasteboardCleanup: Equatable, Sendable {
+    /// 实验开关当前是否已接线。
+    public private(set) var experimentWired = false
+    /// 退出清理观察者是否已注册：一经注册不随 `unwire()` 撤销，且重复开关不重复注册。
+    public private(set) var exitObserverInstalled = false
+
+    public init() {}
+
+    /// 接上实验开关：返回是否需要首次注册「退出时清理剪贴板」观察者。
+    public mutating func wire() -> Bool {
+        experimentWired = true
+        guard !exitObserverInstalled else { return false }
+        exitObserverInstalled = true
+        return true
+    }
+
+    /// 关闭实验开关：只摘同步本身的观察者，不撤销剪贴板退出清理。
+    public mutating func unwire() {
+        experimentWired = false
+    }
+
+    /// 退出时是否仍应清空剪贴板（不受实验开关当前是否关闭影响）：
+    /// 仅当本次运行注册过退出清理、存在复制记录且剪贴板 `changeCount` 仍是那次写入时返回 true。
+    public func shouldClearOnExit(recordedStamp: Int?, currentChangeCount: Int) -> Bool {
+        guard exitObserverInstalled, let recordedStamp else { return false }
+        return currentChangeCount == recordedStamp
+    }
+}

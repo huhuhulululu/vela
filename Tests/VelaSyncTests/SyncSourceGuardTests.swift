@@ -53,4 +53,21 @@ final class SyncSourceGuardTests: XCTestCase {
         let hub = try text("Shared/Stage/StageModel+Sync.swift")
         XCTAssertTrue(hub.contains("guard experimentEnabled else { return }"))
     }
+
+    /// 审查待办：macOS 关闭实验开关（`unwire()`）不得撤销同步码剪贴板的退出清理。
+    /// 退出清理观察者须独立于 `observers` 注册，且不随 `unwire()` 注销。
+    func testMacPasteboardExitObserverSurvivesUnwire() throws {
+        let hub = try text("Shared/Stage/StageModel+Sync.swift")
+        XCTAssertTrue(hub.contains("pasteboardExitObserver"), "退出清理观察者独立持有，不随 observers 注销")
+        XCTAssertTrue(hub.contains("pasteboardCleanup.wire()"), "由 SyncPasteboardCleanup 判定是否首次注册")
+        XCTAssertTrue(hub.contains("pasteboardCleanup.unwire()"), "摘线只更新实验开关状态，不移除退出清理观察者")
+        let unwireRange = try XCTUnwrap(hub.range(of: "private func unwire()"))
+        let observeRange = try XCTUnwrap(hub.range(of: "private func observeLifecycle()"))
+        let unwireBody = String(hub[unwireRange.lowerBound..<observeRange.lowerBound])
+        XCTAssertFalse(unwireBody.contains("pasteboardExitObserver"), "unwire() 不得注销剪贴板退出清理观察者")
+        let observeBody = String(hub[observeRange.lowerBound...])
+        let expirePos = try XCTUnwrap(observeBody.range(of: "SyncPasteboard.expireNow()")).lowerBound
+        let exitObserverPos = try XCTUnwrap(observeBody.range(of: "pasteboardExitObserver =")).lowerBound
+        XCTAssertLessThan(exitObserverPos, expirePos, "expireNow() 必须挂在独立的 pasteboardExitObserver 上")
+    }
 }

@@ -242,4 +242,31 @@ final class SyncLifecycleTests: XCTestCase {
         XCTAssertEqual(report.invalidNames, ["x"])
         XCTAssertEqual(SyncProjection(created.doc).veto, ["g:m": true])
     }
+
+    // MARK: 剪贴板退出清理判定
+
+    func testPasteboardCleanupSurvivesExperimentUnwireAndRespectsChangeCount() {
+        var cleanup = SyncPasteboardCleanup()
+        XCTAssertFalse(cleanup.exitObserverInstalled)
+        XCTAssertFalse(cleanup.shouldClearOnExit(recordedStamp: 10, currentChangeCount: 10), "未接线不触发")
+
+        // 首次开启实验开关：注册一次独立退出观察者。
+        XCTAssertTrue(cleanup.wire())
+        XCTAssertTrue(cleanup.experimentWired)
+        XCTAssertTrue(cleanup.exitObserverInstalled)
+        XCTAssertTrue(cleanup.shouldClearOnExit(recordedStamp: 10, currentChangeCount: 10))
+
+        // 关闭实验开关：观察者保留，已复制的同步码退出时仍清理。
+        cleanup.unwire()
+        XCTAssertFalse(cleanup.experimentWired)
+        XCTAssertTrue(cleanup.exitObserverInstalled)
+        XCTAssertTrue(cleanup.shouldClearOnExit(recordedStamp: 10, currentChangeCount: 10), "关闭开关后仍应清理未变动的同步码")
+        XCTAssertFalse(cleanup.shouldClearOnExit(recordedStamp: 10, currentChangeCount: 11), "用户之后复制了别的内容，不动剪贴板")
+        XCTAssertFalse(cleanup.shouldClearOnExit(recordedStamp: nil, currentChangeCount: 10), "未复制过同步码时不清理")
+
+        // 再次开启实验开关：不重复注册退出观察者。
+        XCTAssertFalse(cleanup.wire())
+        cleanup.unwire()
+        XCTAssertTrue(cleanup.shouldClearOnExit(recordedStamp: 25, currentChangeCount: 25))
+    }
 }
