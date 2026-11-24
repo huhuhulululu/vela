@@ -96,10 +96,24 @@ class LifecycleWiring(
         pipCoordinator?.deliver(event)
         stage.pictureInPicture = pipCoordinator?.pictureInPicturePlaying == true
         stage.publish()
+        // Android 12+ 自动进入画中画时只经 onPause 不经 onStop；确认进入后立即接入后台仅焦点路序列。
+        if (event == PiPEvent.DidStart &&
+            phase != PhoneScenePhase.BACKGROUND &&
+            pipCoordinator?.pictureInPicturePlaying == true
+        ) {
+            moveTo(PhoneScenePhase.BACKGROUND)
+        }
     }
 
     fun moveTo(next: PhoneScenePhase) {
         if (next == phase) return
+        // 已在画中画后台序列中时，迟到的 onPause/onStart 不得把阶段退回 INACTIVE。
+        if (next == PhoneScenePhase.INACTIVE &&
+            phase == PhoneScenePhase.BACKGROUND &&
+            pipCoordinator?.pictureInPicturePlaying == true
+        ) {
+            return
+        }
         // 只在进后台时捕获。恢复时任务已被取消，再捕获会把记下的意图盖成 null。
         val intent = if (next == PhoneScenePhase.BACKGROUND) {
             stage.captureResumeIntent()
