@@ -186,3 +186,11 @@ FeedCache 的随机性质测试只断言不变量。Kotlin 用同一个种子，
 ## 本次 release 体积
 
 2026-11-18，本机 `check-apk.sh` 对 `app-release.apk`：`apk_bytes=667213`（651.6 KB），低于 5120 KB。`--max-kb 1` 因超过 1024 字节失败。权限只有 `INTERNET`、`ACCESS_NETWORK_STATE`、`vela.app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`。`allowBackup=false`。R8 mapping 里没有 `vela.app.hooks`。`:app:assemblePerf` 也能打出包。
+
+## sites 暂缓项（欠账）
+
+`android/parity/skip*.tsv` 里理由以 `deferred:sites-app` 或 `deferred:sites-sync` 开头的行，是安卓侧确实缺实现、不应写成 Apple 专属跳过的多站点用例：
+
+- `deferred:sites-app`：安卓 `:app` 尚未接入站点模式、Cam4 起播/站点头/严格主列表失败、启动键迁移与直达前缀解析（含 `LaneHub`/`LaneHttpHeaders` 按源传站点 Referer/Origin）。
+- `deferred:sites-sync`：安卓 `:core` 的 `SyncKeys`/`SyncProjection`/`SyncMigration` 尚未支持 `c4:` 多站点房间键归一化与投影。
+- 待对应安卓实现落地后必须补齐 Kotlin 测试并删掉这些暂缓行；收尾时 `grep -rn 'deferred:sites-' android/parity` 必须无输出。

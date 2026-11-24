@@ -180,4 +180,22 @@ class SyncDocumentTests {
         val pad = " ".repeat(SyncLimits.plaintextBytes)
         assertTrue(decode(wrap() + pad) is SyncDecodeResult.Invalid)
     }
+
+    @Test
+    fun testJSONParseErrorInvalidReasonsPinExactNames() {
+        val oversize = ByteArray(SyncLimits.plaintextBytes + 1) { ' '.code.toByte() }
+        val cases = listOf(
+            oversize to "json:tooLarge",
+            byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte(), '{'.code.toByte()) to "json:bom",
+            byteArrayOf(0xFF.toByte()) to "json:invalidUTF8",
+            "{".toByteArray(Charsets.UTF_8) to "json:syntax",
+            """{"a":1,"a":2}""".toByteArray(Charsets.UTF_8) to "json:duplicateKey",
+            """{"a":"\n"}""".toByteArray(Charsets.UTF_8) to "json:escape",
+            "{\"a\":\"\u0001\"}".toByteArray(Charsets.UTF_8) to "json:controlCharacter",
+            "[[[[]]]]".toByteArray(Charsets.UTF_8) to "json:tooDeep",
+        )
+        for ((bytes, expected) in cases) {
+            assertEquals(SyncDecodeResult.Invalid(expected), SyncDocument.decode(bytes), expected)
+        }
+    }
 }
