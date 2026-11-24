@@ -528,6 +528,10 @@ G-mac 两组（`ssh localhost` 回环，`perf-probe.sh --build --fixed-stream --
     两边 16 轮都没有超过 2.22 秒的样本，起播与资源几乎相同；此前 RSS 的差异在串行复测里也消失（90.0 对 89.4 MB）。
   - 工具注意：两个 perf-probe 同时启动会在开头的「等他人」循环里互相等待（实测互等 10 分钟以上），G-mac 必须在确认机器空闲后串行跑。
 
+### 去掉 1024 像素图标槽位（2026-11-24）
+
+2026-11-24 实测 Release 不签名 `.app` 为 4328 KB（超门 181 KB）；`-disable-reflection-names` 仅省 16 KB，`LLVM_LTO` 与 `STRIP` 组合无变化。`Assets.car` 占 1552 KB，其中 1024 像素图标（`512x512@2x`）独占约 900 KB。去掉 macOS `AppIcon` 的 `512x512@2x` 槽位（`icon_1024.png`）后，`Assets.car` 降到 668 KB；取舍是 Retina 屏上超过 256 点的超大图标预览会由 512 像素放大。
+
 ## 安卓（里程碑 A，单窗）
 
 与上面的 macOS、iOS 数字分开。安卓不走 `scripts/perf-probe.sh`，也不用 G-mac 的门。这里只写代码里已经在跑的门，以及仓库里已经有的一次 JVM 测量。模拟器上的 PSS 与 CPU 没有入库，不编造。
