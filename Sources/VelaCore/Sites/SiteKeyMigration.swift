@@ -41,14 +41,16 @@ public enum SiteKeyMigration {
         return report
     }
 
-    /// 用 `.pre-sites` 备份覆盖回原文件。没有备份的记入 `failed`。`write` 仅测试注入失败用。
+    /// 用 `.pre-sites` 备份覆盖回原文件。没有备份的记入 `failed`。`read` 与 `write` 仅测试注入失败用。
     public static func rollback(
         curation: URL,
         taste: URL,
         ledger: URL,
         fileManager: FileManager = .default,
+        read: ((URL) throws -> Data)? = nil,
         write: Writer? = nil
     ) -> Report {
+        let reader = read ?? { try Data(contentsOf: $0) }
         let writer = write ?? { try $0.write(to: $1, options: .atomic) }
         var report = Report()
         for url in [curation, taste, ledger] {
@@ -58,7 +60,7 @@ public enum SiteKeyMigration {
                 continue
             }
             do {
-                let data = try Data(contentsOf: backup)
+                let data = try reader(backup)
                 try writer(data, url)
                 report.migrated.append(url)
             } catch {

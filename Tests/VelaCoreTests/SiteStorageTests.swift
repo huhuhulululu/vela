@@ -255,20 +255,29 @@ final class SiteKeyMigrationTests: XCTestCase {
         _ = SiteKeyMigration.run(curation: curation, taste: file("no-taste.json"), ledger: file("no-ledger.json"))
         let migrated = try Data(contentsOf: curation)
         let backup = SiteKeyMigration.backupURL(for: curation)
-        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: backup.path)
-        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: backup.path) }
 
-        let rolled = SiteKeyMigration.rollback(curation: curation, taste: file("no-taste.json"), ledger: file("no-ledger.json"))
-        XCTAssertTrue(rolled.failed.contains(curation))
+        var readTarget: URL?
+        var writeCalled = false
+        let readFailed = SiteKeyMigration.rollback(
+            curation: curation, taste: file("no-taste.json"), ledger: file("no-ledger.json"),
+            read: { url in
+                readTarget = url
+                throw CocoaError(.fileReadNoPermission)
+            },
+            write: { _, _ in writeCalled = true }
+        )
+        XCTAssertEqual(readTarget, backup)
+        XCTAssertFalse(writeCalled, "读备份失败时不应继续写入")
+        XCTAssertTrue(readFailed.failed.contains(curation))
         XCTAssertTrue(FileManager.default.fileExists(atPath: curation.path), "回滚失败后原文件不能被先删掉")
         XCTAssertEqual(try Data(contentsOf: curation), migrated)
 
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: backup.path)
         let writeFailed = SiteKeyMigration.rollback(
             curation: curation, taste: file("no-taste.json"), ledger: file("no-ledger.json"),
             write: { _, _ in throw CocoaError(.fileWriteNoPermission) }
         )
         XCTAssertTrue(writeFailed.failed.contains(curation))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: curation.path), "回滚写失败后原文件不能被先删掉")
         XCTAssertEqual(try Data(contentsOf: curation), migrated)
     }
 
