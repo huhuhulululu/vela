@@ -7,7 +7,11 @@ import kotlinx.coroutines.launch
 import vela.app.infra.Endpoints
 import vela.app.lane.PlaybackLane
 import vela.app.lane.ThermalMonitor
+import vela.app.sync.rejectWhileSyncJoining
+import vela.app.sync.syncLocalWriteAllowed
+import vela.app.sync.syncedCuration
 import vela.core.base.lane.LaneCursor
+import vela.core.sync.SyncLocalOp
 import vela.core.base.lane.LaneEndReason
 import vela.core.base.lane.LaneID
 import vela.core.base.lane.PlaybackLaneRole
@@ -224,15 +228,17 @@ internal fun StageViewModel.recordSettlementLanes(
         isFocusLane && settled.dwell <= 0.0 && !settlement.resumesAsNewDwell -> 0.0
         else -> null
     }
-    taste = taste.recording(
-        room = settled.room,
-        learnSeconds = if (settlement.learnsTaste) settlement.learnSeconds else null,
-        daily = daily,
-        source = settlement.source,
-        now = at,
-        rarity = tagRarity,
-    )
-    tasteSaver.schedule(taste)
+    if (syncLocalWriteAllowed()) {
+        taste = taste.recording(
+            room = settled.room,
+            learnSeconds = if (settlement.learnsTaste) settlement.learnSeconds else null,
+            daily = daily,
+            source = settlement.source,
+            now = at,
+            rarity = tagRarity,
+        )
+        tasteSaver.schedule(taste)
+    }
     val start = settled.start
     if (settled.ledgerSeconds <= 0.0 || start == null) return
     val ledgerSettlement = if (settled.ledgerSeconds == settled.dwell) {
@@ -622,16 +628,18 @@ internal fun StageViewModel.toggleFavoriteLanes(target: RoomTarget?) {
     val id = target?.laneID ?: LaneID.PRIMARY
     val room = roomOn(id) ?: return
     if (curation.isFavorite(room.username)) {
+        val next = syncedCuration(SyncLocalOp.Unfavorite(room.username)) { curation.unfavoriting(room.username) } ?: return
         commitCuration(
-            curation.unfavoriting(room.username),
+            next,
             text.unfavorite(room.displayName),
             toastSeconds = StageRules.UNFAVORITE_TOAST_SECONDS,
             undoFavorite = room.username,
         )
     } else {
+        val next = syncedCuration(SyncLocalOp.Favorite(room.username)) { curation.favoriting(room.username) } ?: return
         taste = taste.following(room, now(), tagRarity)
         tasteSaver.schedule(taste)
-        commitCuration(curation.favoriting(room.username), null)
+        commitCuration(next, null)
     }
     replaySecondaryIfMoved()
 }
@@ -640,6 +648,7 @@ internal fun StageViewModel.blockCurrentLanes(target: RoomTarget?) {
     if (!accepts(target)) return
     val id = target?.laneID ?: LaneID.PRIMARY
     val room = roomOn(id) ?: return
+    val next = syncedCuration(SyncLocalOp.Block(room.username)) { curation.blocking(room.username) } ?: return
     if (id == LaneID.SECONDARY) {
         secondaryFace = secondaryFace?.copy(manuallyPaused = false)
         secondaryDwell.discard()
@@ -647,11 +656,12 @@ internal fun StageViewModel.blockCurrentLanes(target: RoomTarget?) {
         laneFace = laneFace.copy(manuallyPaused = false)
     }
     val before = secondaryCursor?.username
-    commitCuration(curation.blocking(room.username), text.blocked(room.displayName))
+    commitCuration(next, text.blocked(room.displayName))
     if (!sameUser(before, secondaryCursor?.username)) requestLane(LaneID.SECONDARY)
 }
 
 internal fun StageViewModel.markNotInterestedLanes(target: RoomTarget?) {
+    if (rejectWhileSyncJoining()) return
     if (!accepts(target)) return
     val id = target?.laneID ?: LaneID.PRIMARY
     val room = roomOn(id) ?: return

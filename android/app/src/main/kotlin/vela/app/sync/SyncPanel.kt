@@ -307,10 +307,10 @@ private fun SyncPanelBody(
                             val km = context.getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
                             if (km?.isDeviceSecure != true) {
                                 hub.showNotice("这台设备没有设置锁屏密码，无法查看同步码。")
-                            } else if (onRequestReveal != null) {
-                                onRequestReveal { revealed = hub.revealCode() }
+                            } else if (onRequestReveal == null) {
+                                hub.showNotice("当前无法验证设备身份，无法查看同步码。")
                             } else {
-                                revealed = hub.revealCode()
+                                onRequestReveal { revealed = hub.revealCode() }
                             }
                         },
                         modifier = Modifier.testTag("sync-reveal-code"),

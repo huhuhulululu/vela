@@ -6,11 +6,13 @@ import vela.app.stage.StageViewModel
 import vela.app.stage.applySearch
 import vela.app.stage.commitCuration
 import vela.app.stage.commitTaste
-import vela.app.stage.setPublicOnly
 import vela.core.curation.Curation
 import vela.core.sync.PreferenceLoadOutcome
 import vela.core.sync.SyncDocument
+import vela.core.sync.SyncKeys
 import vela.core.sync.SyncLocalData
+import vela.core.sync.SyncLocalOp
+import vela.core.sync.SyncOpOutcome
 import vela.core.sync.SyncProjection
 import vela.core.sync.settingSyncedVeto
 import vela.core.taste.Taste
@@ -27,8 +29,7 @@ interface SyncLocalBridge : SyncJoinSink {
 }
 
 /**
- * 舞台适配器：在不改动 `vela.app.stage` 包文件的前提下，通过同模块 `internal` 接口
- * 连接 [StageViewModel] 的收藏、口味、去抖保存器与两个同步设置。
+ * 舞台适配器：连接 [StageViewModel] 的收藏、口味、去抖保存器与两个同步设置。
  *
  * 注：当前 `:core` 的 `CurationStore` / `TasteStore` 只暴露 `isReadOnly`（尚未区分
  * `QUARANTINED` 与 `MISSING`），因此这里把 `isReadOnly` 映射为 `READ_ONLY`，其余映射为 `LOADED`，
@@ -71,9 +72,17 @@ class StageSyncBridge(
 
     override fun saveTaste(taste: Taste): Boolean = stage.tasteStore.save(taste, stage.now())
 
+    /**
+     * 投影或屏障写入两个同步设置：直接更新内存与本机设置，不经由用户意图入口，避免回声触发新的本地同步操作。
+     */
     override fun applySettings(settings: Map<String, Boolean>) {
         settings[Settings.KEY_PUBLIC_ONLY]?.let { value ->
-            stage.setPublicOnly(value)
+            val changed = stage.publicOnly != value
+            if (changed || prefs.explicitBool(Settings.KEY_PUBLIC_ONLY) != value) {
+                stage.publicOnly = value
+                stage.settings.publicOnly = value
+                if (changed) stage.applySearch() else stage.publish()
+            }
         }
         settings[Settings.KEY_INFO_ALWAYS]?.let { value ->
             if (stage.infoAlwaysOn != value || prefs.explicitBool(Settings.KEY_INFO_ALWAYS) != value) {
@@ -157,4 +166,69 @@ class StageSyncBridge(
         const val SNAPSHOT_DIR_NAME: String = "sync-join-snapshot"
         const val STATE_FILE_NAME: String = "sync-state.json"
     }
+}
+
+/** 舞台写入入口共用的提交锁与同步寄存器钩子（对齐 Apple 端 `StageModel+Sync.swift`）。 */
+internal fun StageViewModel.syncLocalWriteAllowed(): Boolean = syncHub?.localWriteAllowed ?: true
+
+internal fun StageViewModel.rejectWhileSyncJoining(): Boolean {
+    if (syncLocalWriteAllowed()) return false
+    showToast(SyncHub.COMMITTING_MESSAGE)
+    return true
+}
+
+internal fun StageViewModel.syncedCuration(op: SyncLocalOp, local: () -> Curation): Curation? {
+    if (rejectWhileSyncJoining()) return null
+    val hub = syncHub ?: return local()
+    return when (val outcome = hub.perform(op)) {
+        is SyncOpOutcome.Applied -> SyncProjection(outcome.replica.doc).curation
+        SyncOpOutcome.Full -> {
+            showToast(SyncHub.FULL_MESSAGE)
+            null
+        }
+        else -> local()
+    }
+}
+
+internal fun StageViewModel.syncedVeto(key: String): Boolean {
+    if (rejectWhileSyncJoining()) return false
+    if (taste.vetoedKeys.contains(key)) return true
+    val hub = syncHub ?: return true
+    val localOnlyCount = taste.vetoedKeys.count { SyncKeys.syncVetoKey(it) == null }
+    return when (hub.perform(SyncLocalOp.Veto(key), localOnlyVetoCount = localOnlyCount)) {
+        SyncOpOutcome.VetoQuotaFull, SyncOpOutcome.LocalOnlyQuotaFull -> {
+            showToast("不想看最多 450 个（另有 50 个本机专用）")
+            false
+        }
+        SyncOpOutcome.Full -> {
+            showToast(SyncHub.FULL_MESSAGE)
+            false
+        }
+        else -> true
+    }
+}
+
+internal fun StageViewModel.syncedUnveto(key: String): Boolean {
+    if (rejectWhileSyncJoining()) return false
+    if (!taste.vetoedKeys.contains(key)) return true
+    val hub = syncHub ?: return true
+    if (hub.perform(SyncLocalOp.Unveto(key)) == SyncOpOutcome.Full) {
+        showToast(SyncHub.FULL_MESSAGE)
+        return false
+    }
+    return true
+}
+
+internal fun StageViewModel.syncedClearVetoes(): Boolean {
+    if (rejectWhileSyncJoining()) return false
+    val hub = syncHub ?: return true
+    if (hub.perform(SyncLocalOp.ClearVetoes) == SyncOpOutcome.Full) {
+        showToast(SyncHub.FULL_MESSAGE)
+        return false
+    }
+    return true
+}
+
+internal fun StageViewModel.syncSetting(key: String, value: Boolean) {
+    syncHub?.perform(SyncLocalOp.Setting(key, value))
 }

@@ -563,9 +563,10 @@ class SyncHub(
             configuredOriginOverride: String? = null,
             probe: () -> SyncProbeReport = { SyncProbe.run(sdkInt) },
         ): SyncHub? = SyncPlatformGate.loadIfSupported(sdkInt) {
+            val origin = SyncConfig.configuredOrigin(configuredOriginOverride, context) ?: return@loadIfSupported null
             installAndroidUnicodeIfAvailable()
-            val origin = SyncConfig.configuredOrigin(configuredOriginOverride, context)
-            val capability = if (origin != null) probe().capability else SyncCapability.DISABLED
+            val capability = probe().capability
+            if (!SyncEntryPolicy.showEntry(sdkInt, capability, origin)) return@loadIfSupported null
             val prefs = SyncPrefs(stage.settings.preferences)
             val bridge = StageSyncBridge(stage, prefs)
             val service = SyncService(

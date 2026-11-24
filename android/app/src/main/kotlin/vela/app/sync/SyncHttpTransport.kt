@@ -132,6 +132,7 @@ class SyncHttpTransport(
                     conn.setRequestProperty("Accept", "application/json")
                     conn.setRequestProperty("Cache-Control", "no-store")
                     conn.setRequestProperty("Accept-Encoding", "identity")
+                    conn.setRequestProperty("Connection", "close")
                     for ((k, v) in extraHeaders) {
                         conn.setRequestProperty(k, v)
                     }
@@ -192,22 +193,22 @@ class SyncHttpTransport(
         } catch (_: Exception) {
             conn.errorStream
         } ?: return ByteArray(0)
-        return stream.use { input ->
-            val out = ByteArrayOutputStream()
-            val buf = ByteArray(8192)
-            var total = 0
-            while (true) {
-                if (terminated.get() || System.nanoTime() >= deadlineNanos) return null
-                val n = input.read(buf)
-                if (n < 0) break
-                total += n
-                if (total > SyncHttp.maxResponseBytes || terminated.get() || System.nanoTime() >= deadlineNanos) {
-                    return null
-                }
-                out.write(buf, 0, n)
+        val out = ByteArrayOutputStream()
+        val buf = ByteArray(8192)
+        var total = 0
+        while (true) {
+            if (terminated.get() || System.nanoTime() >= deadlineNanos) return null
+            val n = stream.read(buf)
+            if (n < 0) break
+            total += n
+            if (total > SyncHttp.maxResponseBytes || terminated.get() || System.nanoTime() >= deadlineNanos) {
+                return null
             }
-            out.toByteArray()
+            out.write(buf, 0, n)
         }
+        // 不在此处提前 stream.close()：由外层 finally 先 disconnect() 拆掉底层连接，
+        // 避免提前把带 Connection: close 的连接归还 KeepAliveCache 或在超限时排空剩余响应体。
+        return out.toByteArray()
     }
 
     companion object {

@@ -13,6 +13,7 @@ import vela.app.lane.PlaybackLane
 import vela.app.pip.PiPCoordinator
 import vela.app.pip.PiPEvent
 import vela.app.playback.LaneHub
+import vela.app.sync.SyncHub
 import vela.core.audio.AudioFocusPlan
 import vela.core.audio.AudioIntent
 import vela.core.audio.DeactivationReason
@@ -48,6 +49,13 @@ class LifecycleWiring(
 
     var pipCoordinator: PiPCoordinator? = null
 
+    var syncHub: SyncHub? = null
+        private set
+
+    internal var onSyncForeground: (() -> Unit)? = null
+    internal var onSyncBackground: (() -> Unit)? = null
+    private var wasInBackground: Boolean = false
+
     private val steps = ArrayList<String>()
 
     fun trace(): List<String> = steps.toList()
@@ -69,6 +77,12 @@ class LifecycleWiring(
 
     fun setPrimaryVisible(visible: Boolean) {
         stage.primaryVisible = visible
+    }
+
+    fun attachSync(hub: SyncHub) {
+        syncHub = hub
+        onSyncForeground = { hub.onForeground() }
+        onSyncBackground = { hub.onBackground() }
     }
 
     fun attachPictureInPicture(coordinator: PiPCoordinator) {
@@ -94,7 +108,9 @@ class LifecycleWiring(
         }
         val lanes = stage.phoneSnapshots()
         val previous = phase
-        val pip = if (next == PhoneScenePhase.BACKGROUND && previous != PhoneScenePhase.BACKGROUND) {
+        val enteringBackground = next == PhoneScenePhase.BACKGROUND && previous != PhoneScenePhase.BACKGROUND
+        val returningForeground = next == PhoneScenePhase.ACTIVE && (wasInBackground || previous == PhoneScenePhase.BACKGROUND)
+        val pip = if (enteringBackground) {
             pipCoordinator?.pictureInPictureInput(PhoneScenePhase.BACKGROUND)
         } else {
             null
@@ -111,12 +127,14 @@ class LifecycleWiring(
             pip = pip,
         )
         phase = next
-        if (next == PhoneScenePhase.BACKGROUND && previous != PhoneScenePhase.BACKGROUND && actions.isNotEmpty()) {
-            wasSuspended = true
+        if (enteringBackground) {
+            wasInBackground = true
+            if (actions.isNotEmpty()) wasSuspended = true
         }
         for (action in actions) apply(action)
-        if (next == PhoneScenePhase.BACKGROUND && previous != PhoneScenePhase.BACKGROUND) {
+        if (enteringBackground) {
             pipCoordinator?.onContinued(actions)
+            onSyncBackground?.invoke()
         }
         if (next == PhoneScenePhase.ACTIVE) {
             // 冷启动没有 EpochResume。只在会话还没初始化时套用保存的静音偏好并登记拔耳机。
@@ -126,7 +144,9 @@ class LifecycleWiring(
                 session.prepareAudio()
             }
             wasSuspended = false
+            wasInBackground = false
             pipCoordinator?.onForegroundIdle()
+            if (returningForeground) onSyncForeground?.invoke()
         }
         stage.syncSceneAttentive(PhoneLifecycle.attentive(phase))
         Log.i(TAG, "phase=$phase actions=${actions.size}")
