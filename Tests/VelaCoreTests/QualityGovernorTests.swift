@@ -73,4 +73,12 @@ final class QualityGovernorTests: XCTestCase {
         XCTAssertEqual(g.desired(now: at(500)), .low)
         XCTAssertNil(g.delay(now: at(500)))
     }
+
+    func testQualityTierSignatureTextPin() {
+        let cases: [(QualityTier, String)] = [(.full, "full"), (.low, "low")]
+        for (tier, expected) in cases {
+            let signature = "\(true)|\(false)|\(true)|\(7)|\(tier)"
+            XCTAssertEqual(signature, "true|false|true|7|\(expected)")
+        }
+    }
 }

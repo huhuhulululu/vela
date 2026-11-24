@@ -191,4 +191,32 @@ final class AudioTransitionRunnerTests: XCTestCase {
         kept.failActive = true
         XCTAssertFalse(run(.deactivate(.mute), audible: .primary, pip: true, kept).deactivationFailed, "画中画保持会话：没有停用这一步")
     }
+
+    func testCategoryLogLinesPinExactCategoryNames() {
+        let rec = Recorder()
+        var logs: [String] = []
+        let plan = AudioTransitionPlan(
+            steps: [
+                .setCategory(.ambient, mode: nil),
+                .setCategory(.playback, mode: .moviePlayback),
+                .setSessionOptions(.mixWithOthers),
+                .setCategory(.playback, mode: .moviePlayback)
+            ],
+            audibleLane: nil,
+            preservesAudibleLane: false,
+            detachAudio: [],
+            writesSettings: false,
+            notice: nil,
+            pausesPlayback: false,
+            ignored: false,
+            resumesAudible: false,
+            attemptsAudible: false
+        )
+        _ = AudioTransitionRunner.run(plan, lanes: lanes, driver: rec, sink: rec) { logs.append($0) }
+        XCTAssertEqual(logs, [
+            "audio step category=ambient mix=false",
+            "audio step category=playback mix=true",
+            "audio step category=playback mix=false"
+        ])
+    }
 }

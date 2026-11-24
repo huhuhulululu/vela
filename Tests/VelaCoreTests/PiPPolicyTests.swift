@@ -428,4 +428,16 @@ final class PiPPolicyTests: XCTestCase {
         XCTAssertTrue(decision.keepsSessionActiveOnMute)
         XCTAssertEqual(decision.sessionActivation, .keepActive)
     }
+
+    func testPictureInPictureStateLogTextPin() {
+        let cases: [(PiPPolicy.State, String)] = [
+            (.none, "none"),
+            (.starting, "starting"),
+            (.active, "active"),
+            (.stopping, "stopping"),
+        ]
+        for (state, expected) in cases {
+            XCTAssertEqual(String(describing: state), expected)
+        }
+    }
 }

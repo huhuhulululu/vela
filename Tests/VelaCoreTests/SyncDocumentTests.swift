@@ -172,4 +172,21 @@ final class SyncDocumentTests: XCTestCase {
         let pad = String(repeating: " ", count: SyncLimits.plaintextBytes)
         guard case .invalid = decode(wrap() + pad) else { return XCTFail() }
     }
+
+    func testJSONParseErrorInvalidReasonsPinExactNames() {
+        let oversize = [UInt8](repeating: UInt8(ascii: " "), count: SyncLimits.plaintextBytes + 1)
+        let cases: [([UInt8], String)] = [
+            (oversize, "json:tooLarge"),
+            ([0xEF, 0xBB, 0xBF, UInt8(ascii: "{")], "json:bom"),
+            ([0xFF], "json:invalidUTF8"),
+            (Array("{".utf8), "json:syntax"),
+            (Array("{\"a\":1,\"a\":2}".utf8), "json:duplicateKey"),
+            (Array("{\"a\":\"\\n\"}".utf8), "json:escape"),
+            (Array("{\"a\":\"\u{01}\"}".utf8), "json:controlCharacter"),
+            (Array("[[[[]]]]".utf8), "json:tooDeep"),
+        ]
+        for (bytes, expected) in cases {
+            XCTAssertEqual(SyncDocument.decode(bytes), .invalid(expected))
+        }
+    }
 }
