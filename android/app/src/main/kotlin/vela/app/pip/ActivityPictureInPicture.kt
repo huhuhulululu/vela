@@ -12,9 +12,14 @@ import android.graphics.drawable.Icon
 import android.os.Build
 import android.util.Log
 import androidx.activity.ComponentActivity
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import vela.app.R
 import vela.app.stage.StageIntent
+import vela.app.stage.StageUiState
 import vela.app.stage.StageViewModel
+import vela.core.base.lane.LaneID
 
 /**
  * Activity 侧画中画：比例夹紧、[RemoteAction] 切换静音、
@@ -25,14 +30,23 @@ class ActivityPictureInPicture(
     private val stage: StageViewModel,
     private val onEvent: (PiPEvent) -> Unit,
 ) : PictureInPictureControlling {
+    private data class ParamsKey(
+        val focusLane: LaneID,
+        val autoEnterEnabled: Boolean,
+        val muted: Boolean,
+    )
+
     private var receiverRegistered = false
     private var bound = false
     private var notedWidth = 0.0
     private var notedHeight = 0.0
+    private var stateJob: Job? = null
+    private var observedKey: ParamsKey? = null
 
     override var autoEnter: Boolean = stage.settings.autoEnterPip
         set(value) {
             field = value
+            observedKey = currentParamsKey(stage.state.value)
             updateParams(enter = false)
         }
 
@@ -46,13 +60,21 @@ class ActivityPictureInPicture(
         if (!supported || bound) return
         bound = true
         registerMuteReceiver()
+        observedKey = currentParamsKey(stage.state.value)
         updateParams(enter = false)
+        stateJob?.cancel()
+        stateJob = activity.lifecycleScope.launch {
+            stage.state.collect { state -> onStageState(state) }
+        }
         Log.i(TAG, "pip attach")
     }
 
     fun detach() {
         if (!bound) return
         bound = false
+        stateJob?.cancel()
+        stateJob = null
+        observedKey = null
         unregisterMuteReceiver()
         Log.i(TAG, "pip detach")
     }
@@ -112,15 +134,33 @@ class ActivityPictureInPicture(
     }
 
     fun refreshMuteAction() {
+        observedKey = currentParamsKey(stage.state.value)
         updateParams(enter = false)
     }
 
-    private fun focusLooksPlayable(): Boolean {
-        val state = stage.state.value
+    private fun onStageState(state: StageUiState) {
+        if (!bound) return
+        val key = currentParamsKey(state)
+        if (key == observedKey) return
+        if (observedKey?.focusLane != key.focusLane) {
+            notedWidth = 0.0
+            notedHeight = 0.0
+        }
+        observedKey = key
+        updateParams(enter = false)
+    }
+
+    private fun currentParamsKey(state: StageUiState): ParamsKey = ParamsKey(
+        focusLane = state.focusLane,
+        autoEnterEnabled = autoEnter && focusLooksPlayable(state),
+        muted = state.muted,
+    )
+
+    private fun focusLooksPlayable(state: StageUiState = stage.state.value): Boolean {
         val face = state.face(state.focusLane) ?: return false
         return face.playback == vela.app.stage.LanePlayback.Playing &&
             !face.manuallyPaused &&
-            face.playingUsername != null
+            !face.playingUsername.isNullOrEmpty()
     }
 
     private fun updateParams(enter: Boolean, width: Double? = null, height: Double? = null) {
@@ -151,13 +191,16 @@ class ActivityPictureInPicture(
             return width to height
         }
         val lane = when (stage.focusLane) {
-            vela.core.base.lane.LaneID.PRIMARY -> stage.primaryLane
-            vela.core.base.lane.LaneID.SECONDARY -> stage.secondaryLane
-            vela.core.base.lane.LaneID.TERTIARY -> null
+            LaneID.PRIMARY -> stage.primaryLane
+            LaneID.SECONDARY -> stage.secondaryLane
+            LaneID.TERTIARY -> null
         }
         val video = lane?.currentVideoSize()
         if (video != null && video.width > 0 && video.height > 0) {
             return video.width to video.height
+        }
+        if (notedWidth > 0.0 && notedHeight > 0.0) {
+            return notedWidth to notedHeight
         }
         return 9.0 to 16.0
     }
