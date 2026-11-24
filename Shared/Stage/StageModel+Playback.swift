@@ -21,7 +21,7 @@ extension StageModel {
                 requestPlay()
             }
         case .siteSearch(let keyword):
-            startSiteSearch(keyword, fallback: Room.direct(username: keyword))
+            startSiteSearch(keyword, fallback: directRoom(keyword))
         case nil:
             requestPlay()
         }

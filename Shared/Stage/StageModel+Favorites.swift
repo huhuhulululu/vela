@@ -166,7 +166,7 @@ extension StageModel {
         // 状态缓存里没有时退到当前目录（收藏夹的在线判断也用同样的回退）。
         let key = Curation.key(name)
         let room = favoriteStatus.status(for: name)?.room
-            ?? feed.catalog.first { $0.identity == key && $0.show.isPlayable }
+            ?? feed.catalog.first { $0.identity == key && $0.isCatalogPlayable }
         guard let room else { return }
         cancelSiteSearch()
         dismissSurfaces()

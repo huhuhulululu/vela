@@ -25,6 +25,7 @@ struct CatalogRest: Sendable {
     var query: CatalogQuery
     var pages: Int
     var fetched: Int
+    var offset: Int = 0
     var last: CatalogPage
 }
 
@@ -61,6 +62,8 @@ extension StageModel {
                 store.replace(with: page)
                 store.setQuery(self.currentQuery)
             }
+            loadedSiteMode = siteMode
+            loadedDirectory = directory
             loadedOffset = page.nextOffset
             loading = false
             // 首页先装好并起播。还有后续页时，定向候选等这些页并入后再发（稀有度按全部常规页算）；
@@ -96,11 +99,11 @@ extension StageModel {
         }
     }
 
-    /// 目录没取回：切来源失败就回滚来源，否则显示原因（列表非空时再弹一条提示）。
+    /// 目录没取回：切来源或切站点失败就回滚，否则显示原因（列表非空时再弹一条提示）。
     private func failReload(_ message: String) {
         loading = false
-        if source != loadedSource, !feed.rooms.isEmpty {
-            rollbackSource(message)
+        if (source != loadedSource || siteMode != loadedSiteMode), !feed.rooms.isEmpty {
+            rollbackOrigin(message)
             return
         }
         catalogError = message
@@ -199,11 +202,17 @@ extension StageModel {
         if !searchText.isEmpty { searchText = "" }
     }
 
-    /// 切换来源后目录取不回来：列表还是原来源的，来源标记也回到原来源，别让界面说一套、显示另一套。
-    private func rollbackSource(_ message: String) {
+    /// 切换来源或站点后目录取不回来：列表还是原来的，来源、站点标记与目录入口也一起回滚，别让界面说一套、显示另一套。
+    private func rollbackOrigin(_ message: String) {
+        let sourceChanged = source != loadedSource
+        let siteChanged = siteMode != loadedSiteMode
         source = loadedSource
         settings.source = loadedSource
-        showToast("\(message)，仍停在\(Copy.source(loadedSource))")
+        siteMode = loadedSiteMode
+        settings.siteMode = loadedSiteMode
+        if siteChanged { directory = loadedDirectory }
+        let label = sourceChanged ? Copy.source(loadedSource) : Copy.siteMode(loadedSiteMode)
+        showToast("\(message)，仍停在\(label)")
     }
 
     /// 可见列表为空（整页被屏蔽或过滤）时继续翻页，直到出现可见房间、到底，或达到空页上限。
@@ -305,7 +314,7 @@ extension StageModel {
         let plan = source == .guess ? TargetedPlan(base: query, rarity: TagRarity(rooms: first.rooms)) : nil
         return FetchedPage(
             page: first, regular: first.rooms, targeted: plan,
-            rest: CatalogRest(query: query, pages: source.pageCount, fetched: 1, last: first)
+            rest: CatalogRest(query: query, pages: source.pageCount, fetched: 1, offset: 0, last: first)
         )
     }
 
@@ -321,7 +330,8 @@ extension StageModel {
         let pageSize = min(max(rest.query.limit, 1), CatalogQuery.maxPageSize)
         guard CatalogWindow.shouldContinue(
             fetched: rest.fetched, pages: rest.pages, lastCount: rest.last.rooms.count,
-            pageSize: pageSize, nextOffset: rest.last.nextOffset, total: rest.last.total
+            pageSize: pageSize, nextOffset: rest.last.nextOffset, total: rest.last.total,
+            advanced: rest.last.nextOffset - rest.offset
         ) else { return }
         catalogRestTask = Task { [weak self] in
             await self?.followCatalogRest(rest, pageSize: pageSize, token: token)
@@ -341,10 +351,12 @@ extension StageModel {
         defer { loadSlot.release(generation: token) }
         var query = rest.query
         var last = rest.last
+        var lastOffset = rest.offset
         var fetched = rest.fetched
         while CatalogWindow.shouldContinue(
             fetched: fetched, pages: rest.pages, lastCount: last.rooms.count,
-            pageSize: pageSize, nextOffset: last.nextOffset, total: last.total
+            pageSize: pageSize, nextOffset: last.nextOffset, total: last.total,
+            advanced: last.nextOffset - lastOffset
         ) {
             guard !Task.isCancelled, token == loadGeneration, lifecycleAllows(.beforeRequest, life) else { return }
             query.offset = last.nextOffset
@@ -358,10 +370,15 @@ extension StageModel {
             }
             guard !Task.isCancelled, token == loadGeneration, lifecycleAllows(.beforeCommit, life) else { return }
             let offset = query.offset
+            let advanced = page.nextOffset - offset
             if page.rooms.isEmpty {
                 updateFeed(intent: .merge) { $0.mergePageAfterCurrent(page, from: offset) { $0 } }
                 loadedOffset = page.nextOffset
-                break
+                if advanced <= 0 || page.nextOffset >= page.total { break }
+                last = page
+                lastOffset = offset
+                fetched += 1
+                continue
             }
             updateCandidates(page.rooms, replacing: false)
             let ordered = arranged(page)
@@ -375,6 +392,7 @@ extension StageModel {
             // 首页起播后用户把可见房间屏蔽光、播放器因空列表停下时，续页带来房间就起播（与 loadPage 一致）。
             if idleStart.takeStart(hasCurrent: feed.current != nil) { requestPlay() }
             last = page
+            lastOffset = offset
             fetched += 1
         }
         guard !Task.isCancelled, token == loadGeneration, source == .guess else { return }

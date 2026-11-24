@@ -161,7 +161,7 @@ final class SyncHub: ObservableObject {
         startID = id
         startTask = Task { [weak self] in
             await self?.start()
-            self?.migrateSiteKeysAfterStart()
+            self?.migrateSiteKeysAfterStart(id: id)
             // 只有当前这一次启动结束才退出「启动中」：摘线后迟到的旧任务不改它。
             if self?.startID == id { self?.starting = false }
         }
@@ -169,12 +169,32 @@ final class SyncHub: ObservableObject {
 
     private var startID: UUID?
 
-    /// 启动恢复结束后补做站点键迁移（启动时因残留加入快照推迟的那次）。待修复或提交中不写偏好文件。
-    private func migrateSiteKeysAfterStart() {
-        guard let model else { return }
-        StageModel.migrateSiteKeysIfAllowed(
-            model.settings, journal: service.joinJournalStatus, localWriteAllowed: service.localWriteAllowed
-        )
+    /// 启动恢复结束后补做站点键迁移（启动时因残留加入快照推迟的那次）。
+    /// 摘线、取消或已被新启动取代时放弃；执行前先冲刷延迟保存并持三把文件锁，避免与后台保存竞态覆写。
+    private func migrateSiteKeysAfterStart(id: UUID) {
+        guard wired, !Task.isCancelled, startID == id, let model else { return }
+        guard StageModel.shouldMigrateSiteKeys(
+            version: model.settings.siteKeyVersion,
+            journal: service.joinJournalStatus,
+            localWriteAllowed: service.localWriteAllowed
+        ) else { return }
+        model.curationSaver.flush()
+        model.tasteSaver.flush()
+        model.watchLedgerSaver.flush()
+        model.curationStore.withFileLock {
+            model.tasteStore.withFileLock {
+                model.watchLedgerStore.withFileLock {
+                    StageModel.migrateSiteKeysIfAllowed(
+                        model.settings,
+                        journal: service.joinJournalStatus,
+                        localWriteAllowed: service.localWriteAllowed,
+                        curation: model.curationStore.url,
+                        taste: model.tasteStore.url,
+                        ledger: model.watchLedgerStore.url
+                    )
+                }
+            }
+        }
     }
 
     /// 启动恢复的任务：摘线时取消。

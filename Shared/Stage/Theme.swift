@@ -94,6 +94,14 @@ enum Copy {
         }
     }
 
+    static func siteMode(_ mode: SiteMode) -> String {
+        switch mode {
+        case .chaturbate: return "Chaturbate"
+        case .cam4: return "Cam4"
+        case .mixed: return "混合"
+        }
+    }
+
     static func sourceHelp(_ source: FeedSource) -> String {
         switch source {
         case .fresh: return "在线房间中按开播时间从新到旧排，不是全站最新"

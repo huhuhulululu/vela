@@ -195,16 +195,84 @@ final class SiteWiringTests: XCTestCase {
         let page = try await stage.fetchFavoritesPage()
         XCTAssertEqual(page.rooms.map(\.ref), ["c4:sample_one"])
     }
+
+    /// 盲审 3：Cam4 模式输入裸名提交搜索命中已在列表里的房间时，保留原房间元数据且多路只切焦点。
+    func testCam4BareSearchFocusesExistingRoomAndPreservesMetadata() {
+        let stage = TestPrefs.stage(settings: SettingsStore(defaults: defaults()))
+        stage.chooseSite(.cam4)
+        let master = URL(string: "https://media.example/alice/master.m3u8")!
+        let rich = Room(username: "alice", viewers: 88, show: .publicShow, site: .cam4, stream: master)
+        install(stage, [c4("bob"), rich, c4("carol")])
+        stage.setLaneCount(2)
+        XCTAssertEqual(stage.name(of: stage.primary), "c4:bob")
+        XCTAssertEqual(stage.name(of: stage.secondary!), "c4:alice")
+
+        stage.searchText = "alice"
+        stage.submitSearch()
+        XCTAssertEqual(stage.focusLane, .secondary, "目标已在副路播时只切焦点，不重排主路")
+        XCTAssertEqual(stage.feed.catalog.first { $0.ref == "c4:alice" }?.viewers, 88, "保留目录元数据不被空 direct 覆写")
+        XCTAssertEqual(stage.feed.catalog.first { $0.ref == "c4:alice" }?.stream, master)
+    }
+
+    /// 盲审 4：质询通过后重跑全站搜索沿用当前模式的 directRoom 回退，不退回 Chaturbate。
+    func testRetryAfterChallengeSiteSearchUsesModeDirectFallback() {
+        let stage = TestPrefs.stage(settings: SettingsStore(defaults: defaults()))
+        stage.chooseSite(.cam4)
+        stage.challengeResume = .siteSearch("sample_one")
+        stage.retryAfterChallenge()
+        XCTAssertEqual(stage.wiring.lastSiteSearch?.keyword, "sample_one")
+        XCTAssertEqual(stage.wiring.lastSiteSearch?.fallback?.ref, "c4:sample_one")
+        stage.cancelSiteSearch()
+    }
+
+    /// 盲审 8：Cam4 模式下收藏来源与全站搜索态空列表不被不支持筛选提示覆盖，且收藏数按当前模式计数。
+    func testEmptyMessageCam4FavoritesAndSearchNotOverridden() {
+        let stage = TestPrefs.stage(settings: SettingsStore(defaults: defaults()))
+        stage.chooseSite(.cam4)
+        stage.region = .asia
+        stage.source = .favorites
+        stage.commit(Curation(favorites: ["cb_only_user"], blocked: []), nil)
+        XCTAssertTrue(stage.emptyMessage.hasPrefix("还没有收藏"), stage.emptyMessage)
+
+        stage.source = .fresh
+        stage.siteSearch = "keyword"
+        XCTAssertEqual(stage.emptyMessage, "目录里现在没有房间，可以稍后重试")
+    }
+
+    /// 复审 3：已有可见列表时切换站点失败，应回滚 siteMode、settings.siteMode 与 directory。
+    func testChooseSiteFailureRollsBackModeAndDirectory() async {
+        let store = defaults()
+        let stage = TestPrefs.stage(settings: SettingsStore(defaults: store))
+        stage.ageConfirmed = true
+        let failingCam4 = StubCam4(master: URL(string: "https://media.example/m.m3u8")!, failDirectory: true)
+        stage.sites = SiteRegistry(adapters: [failingCam4])
+        let beforeDirectory = stage.directory
+        install(stage, [cb("alice")])
+
+        stage.siteMode = .cam4
+        stage.settings.siteMode = .cam4
+        stage.directory = SiteDirectory(mode: .cam4, registry: stage.sites, chaturbate: stage.catalogAPI)
+        await stage.reload()
+
+        XCTAssertEqual(stage.siteMode, .chaturbate)
+        XCTAssertEqual(SettingsStore(defaults: store).siteMode, .chaturbate)
+        XCTAssertEqual(stage.directory.mode, .chaturbate)
+        XCTAssertTrue(stage.directory === beforeDirectory, "切站失败后应恢复原 SiteDirectory 实例以保留游标")
+    }
 }
 
 /// 只回固定主列表的 Cam4 桩。
 private struct StubCam4: SiteAdapter {
     let master: URL
     var online: Room? = nil
+    var failDirectory: Bool = false
     var site: SiteID { .cam4 }
     var capabilities: SiteCapabilities { .strictMaster }
     var challengeHome: URL? { nil }
-    func fetchDirectory(_ query: CatalogQuery) async throws -> CatalogPage { CatalogPage(rooms: [], total: 0, nextOffset: 0) }
+    func fetchDirectory(_ query: CatalogQuery) async throws -> CatalogPage {
+        if failDirectory { throw CatalogFailure.status(503) }
+        return CatalogPage(rooms: [], total: 0, nextOffset: 0)
+    }
     func resolveStream(_ room: Room) async throws -> SourcedTicket {
         SourcedTicket(ticket: StreamTicket(success: true, url: master, status: .publicShow), origin: .cam4Directory)
     }

@@ -284,7 +284,9 @@ extension StageModel {
     /// 不会把它挤成两路同房；其余情况主路改到它。
     func applyDirectSearchHit(_ room: Room) {
         let before = feed.currentUsername
-        updateFeed(intent: .reveal(room.ref)) { $0.insertDirect(room) }
+        updateFeed(intent: .reveal(room.ref)) {
+            if !$0.focus(room.ref) { $0.insertDirect(room) }
+        }
         showFilters = false
         if secondary == nil || feed.currentUsername != before { requestPlay() }
     }

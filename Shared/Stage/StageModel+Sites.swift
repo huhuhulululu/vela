@@ -49,10 +49,7 @@ extension StageModel {
 
     /// 搜索框回车直达：带站点前缀按前缀；裸名在 Cam4 模式按 c4，其余按 cb。名字不合法返回 nil。
     func directRoom(_ text: String) -> Room? {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.contains(":") { return RoomKey(parsing: trimmed).map(Room.direct(key:)) }
-        let site: SiteID = siteMode == .cam4 ? .cam4 : .chaturbate
-        return RoomKey(site: site, name: trimmed).map(Room.direct(key:))
+        siteMode.directRoom(text)
     }
 
     /// 收藏里属于当前站点模式的那部分（收藏来源只列这些）。
@@ -78,16 +75,21 @@ extension StageModel {
     }
 
     /// 启动时（同步关着，或没有残留快照）与同步启动恢复结束后各调一次：条件不满足就推迟、不记版本。
-    static func migrateSiteKeysIfAllowed(_ settings: SettingsStore, journal: SyncJoinJournalStatus, localWriteAllowed: Bool) {
+    static func migrateSiteKeysIfAllowed(
+        _ settings: SettingsStore,
+        journal: SyncJoinJournalStatus,
+        localWriteAllowed: Bool,
+        curation: URL = CurationStore.defaultURL(),
+        taste: URL = TasteStore.defaultURL(),
+        ledger: URL = WatchLedgerStore.defaultURL()
+    ) {
         guard shouldMigrateSiteKeys(version: settings.siteKeyVersion, journal: journal, localWriteAllowed: localWriteAllowed) else { return }
-        migrateSiteKeys(settings)
+        migrateSiteKeys(settings, curation: curation, taste: taste, ledger: ledger)
     }
 
     /// 把偏好文件的房间键一次落成带前缀格式；全部成功才记版本，失败的下次再试（原文件不动）。
-    private static func migrateSiteKeys(_ settings: SettingsStore) {
-        let report = SiteKeyMigration.run(
-            curation: CurationStore.defaultURL(), taste: TasteStore.defaultURL(), ledger: WatchLedgerStore.defaultURL()
-        )
+    private static func migrateSiteKeys(_ settings: SettingsStore, curation: URL, taste: URL, ledger: URL) {
+        let report = SiteKeyMigration.run(curation: curation, taste: taste, ledger: ledger)
         if report.failed.isEmpty { settings.siteKeyVersion = SiteKeyMigration.version }
     }
 

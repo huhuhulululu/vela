@@ -124,7 +124,13 @@ final class StageModel: ObservableObject {
     var catalogAPI: CatalogAPI
     /// 各站适配器（测试可换成桩）。换掉时目录入口一起重建。
     var sites: SiteRegistry {
-        didSet { directory = SiteDirectory(mode: siteMode, registry: sites, chaturbate: catalogAPI) }
+        didSet {
+            let current = SiteDirectory(mode: siteMode, registry: sites, chaturbate: catalogAPI)
+            directory = current
+            loadedDirectory = siteMode == loadedSiteMode
+                ? current
+                : SiteDirectory(mode: loadedSiteMode, registry: sites, chaturbate: catalogAPI)
+        }
     }
     /// 取目录的入口：cb 模式原样走 `catalogAPI`，其余经站点适配器。
     var directory: SiteDirectory
@@ -138,8 +144,10 @@ final class StageModel: ObservableObject {
     }
     var idleStart = IdleStart()
     var loadSlot = LoadSlot()
-    /// 当前列表是哪个来源取回的（切换来源失败时据此回滚）。
+    /// 当前列表是哪个来源与站点模式取回的（切换来源或站点失败时据此回滚）。
     var loadedSource: Source = .guess
+    var loadedSiteMode: SiteMode = .chaturbate
+    var loadedDirectory: SiteDirectory
     var sidecarUntil = Date.distantPast
     var pointHeight = 740.0
     var chromeTask: Task<Void, Never>?
@@ -222,7 +230,9 @@ final class StageModel: ObservableObject {
         self.catalogAPI = CatalogAPI(client: http)
         let sites = SiteRegistry.live(client: http, viewerRegions: Self.viewerRegions())
         self.sites = sites
-        self.directory = SiteDirectory(mode: settings.siteMode, registry: sites, chaturbate: catalogAPI)
+        let directory = SiteDirectory(mode: settings.siteMode, registry: sites, chaturbate: catalogAPI)
+        self.directory = directory
+        self.loadedDirectory = directory
         var notices: [String] = []
         let tasteBefore = PreferenceHealth.backupNames(tasteStore.url)
         taste = tasteStore.load()
@@ -273,6 +283,7 @@ final class StageModel: ObservableObject {
         source = settings.source
         siteMode = settings.siteMode
         loadedSource = source
+        loadedSiteMode = siteMode
     }
 
     private func installObservers() {
@@ -309,13 +320,12 @@ final class StageModel: ObservableObject {
     /// 列表为空时的说明：按原因区分（目录出错、搜索无结果、全被屏蔽、全被不想看过滤、没有公开房间、
     /// 收藏都不在线、目录确实为空），见 `EmptyListCopy`。
     var emptyMessage: String {
-        if siteMode == .cam4, catalogError == nil, feed.catalog.isEmpty,
-           region != nil || normalizedTag != nil || source == .fresh {
-            return "Cam4 不支持按地区、标签或新开播筛选"
-        }
-        return EmptyListCopy.message(
+        EmptyListCopy.message(
             catalogError: catalogError, query: currentQuery, catalog: feed.catalog,
-            source: source, favoriteCount: curation.favorites.count
+            source: source, favoriteCount: favoritesInMode(curation.favorites).count,
+            siteMode: siteMode,
+            hasUnsupportedSiteFilter: region != nil || normalizedTag != nil,
+            searching: siteSearch != nil
         )
     }
 
@@ -540,31 +550,36 @@ final class StageModel: ObservableObject {
 
     func submitSearch() {
         let text = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        var focused = false
-        updateFeed { focused = $0.focus(text) }
-        if focused {
-            cancelSiteSearch()
-            showFilters = false
-            requestPlay()
-            return
+        let direct = directRoom(text)
+        let focusKey = RoomKey.normalizeRef(direct?.ref ?? text)
+        let rawKey = RoomKey.normalizeRef(text)
+        if let matched = feed.rooms.first(where: { $0.identity == focusKey })
+            ?? (focusKey != rawKey ? feed.rooms.first(where: { $0.identity == rawKey }) : nil) {
+            let before = feed.currentUsername
+            var focused = false
+            updateFeed(intent: .reveal(matched.ref)) { focused = $0.focus(matched.ref) }
+            if focused {
+                cancelSiteSearch()
+                showFilters = false
+                if secondary == nil || feed.currentUsername != before { requestPlay() }
+                return
+            }
         }
         switch SiteSearch.onSubmit(text: text, localMatches: feed.localMatches, active: siteSearch) {
         case .ignore:
             return
         case .remote(let keyword):
-            startSiteSearch(keyword, fallback: directRoom(text))
+            startSiteSearch(keyword, fallback: direct)
             return
         case .local:
             cancelSiteSearch()
         }
-        if let room = directRoom(text) {
+        if let room = direct {
             guard !curation.isBlocked(room.ref) else {
                 showToast("\(room.username) 在屏蔽列表里")
                 return
             }
-            updateFeed { $0.insertDirect(room) }
-            showFilters = false
-            requestPlay()
+            applyDirectSearchHit(room)
             return
         }
         applySearch()
