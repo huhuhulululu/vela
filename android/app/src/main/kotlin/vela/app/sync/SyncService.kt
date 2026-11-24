@@ -63,8 +63,11 @@ sealed class SyncCreateResult {
 
 /**
  * 同步服务：把 S4 的状态机、屏障与 Android 加密、Keystore、传输接在一起（docs/plans/sync.md 第 11、12 节）。
- * 线程模型：协调器的周期通过 `flight`（协程互斥）保证单飞，并与本地操作通过 `gate` 互斥；
- * `GatedTransport` 在等网络时让出 `gate`，回来后重新拿到 `gate` 再合并，避免本地编辑阻塞于网络又与合并交错。
+ * 线程与锁序模型：
+ * - 周期通过 `flight`（协程互斥）保证单飞，并与本地操作通过 `gate` 互斥；
+ * - `GatedTransport` 在等网络时让出 `gate`，回来后重新拿回 `gate` 再合并；
+ * - 协调器触发的文档变化绝不在持有 `gate` 时向外派发，而是先记入叶子锁 `pendingDocLock`，
+ *   在释放 `gate` 后经 `docEventLock` 单调有序派发，避免回调内读 `state` 重入 `gate` 死锁。
  */
 class SyncService(
     env: Environment,
@@ -108,10 +111,19 @@ class SyncService(
     /** 周期单飞：一个周期从 GET 到最后一次落盘结束前，第二个周期异步挂起排队。 */
     private val flight = Mutex()
 
+    /** 叶子锁：仅在 gate 内外记录最新待派发文档，绝不调用外部回调、绝不获取 gate。 */
+    private val pendingDocLock = Any()
+    private var pendingDocSeq: Long = 0L
+    private var pendingDoc: SyncDocument? = null
+
+    /** 仅在 gate 外获取：保证文档投影通知与后续状态读取严格串行、单调递增，不乱序覆盖。 */
+    private val docEventLock = Any()
+    private var deliveredDocSeq: Long = 0L
+
     internal val commitLock = Any()
     internal var committing: Boolean = false
 
-    /** 文档变化（本地操作或合并）：接收方自行回主线程重建投影。 */
+    /** 文档变化（本地操作或合并）：总在释放 gate 后派发，回调内可安全读取 [state]。 */
     var onDocumentChanged: ((SyncDocument) -> Unit)? = null
 
     val isActive: Boolean get() = coordinator != null
@@ -132,6 +144,36 @@ class SyncService(
             body()
         } finally {
             gate.release()
+        }
+    }
+
+    internal fun recordPendingDoc(doc: SyncDocument) {
+        synchronized(pendingDocLock) {
+            pendingDocSeq += 1L
+            pendingDoc = doc
+        }
+    }
+
+    private fun clearPendingDoc() {
+        synchronized(pendingDocLock) {
+            pendingDoc = null
+        }
+    }
+
+    internal fun drainDocNotification() {
+        synchronized(docEventLock) {
+            while (true) {
+                val next = synchronized(pendingDocLock) {
+                    val doc = pendingDoc
+                    if (doc == null || pendingDocSeq <= deliveredDocSeq) {
+                        null
+                    } else {
+                        pendingDocSeq to doc
+                    }
+                } ?: return
+                deliveredDocSeq = next.first
+                onDocumentChanged?.invoke(next.second)
+            }
         }
     }
 
@@ -219,7 +261,11 @@ class SyncService(
 
     internal fun activate(state: SyncState, keys: SyncDerived) {
         val codec = SyncCryptoCodec(keys, env.sizeLimit, env.random)
-        val transport = GatedTransport(env.makeTransport(state.origin, keys), gate)
+        val transport = GatedTransport(
+            inner = env.makeTransport(state.origin, keys),
+            gate = gate,
+            onGateReleased = { drainDocNotification() },
+        )
         val c = SyncCoordinator(
             state = state,
             store = env.stateStore,
@@ -228,7 +274,7 @@ class SyncService(
             wallClock = env.wallClock,
             sizeLimit = env.sizeLimit,
         )
-        c.onDocumentChanged = { doc -> onDocumentChanged?.invoke(doc) }
+        c.onDocumentChanged = { doc -> recordPendingDoc(doc) }
         this.keys = keys
         this.origin = state.origin
         this.coordinator = c
@@ -245,33 +291,40 @@ class SyncService(
             coordinator = null
             keys = null
             origin = null
+            clearPendingDoc()
         }
     }
 
     // --- 同步周期与本地操作 ---
 
     suspend fun runCycle(): SyncCycleResult? {
-        flight.lock()
-        try {
-            val c = coordinator ?: return null
-            gate.acquireUninterruptibly()
+        val result = run {
+            flight.lock()
             try {
-                // 拿到 gate 后再确认协调器未被摘下，避免关闭/清除后又写回状态。
-                if (coordinator !== c) return null
-                return c.runCycle()
+                val c = coordinator ?: return@run null
+                gate.acquireUninterruptibly()
+                try {
+                    // 拿到 gate 后再确认协调器未被摘下，避免关闭/清除后又写回状态。
+                    if (coordinator !== c) return@run null
+                    c.runCycle()
+                } finally {
+                    gate.release()
+                }
             } finally {
-                gate.release()
+                flight.unlock()
             }
-        } finally {
-            flight.unlock()
         }
+        drainDocNotification()
+        return result
     }
 
     fun perform(op: SyncLocalOp, localOnlyVetoCount: Int = 0): SyncCoordinator.LocalResult? {
-        return locked {
+        val result = locked {
             val c = coordinator ?: return@locked null
             c.perform(op, localOnlyVetoCount)
         }
+        drainDocNotification()
+        return result
     }
 
     // --- 创建（第 12.3 节） ---
@@ -367,6 +420,7 @@ class SyncService(
         coordinator = null
         keys = null
         origin = null
+        clearPendingDoc()
         snapshot
     }
 
@@ -404,10 +458,11 @@ class SyncService(
     }
 }
 
-/** 周期在等网络时让出 `gate`，回来先拿回 `gate` 再交还协调器。 */
+/** 周期在等网络时让出 `gate`（并派发此前排队文档），回来先拿回 `gate` 再交还协调器。 */
 internal class GatedTransport(
     private val inner: SyncTransport,
     private val gate: Semaphore,
+    private val onGateReleased: () -> Unit = {},
 ) : SyncTransport {
     override suspend fun get(): SyncServerResponse = around { inner.get() }
     override suspend fun put(request: SyncPutRequest): SyncServerResponse = around { inner.put(request) }
@@ -416,6 +471,7 @@ internal class GatedTransport(
     private suspend inline fun around(body: () -> SyncServerResponse): SyncServerResponse {
         gate.release()
         return try {
+            onGateReleased()
             body()
         } finally {
             gate.acquireUninterruptibly()

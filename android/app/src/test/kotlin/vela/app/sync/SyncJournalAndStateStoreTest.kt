@@ -89,6 +89,7 @@ class SyncJournalAndStateStoreTest {
                 for ((k, v) in values) {
                     if (v == null) settings.remove(k) else settings[k] = v
                 }
+                true
             },
         )
         assertEquals(SyncJoinJournalStatus.NONE, journal.status)
@@ -134,7 +135,7 @@ class SyncJournalAndStateStoreTest {
             files = listOf(curation),
             settingKeys = listOf("publicOnly", "infoAlwaysOn"),
             readSettings = { settings.toMap() },
-            writeSettings = { _ -> },
+            writeSettings = { true },
         )
 
         // 构建中途写失败：不得留下发布目录或临时目录
@@ -262,6 +263,7 @@ class SyncJournalAndStateStoreTest {
                 for ((k, v) in vals) {
                     if (v == null) sink.settings.remove(k) else sink.settings[k] = v
                 }
+                true
             },
         )
         val service = SyncService(
@@ -297,7 +299,7 @@ class SyncJournalAndStateStoreTest {
                 files = listOf(CurationStore.fileIn(dir), TasteStore.defaultURL(dir)),
                 settingKeys = listOf("publicOnly", "infoAlwaysOn"),
                 readSettings = { emptyMap() },
-                writeSettings = {},
+                writeSettings = { true },
             ),
             wallClock = { 1_800_000_000_000L },
         ),

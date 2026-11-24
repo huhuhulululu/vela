@@ -66,7 +66,7 @@ class FileJoinJournal(
     val files: List<Path>,
     val settingKeys: List<String>,
     val readSettings: () -> Map<String, Boolean>,
-    val writeSettings: (Map<String, Boolean?>) -> Unit,
+    val writeSettings: (Map<String, Boolean?>) -> Boolean,
 ) : SyncJoinJournal {
     /** 写一个小文件；测试可注入失败。 */
     var writeFile: (Path, ByteArray) -> Boolean = { path, data ->
@@ -167,8 +167,7 @@ class FileJoinJournal(
         for (key in settingKeys) {
             values[key] = saved[key]
         }
-        writeSettings(values)
-        return true
+        return writeSettings(values)
     }
 
     override fun discard(): Boolean {
