@@ -213,33 +213,42 @@ class SiteKeyMigrationTests {
     @Test
     fun testRollbackFailureKeepsExistingFile() {
         val directory = tempDir()
-        val curation = directory.resolve("feed-curation.json")
-        val backup = SiteKeyMigration.backupPath(curation)
         try {
+            val curation = directory.resolve("feed-curation.json")
+            val backup = SiteKeyMigration.backupPath(curation)
             val original = """{"favorites":["Alice"],"blocked":[]}""".encodeToByteArray()
             Files.write(curation, original)
             SiteKeyMigration.run(curation, directory.resolve("no-taste.json"), directory.resolve("no-ledger.json"))
             val migrated = Files.readAllBytes(curation)
-            Files.setPosixFilePermissions(backup, emptySet())
 
-            val rolled = SiteKeyMigration.rollback(curation, directory.resolve("no-taste.json"), directory.resolve("no-ledger.json"))
-            assertTrue(curation in rolled.failed)
+            var readTarget: Path? = null
+            var writeCalled = false
+            val readFailed = SiteKeyMigration.rollback(
+                curation = curation,
+                taste = directory.resolve("no-taste.json"),
+                ledger = directory.resolve("no-ledger.json"),
+                read = { path ->
+                    readTarget = path
+                    throw IOException("fileReadNoPermission")
+                },
+                write = { _, _ -> writeCalled = true },
+            )
+            assertEquals(backup, readTarget)
+            assertFalse(writeCalled, "读备份失败时不应继续写入")
+            assertTrue(curation in readFailed.failed)
             assertTrue(Files.exists(curation), "回滚失败后原文件不能被先删掉")
             assertTrue(migrated.contentEquals(Files.readAllBytes(curation)))
 
-            Files.setPosixFilePermissions(backup, java.nio.file.attribute.PosixFilePermissions.fromString("rw-------"))
             val writeFailed = SiteKeyMigration.rollback(
                 curation = curation,
                 taste = directory.resolve("no-taste.json"),
                 ledger = directory.resolve("no-ledger.json"),
-                write = { _, _ -> throw IOException("no permission") },
+                write = { _, _ -> throw IOException("fileWriteNoPermission") },
             )
             assertTrue(curation in writeFailed.failed)
+            assertTrue(Files.exists(curation), "回滚写失败后原文件不能被先删掉")
             assertTrue(migrated.contentEquals(Files.readAllBytes(curation)))
         } finally {
-            if (Files.exists(backup)) {
-                runCatching { Files.setPosixFilePermissions(backup, java.nio.file.attribute.PosixFilePermissions.fromString("rw-------")) }
-            }
             directory.toFile().deleteRecursively()
         }
     }
