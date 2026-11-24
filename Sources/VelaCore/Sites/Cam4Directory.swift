@@ -42,8 +42,8 @@ public enum Cam4Directory {
         let parsed = try parse(data)
         let limit = min(max(requestLimit, 1), maxPageSize)
         let rooms = parsed.users.compactMap { $0.room(now: now, viewerRegions: viewerRegions) }
-        let total = parsed.total ?? rooms.count
-        let step = min(rooms.count, limit)
+        let total = parsed.total ?? parsed.users.count
+        let step = min(parsed.users.count, limit)
         return CatalogPage(rooms: rooms, total: total, nextOffset: requestOffset + step)
     }
 

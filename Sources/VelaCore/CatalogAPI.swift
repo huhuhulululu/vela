@@ -153,23 +153,30 @@ public struct CatalogAPI: Sendable {
 /// 没取满 `pages`、上一页是满页、游标没到底。页大小按接口上限截断。
 public enum CatalogWindow {
     /// 连续取页的循环（`CatalogAPI.fetchPages` 与 `SiteDirectory.fetchPages` 共用）：遇到短页、空页或到底即停，去重合并。
+    /// 本地过滤顺延扫描触顶时，过滤后房间数可能小于页大小甚至为空，只要游标仍按整页推进且未到底，仍继续取下一页（上限仍受 `pages` 约束）。
     public static func collect(
         _ query: CatalogQuery, pages: Int, fetch: (CatalogQuery) async throws -> CatalogPage
     ) async throws -> CatalogPage {
         let size = min(max(query.limit, 1), CatalogQuery.maxPageSize)
         var next = query
+        var lastOffset = max(next.offset, 0)
         var last = try await fetch(next)
         var merged = last
         var fetched = 1
         while shouldContinue(
             fetched: fetched, pages: pages, lastCount: last.rooms.count,
-            pageSize: size, nextOffset: last.nextOffset, total: last.total
+            pageSize: size, nextOffset: last.nextOffset, total: last.total,
+            advanced: last.nextOffset - lastOffset
         ) {
             next.offset = last.nextOffset
+            lastOffset = next.offset
             last = try await fetch(next)
+            let advanced = last.nextOffset - lastOffset
             if last.rooms.isEmpty {
-                if last.nextOffset > next.offset { merged = PageMerge.appended(merged, last) }
-                break
+                if advanced > 0 { merged = PageMerge.appended(merged, last) }
+                if advanced <= 0 || last.nextOffset >= last.total { break }
+                fetched += 1
+                continue
             }
             merged = PageMerge.appended(merged, last)
             fetched += 1
@@ -178,10 +185,13 @@ public enum CatalogWindow {
     }
 
     public static func shouldContinue(
-        fetched: Int, pages: Int, lastCount: Int, pageSize: Int, nextOffset: Int, total: Int
+        fetched: Int, pages: Int, lastCount: Int, pageSize: Int, nextOffset: Int, total: Int,
+        advanced: Int? = nil
     ) -> Bool {
         let size = min(max(pageSize, 1), CatalogQuery.maxPageSize)
-        return fetched < pages && lastCount >= size && nextOffset < total
+        if let advanced, advanced <= 0 { return false }
+        let progress = max(lastCount, advanced ?? 0)
+        return fetched < pages && progress >= size && nextOffset < total
     }
 }
 

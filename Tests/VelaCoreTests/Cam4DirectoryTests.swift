@@ -125,6 +125,34 @@ final class Cam4DirectoryTests: XCTestCase {
         }
     }
 
+    /// 盲审 1：原页含不合规用户名被丢弃时，游标步长与裸数组 total 仍按原始记录数推进，不回退重拉第 1 页。
+    func testDecodeAdvancesCursorByRawUserCountAndMatchesBareArrayTotal() throws {
+        let objectJSON = Data("""
+        {
+          "totalCount": 500,
+          "users": [
+            {"username": "bad-name", "gender": "female", "viewers": 10},
+            {"username": "valid_one", "gender": "female", "viewers": 20}
+          ]
+        }
+        """.utf8)
+        let page = try Cam4Directory.decode(objectJSON, requestLimit: 2, requestOffset: 0, now: now, viewerRegions: [])
+        XCTAssertEqual(page.rooms.map(\.username), ["valid_one"])
+        XCTAssertEqual(page.total, 500)
+        XCTAssertEqual(page.nextOffset, 2, "原页返回了 2 条，游标应推进到 2 而非过滤后的 1")
+
+        let arrayJSON = Data("""
+        [
+          {"username": "bad-name", "gender": "female", "viewers": 10},
+          {"username": "valid_one", "gender": "female", "viewers": 20}
+        ]
+        """.utf8)
+        let bare = try Cam4Directory.decode(arrayJSON, requestLimit: 2, requestOffset: 0, now: now, viewerRegions: [])
+        XCTAssertEqual(bare.rooms.map(\.username), ["valid_one"])
+        XCTAssertEqual(bare.total, 2)
+        XCTAssertEqual(bare.nextOffset, 2)
+    }
+
     private func fixture() throws -> Data {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

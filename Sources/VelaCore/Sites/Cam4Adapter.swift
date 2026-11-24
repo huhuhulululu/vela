@@ -64,9 +64,9 @@ public final class Cam4Adapter: SiteAdapter, @unchecked Sendable {
             for room in filtered(raw, query: query).rooms where seen.insert(room.identity).inserted {
                 collected.append(room)
             }
-            let advanced = raw.nextOffset > cursor
+            let upstreamStep = raw.nextOffset - cursor
             cursor = raw.nextOffset
-            if !needsFilter || collected.count >= limit || raw.rooms.count < limit || !advanced || cursor >= total || scans >= Self.maxFilterScans {
+            if !needsFilter || collected.count >= limit || upstreamStep < limit || upstreamStep <= 0 || cursor >= total || scans >= Self.maxFilterScans {
                 break
             }
         }
@@ -171,7 +171,7 @@ public final class Cam4Adapter: SiteAdapter, @unchecked Sendable {
         }
         if let keywords = SiteSearch.normalized(query.keywords) {
             let needle = keywords.lowercased()
-            rooms = rooms.filter { $0.username.lowercased().contains(needle) }
+            rooms = rooms.filter { $0.username.lowercased().contains(needle) || $0.identity.contains(needle) }
         }
         return CatalogPage(rooms: rooms, total: page.total, nextOffset: page.nextOffset)
     }

@@ -271,6 +271,75 @@ final class Cam4StreamTests: XCTestCase {
         XCTAssertEqual(items.first { $0.name == "resultsPerPage" }?.value, "40")
     }
 
+    /// 盲审 1：第 1 页含不合规用户名被丢弃导致 raw.rooms.count < limit 时，顺延扫描不能在第 1 页提前中止。
+    func testFilteredScanContinuesWhenRawPageDropsInvalidUsername() async throws {
+        let client = ScriptClient(results: [
+            page(users: [user("bad-name", hls: hls, gender: "female"), user("f1", hls: hls, gender: "female")], total: 6),
+            page(users: [user("m1", hls: hls, gender: "male"), user("m2", hls: hls, gender: "male")], total: 6)
+        ])
+        let adapter = Cam4Adapter(client: client, backoff: nil, viewerRegions: [])
+        let result = try await adapter.fetchDirectory(CatalogQuery(gender: .male, limit: 2, offset: 0))
+        XCTAssertEqual(result.rooms.map(\.username), ["m1", "m2"])
+        XCTAssertEqual(result.nextOffset, 4)
+        let pages = client.requests.map { URLComponents(url: $0.url!, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "page" }?.value }
+        XCTAssertEqual(pages, ["1", "2"])
+    }
+
+    /// 复审 1：前 5 个完整原页（达到 maxFilterScans）只命中 1 间时，fetchPages 仍应继续拉第 6 页。
+    func testMultiPageCollectContinuesPastMaxFilterScansShortPage() async throws {
+        let client = ScriptClient(results: [
+            page(users: [user("b1", hls: hls, blocked: ["US"]), user("b2", hls: hls, blocked: ["US"])], total: 20),
+            page(users: [user("b3", hls: hls, blocked: ["US"]), user("b4", hls: hls, blocked: ["US"])], total: 20),
+            page(users: [user("ok1", hls: hls), user("b5", hls: hls, blocked: ["US"])], total: 20),
+            page(users: [user("b6", hls: hls, blocked: ["US"]), user("b7", hls: hls, blocked: ["US"])], total: 20),
+            page(users: [user("b8", hls: hls, blocked: ["US"]), user("b9", hls: hls, blocked: ["US"])], total: 20),
+            page(users: [user("ok2", hls: hls), user("ok3", hls: hls)], total: 20),
+            page(users: [user("ok4", hls: hls), user("ok5", hls: hls)], total: 20)
+        ])
+        let adapter = Cam4Adapter(client: client, backoff: nil, viewerRegions: ["US"])
+        let dir = SiteDirectory(
+            mode: .cam4,
+            registry: SiteRegistry(adapters: [adapter]),
+            chaturbate: CatalogAPI(client: client, backoff: nil)
+        )
+        let merged = try await dir.fetchPages(CatalogQuery(limit: 2, offset: 0), pages: 3)
+        XCTAssertEqual(merged.rooms.map(\.username), ["ok1", "ok2", "ok3", "ok4", "ok5"])
+        XCTAssertEqual(merged.nextOffset, 14)
+    }
+
+    /// 复审 1：前 5 个完整原页全被地区屏蔽过滤为空页但游标仍推进且未到底，fetchPages 不能把空页当结束。
+    func testMultiPageCollectContinuesPastMaxFilterScansEmptyPage() async throws {
+        let client = ScriptClient(results: [
+            page(users: [user("b1", hls: hls, blocked: ["US"]), user("b2", hls: hls, blocked: ["US"])], total: 20),
+            page(users: [user("b3", hls: hls, blocked: ["US"]), user("b4", hls: hls, blocked: ["US"])], total: 20),
+            page(users: [user("b5", hls: hls, blocked: ["US"]), user("b6", hls: hls, blocked: ["US"])], total: 20),
+            page(users: [user("b7", hls: hls, blocked: ["US"]), user("b8", hls: hls, blocked: ["US"])], total: 20),
+            page(users: [user("b9", hls: hls, blocked: ["US"]), user("b10", hls: hls, blocked: ["US"])], total: 20),
+            page(users: [user("ok1", hls: hls), user("ok2", hls: hls)], total: 20)
+        ])
+        let adapter = Cam4Adapter(client: client, backoff: nil, viewerRegions: ["US"])
+        let dir = SiteDirectory(
+            mode: .cam4,
+            registry: SiteRegistry(adapters: [adapter]),
+            chaturbate: CatalogAPI(client: client, backoff: nil)
+        )
+        let merged = try await dir.fetchPages(CatalogQuery(limit: 2, offset: 0), pages: 2)
+        XCTAssertEqual(merged.rooms.map(\.username), ["ok1", "ok2"])
+        XCTAssertEqual(merged.nextOffset, 12)
+    }
+
+    /// 盲审 5：关键词带 c4: 前缀时 Cam4Adapter.filtered 应识别房间 ref/identity，不白扫 5 页。
+    func testKeywordsFilterMatchesCam4Prefix() async throws {
+        let client = ScriptClient(results: [
+            page(users: [user("sample_one", hls: hls), user("other_two", hls: hls)], total: 4),
+            page(users: [user("other_three", hls: hls), user("other_four", hls: hls)], total: 4)
+        ])
+        let adapter = Cam4Adapter(client: client, backoff: nil, viewerRegions: [])
+        let result = try await adapter.fetchDirectory(CatalogQuery(limit: 2, offset: 0, keywords: "c4:sample_one"))
+        XCTAssertEqual(result.rooms.map(\.username), ["sample_one"])
+        XCTAssertEqual(client.requests.count, 2)
+    }
+
     private func user(
         _ name: String, hls: String? = nil, privateRoom: Bool = false, blocked: [String] = [], gender: String = "female"
     ) -> [String: Any] {
