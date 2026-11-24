@@ -228,6 +228,55 @@ internal object E2eCSupport {
         return predicate()
     }
 
+    /** 仅在超时失败后采集现场快照，避免在等待开始前就求值字符串拿到旧状态。 */
+    fun assertWaitUntil(
+        activity: MainActivity,
+        message: String,
+        limitMs: Long = 5_000,
+        extra: (() -> String)? = null,
+        predicate: () -> Boolean,
+    ) {
+        if (waitUntil(limitMs, predicate)) return
+        val tail = extra?.invoke()?.takeIf { it.isNotEmpty() }?.let { " | $it" }.orEmpty()
+        assertTrue("$message | ${diagnosePip(activity)}$tail", false)
+    }
+
+    /** 输出生命周期、画中画标志、两路播放状态与最近画中画事件，便于模拟器失败定位。 */
+    fun diagnosePip(activity: MainActivity): String {
+        val stage = activity.stage
+        val state = stage.state.value
+        val coordinator = activity.wiring.pipCoordinator
+        val primaryLane = activity.session.lane.value
+        val secondaryLane = secondaryLane(activity.session)
+        val primaryPlaying = state.lane.playback == vela.app.stage.LanePlayback.Playing ||
+            (primaryLane != null && primaryLane.firstFrameElapsedMs >= 0L && !primaryLane.failed)
+        val secondaryPlaying = state.secondary?.playback == vela.app.stage.LanePlayback.Playing ||
+            (secondaryLane != null && secondaryLane.firstFrameElapsedMs >= 0L && !secondaryLane.failed)
+        return buildString {
+            append("phase=").append(activity.wiring.phase)
+            append(" lifecycle=").append(activity.lifecycle.currentState)
+            append(" inPip=").append(activity.isInPictureInPictureMode)
+            append(" finishing=").append(activity.isFinishing)
+            append(" destroyed=").append(activity.isDestroyed)
+            append(" pipState=").append(coordinator?.pictureInPictureState)
+            append(" stagePip=").append(stage.pictureInPicture)
+            append(" gate=").append(stage.playbackGateOpen)
+            append(" allowed=").append(stage.lifecycleEpoch.allowedLane)
+            append(" lanes=").append(state.laneCount)
+            append(" focus=").append(stage.focusLane)
+            append(" primary={playing=").append(primaryPlaying)
+            append(",face=").append(state.lane.playback)
+            append(",lane=").append(primaryLane != null)
+            append("}")
+            append(" secondary={playing=").append(secondaryPlaying)
+            append(",face=").append(state.secondary?.playback)
+            append(",visible=").append(state.secondary?.visible)
+            append(",lane=").append(secondaryLane != null)
+            append("}")
+            append(" events=").append(coordinator?.recentEvents(10).orEmpty())
+        }
+    }
+
     fun overrideUpstream() {
         Endpoints.overrideRoot(upstream())
     }

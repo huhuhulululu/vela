@@ -63,8 +63,10 @@ class ActivityPictureInPicture(
                 return
             }
             if (!inPip) return
-            if (!activity.isFinishing && activity.isInPictureInPictureMode) return
+            // Android 处于可见画中画时停留在 STARTED（paused）；一旦进入 onStop 即表示小窗已关闭、锁屏或正在销毁，
+            // 此时 !isFinishing 且 isInPictureInPictureMode 可能仍为 true（onStop 先于 modeChanged(false) 或不发该回调），必须立即全停。
             inPip = false
+            pendingRestore = false
             onEvent(PiPEvent.WillStop)
             onEvent(PiPEvent.DidStop)
         }
@@ -99,6 +101,8 @@ class ActivityPictureInPicture(
 
     fun detach() {
         if (!bound) return
+        val wasInPip = inPip
+        val wasPendingRestore = pendingRestore
         bound = false
         inPip = false
         pendingRestore = false
@@ -107,6 +111,12 @@ class ActivityPictureInPicture(
         stateJob = null
         observedKey = null
         unregisterMuteReceiver()
+        if (wasInPip) {
+            onEvent(PiPEvent.WillStop)
+            onEvent(PiPEvent.DidStop)
+        } else if (wasPendingRestore) {
+            onEvent(PiPEvent.Failed("detached"))
+        }
         Log.i(TAG, "pip detach")
     }
 
