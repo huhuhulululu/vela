@@ -968,7 +968,8 @@ class StageViewModel(
 
     private fun togglePause(target: RoomTarget?) {
         if (target != null && !accepts(target)) return
-        if (target?.laneID == LaneID.SECONDARY && laneCount > 1) {
+        val lane = target?.laneID ?: if (laneCount > 1) focusLane else LaneID.PRIMARY
+        if (lane == LaneID.SECONDARY && laneCount > 1) {
             togglePauseLane(target)
             return
         }

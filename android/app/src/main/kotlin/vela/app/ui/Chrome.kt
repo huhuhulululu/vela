@@ -154,7 +154,7 @@ private fun HeartButton(state: StageUiState, dispatch: (StageIntent) -> Unit) {
                 indication = null,
                 role = Role.Button,
                 onClick = {
-                    val target = state.primaryTarget()
+                    val target = state.focusTarget()
                     if (target != null) dispatch(StageIntent.ToggleFavorite(target))
                 },
                 onLongClick = { dispatch(StageIntent.ShowSurface(StageSurface.Curation)) },

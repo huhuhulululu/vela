@@ -719,6 +719,28 @@ class DualStageTest {
         }
     }
 
+    @Test
+    fun testTogglePauseWithNullTargetTargetsFocusedSecondaryLane() = harness.onStage {
+        val stage = stage()
+        try {
+            stage.ageConfirmed = true
+            install(stage, "alice", "bob")
+            stage.setDual(true)
+            stage.setFocus(LaneID.SECONDARY)
+            assertFalse(stage.laneFace.manuallyPaused)
+            assertFalse(stage.secondaryFace?.manuallyPaused ?: true)
+
+            stage.dispatch(StageIntent.TogglePause(null))
+            assertFalse("焦点在副路时 TogglePause(null) 不得暂停主路", stage.laneFace.manuallyPaused)
+            assertTrue("焦点在副路时 TogglePause(null) 应暂停副路", stage.secondaryFace?.manuallyPaused == true)
+
+            stage.dispatch(StageIntent.TogglePause(null))
+            assertFalse("再次 TogglePause(null) 应恢复副路", stage.secondaryFace?.manuallyPaused == true)
+        } finally {
+            stage.close()
+        }
+    }
+
     private fun stage(http: vela.core.base.net.HTTPClient = FakeCatalogHttp(emptyMap())): StageViewModel = StageViewModel(
         settings = settings,
         http = http,
