@@ -146,6 +146,7 @@ public final class SyncStateFileStore: SyncStateStore, @unchecked Sendable {
     private let lock = NSLock()
     private var readOnly = false
     var moveItem: PreferenceQuarantine.Mover = PreferenceQuarantine.fileMover
+    var removeItem: @Sendable (URL) throws -> Void = { try FileManager.default.removeItem(at: $0) }
 
     public init(url: URL) { self.url = url }
 
@@ -192,7 +193,7 @@ public final class SyncStateFileStore: SyncStateStore, @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         do {
-            if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
+            if FileManager.default.fileExists(atPath: url.path) { try removeItem(url) }
             readOnly = false
             return true
         } catch {

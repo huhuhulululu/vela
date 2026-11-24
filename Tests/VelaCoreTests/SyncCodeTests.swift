@@ -107,10 +107,7 @@ final class SyncCodeTests: XCTestCase {
     func testStateFileDeleteResetsReadOnlyFlag() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("sync-state-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        addTeardownBlock {
-            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: dir.path)
-            try? FileManager.default.removeItem(at: dir)
-        }
+        addTeardownBlock { try? FileManager.default.removeItem(at: dir) }
         let url = dir.appendingPathComponent("sync-state.json")
         try Data("{corrupt".utf8).write(to: url)
         let store = SyncStateFileStore(url: url)
@@ -120,10 +117,11 @@ final class SyncCodeTests: XCTestCase {
         XCTAssertEqual(store.load(), .corrupted)
         XCTAssertFalse(store.save(fresh), "改名失败进入只读")
 
-        // 删除失败时保持只读。
-        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: dir.path)
+        // 删除失败时保持只读（通过注入文件操作失败，不依赖运行用户与权限位）。
+        let realRemove = store.removeItem
+        store.removeItem = { _ in throw CocoaError(.fileWriteNoPermission) }
         XCTAssertFalse(store.delete())
-        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: dir.path)
+        store.removeItem = realRemove
         XCTAssertFalse(store.save(fresh), "删除未成功，只读标记不得复位")
 
         // 清除成功后不重建实例即可再次保存。

@@ -2,7 +2,7 @@
 import Foundation
 import XCTest
 #if SWIFT_PACKAGE
-import VelaCore
+@testable import VelaCore
 @testable import VelaSync
 #endif
 
@@ -472,27 +472,24 @@ final class SyncJoinRealFilesTests: XCTestCase {
         let r = try rig()
         try Data("{not json".utf8).write(to: r.stateURL)
         r.keys.entry = SyncKeychainEntry(key: ServiceFixture.key, dev: 7, blobID: ServiceFixture.keys.blobID)
-        let dir = r.dir
         r.configureBacking = { store in
-            store.writeMarker = { url in
-                let ok = FileManager.default.createFile(atPath: url.path, contents: Data())
-                // 标记写完立刻把目录置只读，让紧接着的改名隔离失败，从而置上底层只读标记。
-                try? FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: dir.path)
-                return ok
-            }
+            // 注入改名隔离失败（不依赖运行用户与目录权限位），直接置上底层只读标记。
+            store.inner.moveItem = { _, _ in throw CocoaError(.fileWriteNoPermission) }
         }
         r.restart()
         let started = await r.service.start(local: { r.sink.local }, sink: r.sink)
         XCTAssertEqual(started, .attention(.stateCorrupted))
         XCTAssertTrue(FileManager.default.fileExists(atPath: r.stateURL.path), "前提：改名隔离失败，坏文件留在原处")
 
-        chmod(dir, 0o700)
         let probe = SyncState(phase: .creating, origin: ServiceFixture.origin, blobID: ServiceFixture.keys.blobID, clock: SyncClock(dev: 7))
         XCTAssertFalse(r.backing.save(probe), "前提：底层只读标记已置上")
-        // 移走坏文件而保留损坏标记：`disable` 与 `create` 的 `load()` 都会在 `SyncBackupExcludedStore` 短路，
-        // 不会再调底层 `inner.load()`，从而真正检验 `inner.delete()` 复位只读标记。
-        try FileManager.default.removeItem(at: r.stateURL)
-        // 不调用 r.restart()：同一进程内关闭后直接重新开启。
+        // 注入删除失败：关闭失败时只读标记不得复位。
+        let realRemove = r.backing.inner.removeItem
+        r.backing.inner.removeItem = { _ in throw CocoaError(.fileWriteNoPermission) }
+        XCTAssertEqual(r.service.disable(sink: r.sink), .storageFailed)
+        r.backing.inner.removeItem = realRemove
+        XCTAssertFalse(r.backing.save(probe), "删除未成功，只读标记不得复位")
+        // 不调用 r.restart()：同一进程内关闭成功后直接重新开启。
         XCTAssertEqual(r.service.disable(sink: r.sink), .done)
         XCTAssertNil(r.keys.entry)
         r.t.gets = [.notFound(epoch: ServiceFixture.epoch, now: 1_800_000_000_000)]
