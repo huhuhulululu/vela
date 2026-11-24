@@ -58,7 +58,7 @@ public struct FavoritesBoard: Equatable, Sendable {
             if byKey[normalized] == nil || key == normalized { byKey[normalized] = statuses[key] }
         }
         var playable: [String: Room] = [:]
-        for room in catalog where room.show.isPlayable {
+        for room in catalog where room.isCatalogPlayable {
             let key = Curation.key(room.ref)
             if playable[key] == nil { playable[key] = room }
         }
@@ -80,7 +80,7 @@ public struct FavoritesBoard: Equatable, Sendable {
                     username: name,
                     state: .online,
                     room: room,
-                    thumbnailURL: room.thumbnailURL ?? Self.fallbackThumb(key),
+                    thumbnailURL: room.usableThumbnail(now: now) ?? Self.fallbackThumb(key),
                     detail: onlineDetail(room)
                 ))
             case .offline?:

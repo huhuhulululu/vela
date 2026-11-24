@@ -45,6 +45,25 @@ final class RoomKeyTests: XCTestCase {
         XCTAssertNotNil(RoomKey(site: .chaturbate, name: "ab"))
     }
 
+    /// 盲审 9：拒绝尾随换行符与非 ASCII 小写化绕过（如开尔文符号 U+212A）。
+    func testSiteIDRejectsTrailingNewlineAndKelvinLowercase() {
+        XCTAssertFalse(SiteID.isValidID("cb\n"))
+        XCTAssertFalse(SiteID.cam4.isValidName("ab\n"))
+        XCTAssertNil(RoomKey(parsing: "cb\n:alice"))
+        XCTAssertNil(RoomKey(site: .cam4, name: "\u{212A}a"))
+        XCTAssertNil(SyncKeys.roomKey(localName: "\u{212A}a"))
+        XCTAssertNil(SyncKeys.roomKey(localName: "c4:\u{212A}a"))
+        XCTAssertFalse(SiteKeys.disk("xx\n:ab").hasPrefix("xx\n:"))
+    }
+
+    func testSiteModeDirectRoom() {
+        XCTAssertEqual(SiteMode.chaturbate.directRoom("Alice")?.ref, "Alice")
+        XCTAssertEqual(SiteMode.mixed.directRoom("Alice")?.ref, "Alice")
+        XCTAssertEqual(SiteMode.cam4.directRoom("Alice")?.ref, "c4:alice")
+        XCTAssertEqual(SiteMode.chaturbate.directRoom("c4:Alice")?.ref, "c4:alice")
+        XCTAssertNil(SiteMode.cam4.directRoom("x"))
+    }
+
     func testCodableRoundTripAndNormalizeRef() throws {
         let key = try XCTUnwrap(RoomKey(parsing: "cb:Alice"))
         let data = try JSONEncoder().encode(key)

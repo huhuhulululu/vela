@@ -134,6 +134,11 @@ public struct Room: Identifiable, Equatable, Sendable {
 
     public var ref: String { key.ref }
 
+    /// 凭目录快照能否直接判为在线可播：Chaturbate 看公开状态，其余站点（Cam4）还必须带有目录流地址。
+    public var isCatalogPlayable: Bool {
+        show.isPlayable && (site == .chaturbate || stream != nil)
+    }
+
     private mutating func cacheKey() {
         (key, identity) = Self.makeKey(site: site, username: username)
     }

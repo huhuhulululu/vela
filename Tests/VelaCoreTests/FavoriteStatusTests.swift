@@ -260,4 +260,23 @@ final class FavoriteStatusTests: XCTestCase {
         )
         XCTAssertEqual(panelPlan.pending, ["alice"], "收藏面板未限定站点时仍查询全部收藏")
     }
+
+    /// 盲审 6 / 复审 2：Cam4 公开房没有流地址时，命中目录快照也应判为 offline 而非 online。
+    func testCam4CatalogRoomWithoutStreamIsOffline() {
+        var catalog = KnownCatalog()
+        let streamless = Room(username: "no_stream", viewers: 15, show: .publicShow, site: .cam4, stream: nil)
+        let playable = Room(
+            username: "has_stream", viewers: 10, show: .publicShow, site: .cam4,
+            stream: URL(string: "https://preview.example/has_stream/master.m3u8")
+        )
+        let cbRoom = Room(username: "cb_pub", viewers: 8, show: .publicShow, site: .chaturbate, stream: nil)
+        catalog.record([streamless, playable, cbRoom], firstPage: true, at: now)
+
+        let plan = FavoriteResolver.plan(
+            favorites: ["c4:no_stream", "c4:has_stream", "cb_pub"], catalog: catalog, cache: FavoriteCache(), now: now
+        )
+        XCTAssertEqual(plan.resolved["c4:no_stream"], .offline, "无流 Cam4 房不能按在线缓存")
+        XCTAssertEqual(plan.resolved["c4:has_stream"], .online(playable))
+        XCTAssertEqual(plan.resolved["cb_pub"], .online(cbRoom), "Chaturbate 目录本就无 stream，行为不变")
+    }
 }

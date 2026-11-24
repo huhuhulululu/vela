@@ -36,12 +36,16 @@ public enum EmptyListCopy {
     #endif
 
     public static func message(
-        catalogError: String?, query: RoomQuery, catalog: [Room], source: FeedSource, favoriteCount: Int
+        catalogError: String?, query: RoomQuery, catalog: [Room], source: FeedSource, favoriteCount: Int,
+        siteMode: SiteMode = .chaturbate, hasUnsupportedSiteFilter: Bool = false, searching: Bool = false
     ) -> String {
         if let catalogError { return catalogError }
         guard !catalog.isEmpty else {
             if source == .favorites {
                 return favoriteCount == 0 ? noFavoritesYet : "收藏的人现在都不在线"
+            }
+            if siteMode == .cam4, !searching, hasUnsupportedSiteFilter || source == .fresh {
+                return "Cam4 不支持按地区、标签或新开播筛选"
             }
             return "目录里现在没有房间，可以稍后重试"
         }

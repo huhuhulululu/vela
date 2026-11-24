@@ -31,16 +31,16 @@ public enum SyncKeys {
     /// 裸名按 cb；站点不在合法集合、名字不合规返回 nil（不进同步）。与 `sites.md` 同一套归一化。
     public static func roomKey(localName: String) -> String? {
         let trimmed = localName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let parsed = RoomKey(parsing: trimmed) ?? RoomKey(parsing: trimmed.lowercased()),
+        guard let parsed = RoomKey(parsing: trimmed) ?? RoomKey(parsing: asciiLowercased(trimmed)),
               projectedSites.contains(parsed.site.rawValue) else { return nil }
-        let key = parsed.site.rawValue + ":" + parsed.name.lowercased()
+        let key = parsed.site.rawValue + ":" + asciiLowercased(parsed.name)
         return isRoomKey(key) ? key : nil
     }
 
     /// 写 `n` 用的显示原文：带站点前缀的本机名字去掉前缀（`c4:bob` 的原文是 `bob`），裸名原样。
     static func displayOriginal(localName: String) -> String {
         let trimmed = localName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.contains(":"), let parsed = RoomKey(parsing: trimmed) ?? RoomKey(parsing: trimmed.lowercased()) else {
+        guard trimmed.contains(":"), let parsed = RoomKey(parsing: trimmed) ?? RoomKey(parsing: asciiLowercased(trimmed)) else {
             return localName
         }
         return parsed.name

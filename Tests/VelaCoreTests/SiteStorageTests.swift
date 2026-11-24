@@ -247,6 +247,49 @@ final class SiteKeyMigrationTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: SiteKeyMigration.backupURL(for: curation).path))
     }
 
+    /// 盲审 9：回滚读/写失败时不能先删掉现有原文件导致数据丢失。
+    func testRollbackFailureKeepsExistingFile() throws {
+        let curation = file("feed-curation.json")
+        let original = Data(#"{"favorites":["Alice"],"blocked":[]}"#.utf8)
+        try original.write(to: curation)
+        _ = SiteKeyMigration.run(curation: curation, taste: file("no-taste.json"), ledger: file("no-ledger.json"))
+        let migrated = try Data(contentsOf: curation)
+        let backup = SiteKeyMigration.backupURL(for: curation)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: backup.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: backup.path) }
+
+        let rolled = SiteKeyMigration.rollback(curation: curation, taste: file("no-taste.json"), ledger: file("no-ledger.json"))
+        XCTAssertTrue(rolled.failed.contains(curation))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: curation.path), "回滚失败后原文件不能被先删掉")
+        XCTAssertEqual(try Data(contentsOf: curation), migrated)
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: backup.path)
+        let writeFailed = SiteKeyMigration.rollback(
+            curation: curation, taste: file("no-taste.json"), ledger: file("no-ledger.json"),
+            write: { _, _ in throw CocoaError(.fileWriteNoPermission) }
+        )
+        XCTAssertTrue(writeFailed.failed.contains(curation))
+        XCTAssertEqual(try Data(contentsOf: curation), migrated)
+    }
+
+    /// 盲审 2：先 flush 延迟保存再持 store 文件锁迁移，避免旧文件迁移覆盖掉已经排队的最新收藏。
+    func testFlushAndWithFileLockSerializeDeferredSaveAndMigration() throws {
+        let curationURL = file("feed-curation.json")
+        try Data(#"{"favorites":["old_user"],"blocked":[]}"#.utf8).write(to: curationURL)
+        let store = CurationStore(url: curationURL)
+        let saver = DeferredSaver<Curation>(delay: 0.2) { _ = store.save($0) }
+        saver.schedule(Curation(favorites: ["new_user", "c4:cam_star"], blocked: []))
+        saver.flush()
+        let report = store.withFileLock {
+            SiteKeyMigration.run(curation: store.url, taste: file("no-taste.json"), ledger: file("no-ledger.json"))
+        }
+        XCTAssertTrue(report.failed.isEmpty)
+        let loaded = store.load()
+        XCTAssertTrue(loaded.isFavorite("new_user"), "延迟保存的最新收藏不能被迁移丢弃")
+        XCTAssertTrue(loaded.isFavorite("c4:cam_star"))
+        XCTAssertFalse(loaded.isFavorite("old_user"))
+    }
+
     func testMixedOldAndNewKeys() throws {
         let curation = file("feed-curation.json")
         try Data(#"{"favorites":["Alice","cb:Carol","c4:Bob","c4:bob"],"blocked":["cb:dave"]}"#.utf8).write(to: curation)

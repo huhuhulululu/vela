@@ -24,6 +24,14 @@ public enum SiteMode: String, CaseIterable, Codable, Sendable {
         let allowed = Set(sites)
         return names.filter { allowed.contains(RoomKey.site(ofRef: $0)) }
     }
+
+    /// 搜索框回车直达：带站点前缀按前缀；裸名在 Cam4 模式按 c4，其余按 cb。名字不合法返回 nil。
+    public func directRoom(_ text: String) -> Room? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.contains(":") { return RoomKey(parsing: trimmed).map(Room.direct(key:)) }
+        let site: SiteID = self == .cam4 ? .cam4 : .chaturbate
+        return RoomKey(site: site, name: trimmed).map(Room.direct(key:))
+    }
 }
 
 /// 混合目录的各站游标。单站模式不靠它分页（直接用 `CatalogQuery.offset`）。

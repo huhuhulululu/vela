@@ -240,4 +240,11 @@ public final class WatchLedgerStore: @unchecked Sendable {
             return false
         }
     }
+
+    /// 持同一把文件锁执行外部文件操作（如站点键迁移），避免与后台保存竞态覆写。
+    public func withFileLock<T>(_ body: () throws -> T) rethrows -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return try body()
+    }
 }

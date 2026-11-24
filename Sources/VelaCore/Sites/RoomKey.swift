@@ -8,7 +8,9 @@ public enum SiteID: String, CaseIterable, Codable, Sendable {
     public static let idPattern = "^[a-z][a-z0-9]{1,7}$"
 
     public static func isValidID(_ raw: String) -> Bool {
-        raw.range(of: idPattern, options: .regularExpression) != nil
+        let bytes = Array(raw.utf8)
+        guard (2...8).contains(bytes.count), isASCIILower(bytes[0]) else { return false }
+        return bytes.dropFirst().allSatisfy { isASCIILower($0) || isASCIIDigit($0) }
     }
 
     public var displayName: String {
@@ -25,9 +27,14 @@ public enum SiteID: String, CaseIterable, Codable, Sendable {
         case .chaturbate:
             return Room.isValidUsername(name)
         case .cam4:
-            return name.range(of: "^[a-z0-9_]{2,30}$", options: .regularExpression) != nil
+            let bytes = Array(name.utf8)
+            return (2...30).contains(bytes.count)
+                && bytes.allSatisfy { Self.isASCIILower($0) || Self.isASCIIDigit($0) || $0 == UInt8(ascii: "_") }
         }
     }
+
+    private static func isASCIILower(_ c: UInt8) -> Bool { c >= UInt8(ascii: "a") && c <= UInt8(ascii: "z") }
+    private static func isASCIIDigit(_ c: UInt8) -> Bool { c >= UInt8(ascii: "0") && c <= UInt8(ascii: "9") }
 }
 
 /// 房间身份。磁盘与同步用 `raw`（永远带站点前缀）；内存用 `ref`（`cb` 省略前缀）。
@@ -39,7 +46,7 @@ public struct RoomKey: Hashable, Codable, Sendable, CustomStringConvertible {
 
     public init?(site: SiteID, name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalized = site == .cam4 ? trimmed.lowercased() : trimmed
+        let normalized = site == .cam4 ? SyncKeys.asciiLowercased(trimmed) : trimmed
         guard site.isValidName(normalized) else { return nil }
         self.site = site
         self.name = normalized
@@ -104,7 +111,7 @@ public struct RoomKey: Hashable, Codable, Sendable, CustomStringConvertible {
         let trimmed = any.trimmingCharacters(in: .whitespacesAndNewlines)
         // 没有冒号：合法的 cb 名与认不出的形式结果都是 trim + lowercased，不必解析（选房与列表比较的热路径）。
         guard trimmed.contains(":") else { return trimmed.lowercased() }
-        if let key = RoomKey(parsing: trimmed) ?? RoomKey(parsing: trimmed.lowercased()) {
+        if let key = RoomKey(parsing: trimmed) ?? RoomKey(parsing: SyncKeys.asciiLowercased(trimmed)) {
             return key.normalized
         }
         return trimmed.lowercased()
@@ -116,12 +123,12 @@ public struct RoomKey: Hashable, Codable, Sendable, CustomStringConvertible {
 enum SiteKeys {
     static func disk(_ stored: String) -> String {
         let trimmed = stored.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let key = RoomKey(parsing: trimmed) ?? RoomKey(parsing: trimmed.lowercased()) {
+        if let key = RoomKey(parsing: trimmed) ?? RoomKey(parsing: SyncKeys.asciiLowercased(trimmed)) {
             return key.raw
         }
         if let colon = trimmed.firstIndex(of: ":") {
             let siteRaw = String(trimmed[..<colon])
-            if SiteID.isValidID(siteRaw.lowercased()) { return trimmed }
+            if SiteID.isValidID(SyncKeys.asciiLowercased(siteRaw)) { return trimmed }
         }
         guard !trimmed.isEmpty else { return trimmed }
         return "cb:\(trimmed)"
@@ -130,14 +137,14 @@ enum SiteKeys {
     /// cb 去掉前缀（保留名字原样），其他已知站点用 ref；认不出则原样返回。
     static func memory(_ stored: String) -> String {
         let trimmed = stored.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let key = RoomKey(parsing: trimmed) ?? RoomKey(parsing: trimmed.lowercased()) {
+        if let key = RoomKey(parsing: trimmed) ?? RoomKey(parsing: SyncKeys.asciiLowercased(trimmed)) {
             return key.ref
         }
         guard let colon = trimmed.firstIndex(of: ":") else { return trimmed }
-        let siteRaw = String(trimmed[..<colon]).lowercased()
+        let siteRaw = SyncKeys.asciiLowercased(String(trimmed[..<colon]))
         let name = String(trimmed[trimmed.index(after: colon)...])
         if siteRaw == SiteID.chaturbate.rawValue { return name }
-        if siteRaw == SiteID.cam4.rawValue { return "c4:\(name.lowercased())" }
+        if siteRaw == SiteID.cam4.rawValue { return "c4:\(SyncKeys.asciiLowercased(name))" }
         return trimmed
     }
 }

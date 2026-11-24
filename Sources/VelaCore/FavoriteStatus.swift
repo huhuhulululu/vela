@@ -255,7 +255,7 @@ public enum FavoriteResolver {
             if let cached = cache.fresh(for: name, now: now) {
                 plan.resolved[key] = cached
             } else if let entry = known[key] {
-                let status: FavoriteStatus = entry.room.show.isPlayable ? .online(entry.room) : .offline
+                let status: FavoriteStatus = entry.room.isCatalogPlayable ? .online(entry.room) : .offline
                 plan.resolved[key] = status
                 plan.fromCatalog[key] = FavoritePlan.Stamped(status: status, at: entry.at)
             } else {
