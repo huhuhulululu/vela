@@ -121,6 +121,33 @@ final class SiteStorageTests: XCTestCase {
             ["alice", "c4:alice", "bob"]
         )
     }
+
+    /// 盲审 2：搜索词带冒号（如 cb:alice / cb:）时按 key.raw 匹配，裸词 "cb" 不误匹配全部 Chaturbate 房间；
+    /// 带空格前缀（如 c4: alice）经 reveal 清掉挡住目标的搜索词并保留已有房间元数据。
+    func testRoomQueryMatchesSitePrefixWithoutFalsePositivesOnBareWord() {
+        let cb = Room(username: "alice", viewers: 1, show: .publicShow)
+        let c4 = Room(username: "alice", viewers: 9, show: .publicShow, site: .cam4)
+        let bob = Room(username: "bob", viewers: 3, show: .publicShow)
+
+        XCTAssertTrue(RoomQuery(text: "cb:alice").matches(cb))
+        XCTAssertTrue(RoomQuery(text: "CB:ALICE").matches(cb))
+        XCTAssertTrue(RoomQuery(text: "cb:").matches(cb))
+        XCTAssertFalse(RoomQuery(text: "cb:").matches(c4))
+        XCTAssertFalse(RoomQuery(text: "cb:alice").matches(c4))
+        XCTAssertFalse(RoomQuery(text: "cb").matches(cb), "裸词 cb 不应误匹配全部 Chaturbate 房间")
+        XCTAssertFalse(RoomQuery(text: "cb").matches(bob))
+        XCTAssertTrue(RoomQuery(text: "c4:alice").matches(c4))
+
+        var store = FeedStore()
+        store.replace(with: CatalogPage(rooms: [cb, c4, bob], total: 3, nextOffset: 3))
+        store.previewQuery(RoomQuery(text: "c4: alice"))
+        XCTAssertEqual(store.localMatches, 0)
+        let direct = Room.direct(key: RoomKey(site: .cam4, name: "alice")!)
+        XCTAssertTrue(store.reveal(direct))
+        XCTAssertEqual(store.current?.ref, "c4:alice")
+        XCTAssertEqual(store.current?.viewers, 9, "已有房间走 reveal 应保留目录元数据")
+        XCTAssertEqual(store.query.text, "")
+    }
 }
 
 final class SiteKeyMigrationTests: XCTestCase {

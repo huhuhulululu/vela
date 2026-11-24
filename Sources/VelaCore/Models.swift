@@ -242,6 +242,7 @@ public struct RoomQuery: Equatable, Sendable {
         if needle.isEmpty { return true }
         if room.username.lowercased().contains(needle) { return true }
         if room.ref.lowercased().contains(needle) { return true }
+        if needle.contains(":"), room.key.raw.lowercased().contains(needle) { return true }
         if room.displayName.lowercased().contains(needle) { return true }
         if room.subject.lowercased().contains(needle) { return true }
         return room.tags.contains { $0.lowercased().contains(needle) }

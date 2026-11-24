@@ -259,6 +259,56 @@ final class SiteWiringTests: XCTestCase {
         XCTAssertEqual(stage.directory.mode, .chaturbate)
         XCTAssertTrue(stage.directory === beforeDirectory, "切站失败后应恢复原 SiteDirectory 实例以保留游标")
     }
+
+    /// 盲审 2：搜索框输入 cb:<用户名> 预览/直达与带空格前缀 c4: <用户名> 均能命中且不把舞台清空。
+    func testDirectSearchWithSitePrefixKeepsVisibleAndPreservesMetadata() {
+        let stage = TestPrefs.stage(settings: SettingsStore(defaults: defaults()))
+        stage.chooseSite(.cam4)
+        let richCB = Room(username: "alice", viewers: 77, show: .publicShow, site: .chaturbate)
+        let richC4 = Room(username: "bob", viewers: 55, show: .publicShow, site: .cam4)
+        install(stage, [richC4, richCB])
+
+        stage.searchText = "cb:alice"
+        stage.previewSearch()
+        XCTAssertEqual(stage.feed.localMatches, 1, "cb: 前缀应在本地预览里匹配 Chaturbate 房间")
+        stage.submitSearch()
+        XCTAssertEqual(stage.feed.currentUsername, "alice")
+        XCTAssertEqual(stage.feed.current?.viewers, 77, "命中已有房间保留元数据")
+
+        stage.searchText = "cb:new_star"
+        stage.previewSearch()
+        XCTAssertEqual(stage.feed.localMatches, 0)
+        stage.applyDirectSearchHit(Room.direct(key: RoomKey(site: .chaturbate, name: "new_star")!))
+        XCTAssertEqual(stage.feed.currentUsername, "new_star")
+        XCTAssertFalse(stage.feed.rooms.isEmpty, "直达 cb: 房间不能把舞台清空")
+
+        stage.searchText = "c4: bob"
+        stage.previewSearch()
+        stage.applyDirectSearchHit(Room.direct(key: RoomKey(site: .cam4, name: "bob")!))
+        XCTAssertEqual(stage.feed.currentUsername, "c4:bob")
+        XCTAssertEqual(stage.feed.current?.viewers, 55, "带空格前缀命中已有房间应保留元数据")
+        XCTAssertEqual(stage.searchText, "", "挡住目标的搜索词应随 reveal 同步清空")
+        XCTAssertFalse(stage.feed.rooms.isEmpty)
+    }
+
+    /// 盲审 5：手动重试 Cam4 房间时会先令适配器里的流缓存失效。
+    func testRetryPlaybackInvalidatesSiteStreamCache() {
+        let stage = TestPrefs.stage(settings: SettingsStore(defaults: defaults()))
+        let tracker = InvalidatedKeys()
+        stage.sites = SiteRegistry(adapters: [
+            StubCam4(master: URL(string: "https://media.example/m.m3u8")!, invalidated: tracker)
+        ])
+        install(stage, [c4("sample_one")])
+        stage.retryPlayback(stage.target(.primary))
+        XCTAssertEqual(tracker.keys, [RoomKey(site: .cam4, name: "sample_one")!])
+    }
+}
+
+private final class InvalidatedKeys: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [RoomKey] = []
+    var keys: [RoomKey] { lock.withLock { storage } }
+    func record(_ key: RoomKey) { lock.withLock { storage.append(key) } }
 }
 
 /// 只回固定主列表的 Cam4 桩。
@@ -266,6 +316,7 @@ private struct StubCam4: SiteAdapter {
     let master: URL
     var online: Room? = nil
     var failDirectory: Bool = false
+    var invalidated: InvalidatedKeys? = nil
     var site: SiteID { .cam4 }
     var capabilities: SiteCapabilities { .strictMaster }
     var challengeHome: URL? { nil }
@@ -285,4 +336,5 @@ private struct StubCam4: SiteAdapter {
     func thumbnail(for room: Room, now: Date) -> URL? { nil }
     func mediaHeaders(for key: RoomKey) -> [String: String] { [:] }
     func masterFailure(status: Int) -> StreamFailure? { nil }
+    func invalidateStream(for key: RoomKey) { invalidated?.record(key) }
 }
