@@ -11,9 +11,13 @@ public final class Cam4Adapter: SiteAdapter, @unchecked Sendable {
     /// 缩略图在过期前这么久就不再用，等下次目录刷新。
     public static let thumbnailMargin: TimeInterval = 60
 
+    /// 本地过滤把原页滤短或滤空时，单次目录请求最多顺延扫描的原页数。
+    public static let maxFilterScans = 5
+
     private struct Entry {
         var room: Room
         var offset: Int
+        var limit: Int
         var fetchedAt: Date
         var geo: Bool
     }
@@ -46,21 +50,42 @@ public final class Cam4Adapter: SiteAdapter, @unchecked Sendable {
         if unsupported(query) {
             return CatalogPage(rooms: [], total: 0, nextOffset: 0)
         }
-        let page = try await load(offset: max(query.offset, 0), limit: query.limit)
-        return filtered(page, query: query)
+        let limit = min(max(query.limit, 1), Cam4Directory.maxPageSize)
+        let needsFilter = !viewerRegions.isEmpty || query.gender != nil || SiteSearch.normalized(query.keywords) != nil
+        var cursor = max(query.offset, 0)
+        var collected: [Room] = []
+        var seen = Set<String>()
+        var total = 0
+        var scans = 0
+        while true {
+            let raw = try await load(offset: cursor, limit: limit)
+            scans += 1
+            total = max(total, raw.total)
+            for room in filtered(raw, query: query).rooms where seen.insert(room.identity).inserted {
+                collected.append(room)
+            }
+            let advanced = raw.nextOffset > cursor
+            cursor = raw.nextOffset
+            if !needsFilter || collected.count >= limit || raw.rooms.count < limit || !advanced || cursor >= total || scans >= Self.maxFilterScans {
+                break
+            }
+        }
+        return CatalogPage(rooms: collected, total: total, nextOffset: cursor)
     }
 
     public func resolveStream(_ room: Room) async throws -> SourcedTicket {
         let name = room.key.name.lowercased()
-        if let cached = lookup(name), fresh(cached, ttl: Self.streamTTL, now: clock()) {
+        let cached = lookup(name)
+        if let cached, fresh(cached, ttl: Self.streamTTL, now: clock()) {
             return ticket(cached, url: cached.room.stream)
         }
-        let offset = lookup(name)?.offset ?? 0
+        let offset = cached?.offset ?? 0
+        let limit = cached?.limit ?? Cam4Directory.maxPageSize
         // 这一页没再出现的人要从索引拿掉，否则旧的播放地址会被当成还在播。
         let stamp = clock()
-        _ = try await load(offset: offset, limit: Cam4Directory.maxPageSize)
-        if let cached = lookup(name), cached.fetchedAt >= stamp {
-            return ticket(cached, url: cached.room.stream)
+        _ = try await load(offset: offset, limit: limit)
+        if let refreshed = lookup(name), refreshed.fetchedAt >= stamp {
+            return ticket(refreshed, url: refreshed.room.stream)
         }
         drop(name)
         return SourcedTicket(
@@ -112,7 +137,8 @@ public final class Cam4Adapter: SiteAdapter, @unchecked Sendable {
 
     private func load(offset: Int, limit: Int) async throws -> CatalogPage {
         if let backoff, !backoff.allows(.cam4Directory) { throw EndpointBackedOff(.cam4Directory) }
-        var request = URLRequest(url: Cam4Directory.url(offset: offset, limit: limit))
+        let pageSize = min(max(limit, 1), Cam4Directory.maxPageSize)
+        var request = URLRequest(url: Cam4Directory.url(offset: offset, limit: pageSize))
         request.httpMethod = "GET"
         request.setValue(UserAgent.safari, forHTTPHeaderField: "User-Agent")
         request.setValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
@@ -131,9 +157,9 @@ public final class Cam4Adapter: SiteAdapter, @unchecked Sendable {
         }
         let now = clock()
         let page = try Cam4Directory.decode(
-            result.data, requestLimit: limit, requestOffset: offset, now: now, viewerRegions: viewerRegions
+            result.data, requestLimit: pageSize, requestOffset: offset, now: now, viewerRegions: viewerRegions
         )
-        remember(page.rooms, offset: offset, at: now)
+        remember(page.rooms, offset: offset, limit: pageSize, at: now)
         return page
     }
 
@@ -150,12 +176,12 @@ public final class Cam4Adapter: SiteAdapter, @unchecked Sendable {
         return CatalogPage(rooms: rooms, total: page.total, nextOffset: page.nextOffset)
     }
 
-    private func remember(_ rooms: [Room], offset: Int, at date: Date) {
+    private func remember(_ rooms: [Room], offset: Int, limit: Int, at date: Date) {
         lock.lock()
         defer { lock.unlock() }
         for room in rooms {
             let name = room.key.name.lowercased()
-            index[name] = Entry(room: room, offset: offset, fetchedAt: date, geo: geoBlocked(room))
+            index[name] = Entry(room: room, offset: offset, limit: limit, fetchedAt: date, geo: geoBlocked(room))
             order.removeAll { $0 == name }
             order.append(name)
         }

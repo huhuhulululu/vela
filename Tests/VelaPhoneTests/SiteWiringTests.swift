@@ -184,11 +184,23 @@ final class SiteWiringTests: XCTestCase {
         XCTAssertNil(stage.directRoom("c4:x"))
         XCTAssertNil(stage.directRoom("zz:sample_one"))
     }
+
+    func testCam4FavoritesPageOnlyQueriesCam4AndSkipsChaturbate() async throws {
+        let stage = TestPrefs.stage(settings: SettingsStore(defaults: defaults()))
+        let master = URL(string: "https://media.example/sample_one/master.m3u8?t=1")!
+        let online = Room(username: "sample_one", viewers: 9, show: .publicShow, site: .cam4, stream: master)
+        stage.sites = SiteRegistry(adapters: [StubCam4(master: master, online: online)])
+        stage.chooseSite(.cam4)
+        stage.commit(Curation(favorites: ["alice", "c4:sample_one"], blocked: []), nil)
+        let page = try await stage.fetchFavoritesPage()
+        XCTAssertEqual(page.rooms.map(\.ref), ["c4:sample_one"])
+    }
 }
 
 /// 只回固定主列表的 Cam4 桩。
 private struct StubCam4: SiteAdapter {
     let master: URL
+    var online: Room? = nil
     var site: SiteID { .cam4 }
     var capabilities: SiteCapabilities { .strictMaster }
     var challengeHome: URL? { nil }
@@ -196,7 +208,12 @@ private struct StubCam4: SiteAdapter {
     func resolveStream(_ room: Room) async throws -> SourcedTicket {
         SourcedTicket(ticket: StreamTicket(success: true, url: master, status: .publicShow), origin: .cam4Directory)
     }
-    func status(of keys: [RoomKey], now: Date) async -> [RoomKey: FavoriteStatus] { [:] }
+    func status(of keys: [RoomKey], now: Date) async -> [RoomKey: FavoriteStatus] {
+        guard let online else { return [:] }
+        var out: [RoomKey: FavoriteStatus] = [:]
+        for key in keys where key == online.key { out[key] = .online(online) }
+        return out
+    }
     func thumbnail(for room: Room, now: Date) -> URL? { nil }
     func mediaHeaders(for key: RoomKey) -> [String: String] { [:] }
     func masterFailure(status: Int) -> StreamFailure? { nil }

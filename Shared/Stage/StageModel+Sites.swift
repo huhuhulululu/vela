@@ -57,8 +57,7 @@ extension StageModel {
 
     /// 收藏里属于当前站点模式的那部分（收藏来源只列这些）。
     func favoritesInMode(_ names: [String]) -> [String] {
-        let sites = Set(siteMode.sites)
-        return names.filter { sites.contains(RoomKey.site(ofRef: $0)) }
+        siteMode.filterFavorites(names)
     }
 
     /// 非 cb 收藏的在线状态：只问各站适配器（Cam4 只查目录索引，不逐个请求）。键为小写 ref。

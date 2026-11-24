@@ -18,6 +18,12 @@ public enum SiteMode: String, CaseIterable, Codable, Sendable {
         guard let raw, let mode = SiteMode(rawValue: raw) else { return .chaturbate }
         return mode
     }
+
+    /// 过滤出属于当前站点模式的收藏名单（保持原顺序）。
+    public func filterFavorites(_ names: [String]) -> [String] {
+        let allowed = Set(sites)
+        return names.filter { allowed.contains(RoomKey.site(ofRef: $0)) }
+    }
 }
 
 /// 混合目录的各站游标。单站模式不靠它分页（直接用 `CatalogQuery.offset`）。
@@ -87,9 +93,10 @@ public enum SiteCatalog {
         var lists: [[Room]] = []
         for site in sites {
             guard case .success(let page) = results[site] else { continue }
+            let previous = mode == .mixed ? (cursor.offsets[site] ?? 0) : max(query.offset, 0)
             next.offsets[site] = page.nextOffset
             next.totals[site] = page.total
-            if page.rooms.isEmpty || page.nextOffset >= page.total {
+            if page.nextOffset >= page.total || page.nextOffset <= previous {
                 next.ended.insert(site)
             } else {
                 next.ended.remove(site)

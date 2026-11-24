@@ -107,6 +107,49 @@ final class SiteDirectoryTests: XCTestCase {
         XCTAssertEqual(RoomKey.site(ofRef: "cb:alice"), .chaturbate)
         XCTAssertEqual(RoomKey.site(ofRef: "vela-perf-room"), .chaturbate)
     }
+
+    func testTargetedTagQueryDoesNotClearMixedRegularCursors() async throws {
+        let client = HostClient(
+            cb: [
+                cbBody(["cb_1", "cb_2"], total: 20),
+                cbBody(["cb_3", "cb_4"], total: 20),
+                cbBody(["cb_5", "cb_6"], total: 20),
+                cbBody(["cb_t1"], total: 5),
+                cbBody(["cb_t2"], total: 5),
+                cbBody(["cb_7", "cb_8"], total: 20)
+            ],
+            c4: [
+                c4Body(["c4_1", "c4_2"], total: 20),
+                c4Body(["c4_3", "c4_4"], total: 20),
+                c4Body(["c4_5", "c4_6"], total: 20),
+                c4Body(["c4_7", "c4_8"], total: 20)
+            ]
+        )
+        let dir = directory(.mixed, client)
+        let regular = try await dir.fetchPages(CatalogQuery(limit: 2, offset: 0), pages: 3)
+        XCTAssertEqual(regular.nextOffset, 12)
+
+        // 模拟「猜你喜欢」续页结束后并发发出的 offset=0 标签定向查询（Cam4 不支持标签会直接返回空页）
+        _ = try await dir.fetchPages(CatalogQuery(tag: "asian", limit: 90, offset: 0), pages: 1)
+        _ = try await dir.fetchPages(CatalogQuery(tag: "latina", limit: 90, offset: 0), pages: 1)
+
+        var feed = FeedStore()
+        feed.replace(with: regular)
+        let page4 = try await dir.fetch(CatalogQuery(limit: 2, offset: regular.nextOffset))
+        XCTAssertEqual(page4.nextOffset, 16)
+        XCTAssertEqual(page4.rooms.map(\.id), ["cb_7", "c4:c4_7", "cb_8", "c4:c4_8"])
+        feed.append(page4, from: regular.nextOffset)
+        XCTAssertFalse(feed.reachedEnd)
+
+        let cbRegularOffsets = client.urls
+            .filter { $0.host == "chaturbate.com" && $0.query(named: "hashtags") == nil }
+            .map { $0.query(named: "offset") }
+        let c4Pages = client.urls
+            .filter { $0.host == "www.cam4.com" }
+            .map { $0.query(named: "page") }
+        XCTAssertEqual(cbRegularOffsets, ["0", "2", "4", "6"])
+        XCTAssertEqual(c4Pages, ["1", "2", "3", "4"])
+    }
 }
 
 /// 按主机分别排队应答，记下每次请求的地址。

@@ -76,6 +76,57 @@ final class SiteCatalogTests: XCTestCase {
         XCTAssertEqual(fetched.page.rooms.map(\.id), ["alice"])
         XCTAssertTrue(fetched.cursor.ended.contains(.cam4))
     }
+
+    /// 审计发现 5：Cam4 某页被本地过滤为空但游标仍前进且未到 total 时，混合目录不能把它标为 ended。
+    func testMixedFilteredEmptyPageWithAdvancingCursorDoesNotEndSite() async throws {
+        let cb = ScriptedAdapter(site: .chaturbate, pages: [
+            CatalogPage(rooms: [Room(username: "cb_1", show: .publicShow)], total: 10, nextOffset: 2),
+            CatalogPage(rooms: [Room(username: "cb_2", show: .publicShow)], total: 10, nextOffset: 4)
+        ])
+        let c4 = ScriptedAdapter(site: .cam4, pages: [
+            CatalogPage(rooms: [], total: 10, nextOffset: 2),
+            CatalogPage(rooms: [Room(username: "c4_found", show: .publicShow, site: .cam4)], total: 10, nextOffset: 4)
+        ])
+        let registry = SiteRegistry(adapters: [cb, c4])
+        let first = try await SiteCatalog.fetch(
+            mode: .mixed, query: CatalogQuery(limit: 2), cursor: MixedCursor(sites: [.chaturbate, .cam4]), registry: registry
+        )
+        XCTAssertFalse(first.cursor.ended.contains(.cam4), "游标仍在前进，不能永久跳过 Cam4")
+        XCTAssertEqual(first.cursor.offsets[.cam4], 2)
+
+        let second = try await SiteCatalog.fetch(
+            mode: .mixed, query: CatalogQuery(limit: 2), cursor: first.cursor, registry: registry
+        )
+        XCTAssertEqual(c4.requestedOffsets, [0, 2])
+        XCTAssertEqual(second.page.rooms.map(\.id), ["cb_2", "c4:c4_found"])
+    }
+}
+
+private final class ScriptedAdapter: SiteAdapter, @unchecked Sendable {
+    let site: SiteID
+    private var pages: [CatalogPage]
+    private(set) var requestedOffsets: [Int] = []
+
+    init(site: SiteID, pages: [CatalogPage]) {
+        self.site = site
+        self.pages = pages
+    }
+
+    var capabilities: SiteCapabilities { site == .chaturbate ? [.serverTag] : [.strictMaster] }
+    var challengeHome: URL? { nil }
+
+    func fetchDirectory(_ query: CatalogQuery) async throws -> CatalogPage {
+        requestedOffsets.append(query.offset)
+        return pages.isEmpty ? CatalogPage(rooms: [], total: 0, nextOffset: query.offset) : pages.removeFirst()
+    }
+
+    func resolveStream(_ room: Room) async throws -> SourcedTicket {
+        SourcedTicket(ticket: StreamTicket(success: false, url: nil, status: .offline), origin: .edge)
+    }
+    func status(of keys: [RoomKey], now: Date) async -> [RoomKey: FavoriteStatus] { [:] }
+    func thumbnail(for room: Room, now: Date) -> URL? { nil }
+    func mediaHeaders(for key: RoomKey) -> [String: String] { [:] }
+    func masterFailure(status: Int) -> StreamFailure? { nil }
 }
 
 private final class OneShot: HTTPClient, @unchecked Sendable {

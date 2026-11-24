@@ -78,7 +78,7 @@ public struct FeedStore: Equatable, Sendable {
         let keep = currentUsername
         catalog = dedupeRooms(page.rooms)
         total = page.total
-        reachedEnd = page.rooms.isEmpty || page.nextOffset >= page.total
+        reachedEnd = page.nextOffset >= page.total || (page.rooms.isEmpty && page.nextOffset <= 0)
         if let keep, rooms.contains(where: { $0.ref == keep }) {
             currentUsername = keep
         } else {
@@ -87,15 +87,15 @@ public struct FeedStore: Equatable, Sendable {
     }
 
     /// 追加常规分页的一页。`offset` 是请求这一页时的游标（不传则不做「游标没前进」的兜底）。
-    /// 是否到底只由常规分页本身决定：空页、游标走到 `total`，或游标没有前进（防止原地重复请求）。
-    /// 整页都是已有房间（例如定向候选提前进了目录）不算到底：游标仍在前进，后面的页还有新房间。
+    /// 是否到底只由常规分页本身决定：游标走到 `total`，或游标没有前进（防止原地重复请求）。
+    /// 整页都是已有房间，或本地过滤为空但游标仍在前进，均不算到底。
     public mutating func append(_ page: CatalogPage, from offset: Int? = nil) {
         let existing = Set(catalog.map(\.identity))
         let fresh = page.rooms.filter { !existing.contains($0.identity) }
         catalog.append(contentsOf: fresh)
         total = max(total, page.total)
-        let stalled = offset.map { page.nextOffset <= $0 } ?? false
-        if page.rooms.isEmpty || page.nextOffset >= page.total || stalled {
+        let stalled = offset.map { page.nextOffset <= $0 } ?? (page.rooms.isEmpty && page.nextOffset <= 0)
+        if page.nextOffset >= page.total || stalled {
             reachedEnd = true
         }
         if currentUsername == nil {
@@ -119,7 +119,7 @@ public struct FeedStore: Equatable, Sendable {
     public mutating func mergePageAfterCurrent(_ page: CatalogPage, from offset: Int, order: ([Room]) -> [Room]) {
         total = max(total, page.total)
         let stalled = page.nextOffset <= offset
-        if page.rooms.isEmpty || page.nextOffset >= page.total || stalled {
+        if page.nextOffset >= page.total || stalled {
             reachedEnd = true
         }
         mergeAfterCurrent(page.rooms, order: order)
