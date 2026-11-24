@@ -281,6 +281,31 @@ class DualAudioParityTest {
         }
     }
 
+    @Test
+    fun testClosingDualWithSecondaryFocusReturnsSoundToPrimary() {
+        val env = openDualSession(muted = false)
+        try {
+            env.session.ensureLane()
+            env.session.ensureSecondary()
+            env.session.onMuteChanged(false)
+            env.stage.setFocus(LaneID.SECONDARY)
+            val primary = env.session.lane.value!!
+            val secondary = env.session.secondaryLaneForTest!!
+            assertEquals("副路聚焦时主路应静音", 0f, primary.playerVolumeForTest(), 0.0001f)
+            assertTrue("副路聚焦时副路应出声", secondary.playerVolumeForTest() > 0f)
+
+            env.stage.setDual(false)
+            assertEquals(1, env.stage.laneCount)
+            assertEquals(LaneID.PRIMARY, env.stage.focusLane)
+            assertFalse("关双窗后运行时应维持未静音", env.stage.muted)
+            assertTrue("关双窗后声音应回到主路", primary.playerVolumeForTest() > 0f)
+            assertEquals(PlaybackLaneRole.PRIMARY, env.session.audioController().audibleLane)
+            assertNull("关双窗后副路应已释放", env.session.secondaryLaneForTest)
+        } finally {
+            env.close()
+        }
+    }
+
     private fun openDualSession(muted: Boolean): DualSessionEnv {
         val prefs = context.getSharedPreferences(Settings.PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit().clear().commit()

@@ -382,6 +382,44 @@ class DualDwellParityTest {
         }
     }
 
+    @Test
+    fun testSettlementSplitsRawWeightedAndFocusedSeconds() = harness.onStage {
+        val stage = makeStage(dual = true)
+        try {
+            stage.notePlaying("alice")
+            stage.noteLanePlaying(LaneID.SECONDARY, "bob")
+            // 主路先作为焦点观看 20s，再切去副路让主路非焦点观看 20s：
+            // 原始 40s、加权 20 + 20*0.5 = 30s、焦点 20s（满足每日命中门槛 >=20s）。
+            clock.instant = clock.instant.plusSeconds(20)
+            stage.setFocus(LaneID.SECONDARY)
+            clock.instant = clock.instant.plusSeconds(20)
+            stage.setFocus(LaneID.PRIMARY)
+            val hitsBefore = dailyHits(stage)
+            assertTrue(stage.move(1, userInitiated = true))
+            val ledger = stage.watchLedger.entries["alice"]
+            assertEquals("加权秒数应写入观看账本（20 + 10 = 30）", 30.0, ledger?.totalSeconds ?: Double.NaN, 0.001)
+            assertEquals("焦点秒数满 20s 应记一次每日命中", hitsBefore + 1, dailyHits(stage))
+        } finally {
+            stage.close()
+        }
+    }
+
+    @Test
+    fun testSingleWindowSecondsAllEqual() = harness.onStage {
+        val stage = makeStage(dual = false)
+        try {
+            stage.notePlaying("alice")
+            clock.instant = clock.instant.plusSeconds(25)
+            val hitsBefore = dailyHits(stage)
+            assertTrue(stage.move(1, userInitiated = true))
+            val ledger = stage.watchLedger.entries["alice"]
+            assertEquals("单窗下账本秒数等于原始停留秒数", 25.0, ledger?.totalSeconds ?: Double.NaN, 0.001)
+            assertEquals("单窗满 20s 计入每日命中", hitsBefore + 1, dailyHits(stage))
+        } finally {
+            stage.close()
+        }
+    }
+
     private fun makeStage(dual: Boolean): StageViewModel {
         val stage = StageViewModel(
             settings = settings,

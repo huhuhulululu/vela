@@ -629,6 +629,26 @@ class DualWindowParityTest {
         }
     }
 
+    @Test
+    fun testLanesDistinctFollowsRooms() = harness.onStage {
+        val stage = dual(listOf("alice", "bob", "carol"))
+        try {
+            assertTrue("主副不同房时应为 distinct", stage.state.value.lanesDistinct())
+
+            val emptySecondary = stage.state.value.copy(
+                secondary = stage.state.value.secondary?.copy(username = null),
+            )
+            assertTrue("副路为空时应保持 distinct", emptySecondary.lanesDistinct())
+
+            val duplicate = stage.state.value.copy(
+                secondary = stage.state.value.secondary?.copy(username = "ALICE"),
+            )
+            assertFalse("两路同房时 lanesDistinct 应返回 false", duplicate.lanesDistinct())
+        } finally {
+            stage.close()
+        }
+    }
+
     private fun makeStage(names: List<String> = listOf("alice", "bob", "carol", "dave")): StageViewModel {
         val stage = StageViewModel(
             settings = settings,

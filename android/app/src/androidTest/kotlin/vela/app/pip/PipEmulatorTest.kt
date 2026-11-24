@@ -124,7 +124,25 @@ class PipEmulatorTest {
 
     @Test(timeout = 120_000)
     fun testMuteRemoteActionIntentExists() {
-        assertEquals("vela.app.pip.TOGGLE_MUTE", ActivityPictureInPicture.ACTION_TOGGLE_MUTE)
+        val activity = launchReady(autoEnter = true)
+        val stage = activity.stage
+        val supported = activity.packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
+        if (!supported) {
+            assertEquals("vela.app.pip.TOGGLE_MUTE", ActivityPictureInPicture.ACTION_TOGGLE_MUTE)
+            return
+        }
+        val before = stage.state.value.muted
+        val toggle = Intent(ActivityPictureInPicture.ACTION_TOGGLE_MUTE).setPackage(activity.packageName)
+        activity.sendBroadcast(toggle)
+        assertTrue(
+            "发送画中画静音广播应切换静音状态",
+            waitUntil(4_000) { stage.state.value.muted != before },
+        )
+        activity.sendBroadcast(toggle)
+        assertTrue(
+            "再次发送广播应切回原静音状态",
+            waitUntil(4_000) { stage.state.value.muted == before },
+        )
     }
 
     private fun launchReady(autoEnter: Boolean, dual: Boolean = false): MainActivity {

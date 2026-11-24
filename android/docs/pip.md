@@ -58,7 +58,7 @@
 - **静音**：工具栏动作用 `RemoteAction`，图标 `ic_pip_mute` / `ic_pip_unmute`；`PendingIntent.getBroadcast` 发 `ACTION_TOGGLE_MUTE`（值 `vela.app.pip.TOGGLE_MUTE`），`setPackage` 限本包，`FLAG_UPDATE_CURRENT or FLAG_IMMUTABLE`。接收器在 `attach()` 注册（API 33+ 用 `RECEIVER_NOT_EXPORTED`），收到后派发 `StageIntent.ToggleMute` 并 `refreshMuteAction()` 换图标；`MainActivity.onMuteChanged` 也会刷新。
 - **自动进入**：API 31+ 走 `PictureInPictureParams.setAutoEnterEnabled(autoEnter && focusLooksPlayable())`，并 `setSeamlessResizeEnabled(true)`，随前台 `stage.state` 中焦点路播放状态与手动暂停变化自动刷新系统参数；API 26–30 在 `onUserLeaveHint` 里当 `canAutoEnter` 且 `focusLooksPlayable()` 时 `enter()`。即系统参数与兜底都要求焦点路像在播，不只看开关。
 - **进入失败**：`enterPictureInPictureMode` 抛 `IllegalStateException` / `IllegalArgumentException` 时发 `PiPEvent.Failed`。
-- **模式切换与后台时序**：Android 12+ 自动进入画中画时只经过 `onPause` 而不经过 `onStop`。`onPictureInPictureModeChanged(true)` 发 `WillStart` + `DidStart` 后，`LifecycleWiring` 若尚未处于 `BACKGROUND` 会立即切入 `BACKGROUND` 执行 `pictureInPictureBackground`（挂起共享任务、放行焦点路、释放非焦点路），并忽略画中画期间迟到的 `onPause`/`onStart` 防止退回 `INACTIVE`。`onPictureInPictureModeChanged(false)` 时若 Activity 仍为 `STARTED` 且未 `isFinishing` 视为展开回全屏，先发 `RestoreRequested` 再发 `WillStop` + `DidStop`（等 `onResume` 取消 3 秒回退）；若已 `onStop` 或 `isFinishing` 则视为关闭小窗，直接 `WillStop` + `DidStop` 触发全停（`onStop` 生命周期观察者亦做兜底防止部分系统漏发退出回调）。
+- **模式切换与后台时序**：Android 12+ 自动进入画中画时只经过 `onPause` 而不经过 `onStop`。`onPictureInPictureModeChanged(true)` 发 `WillStart` + `DidStart` 后，`LifecycleWiring` 若尚未处于 `BACKGROUND` 会立即切入 `BACKGROUND` 执行 `pictureInPictureBackground`（挂起共享任务、放行焦点路、释放非焦点路并清空舞台播放器引用），且画中画期间主路不启动预取、隐藏主路同步取消预取与离开/跳过任务，并忽略画中画期间迟到的 `onPause`/`onStart` 防止退回 `INACTIVE`。`onPictureInPictureModeChanged(false)` 时若 Activity 仍为 `STARTED` 且未 `isFinishing` 视为待展开回全屏，先发 `RestoreRequested` 再发 `WillStop` + `DidStop`（等 `onResume` 取消 3 秒回退；若紧随其后进入 `onStop` 而未回前台则立刻发 `Failed` 触发全停）；若已 `onStop` 或 `isFinishing` 则视为关闭小窗，直接 `WillStop` + `DidStop` 触发全停（`onStop` 观察者亦做兜底）。画中画期间 `StageScreen` 仅渲染焦点路全屏单视频槽位（`pip-stage`），隐藏双窗排版、顶栏、控制层与弹窗并跳过尺寸上报。
 
 ## 声音
 
@@ -78,12 +78,12 @@ CI 的 `android-emulator` 跑 `android/tools/emulator-run.sh all`，按文件名
 
 `android/tools/emu-modes/e2e-c.sh` 安装 perf 应用 + debug `androidTest`，用 `-e class` 逐条跑 `vela.app.e2e.c.MilestoneCTest` 的三个方法，条与条之间 `am force-stop`：
 
-- `test01HomeEntersPipFocusOnlyUncroppedAndRestoresLanes`（S-C1）：双窗、静音、自动进入开。HOME 后 3 秒内进画中画，否则断言全停（门关、`lifecycleEpoch.allowedLane == null`、主路播放器为 null）。进入后：锁生效、`allowedLane` 等于焦点路、副路已释放或不可见、`SetFocus` / `SetLaneCount` 被忽略；比例断言 `display-check` 含 `gravity=fit` 与 `uncropped=true`，日志未刷出时用焦点路 `currentVideoSize` 兜底。回前台后路数（或 `rememberedLaneCount`）恢复到进入前，两把锁为假。
+- `test01HomeEntersPipFocusOnlyUncroppedAndRestoresLanes`（S-C1）：双窗、静音、自动进入开。HOME 后 3 秒内进画中画，否则断言全停（门关、`lifecycleEpoch.allowedLane == null`、主路播放器为 null）。进入后：锁生效、`allowedLane` 等于焦点路、副路已释放或不可见、`SetFocus` / `SetLaneCount` 被忽略；比例断言 `display-check` 含 `gravity=fit` 与 `uncropped=true`，日志未刷出时要求焦点路真实已有正尺寸且 `PiPAspect.clamp` 落于合法区间。回前台后断言 `laneCount` 恢复到进入前且 `!pictureInPicture`，两把锁为假。
 - `test02PipMuteAudioFocusGainTransient`（S-C2）：用 `dumpsys audio` 断言静音（含静音画中画）时焦点栈没有本包、`holdingFocus` 为假；取消静音后拿到焦点且栈里有 `GAIN_TRANSIENT`；再静音放弃焦点。
 - `test03AutoEnterOffStopsAndClosingPipIsQuiet`（S-C3）：`autoEnterPip = false` 时 HOME 即全停（主副播放器都为 null）。回前台开开关、进画中画后 `activity.finish()` 关窗，断言全停、5 秒后无 `ExoPlayer:Playback` 线程；随后 30 秒 marker 窗口由脚本按请求日志断言零请求。
 
 脚本侧再按 `VELA_REQUEST_LOG` 核对：S-C1 窗口内媒体请求（`.m3u8` / `.ts`）至少 1 条（焦点路仍联网）；S-C3 关自动进入的后台窗口不要求零请求（含起播），关闭画中画后的窗口必须为零。
 
-包级模式 `android/tools/emu-modes/pip.sh` 逐条跑 `vela.app.pip.PipEmulatorTest`：`testHomeWithoutAutoEnterStopsAllWithinThreeSeconds`、`testHomeWithAutoEnterEitherEntersPipOrStopsAll`、`testAspectClampRejectsExtremeRatios`、`testMuteRemoteActionIntentExists`（只钉 `ACTION_TOGGLE_MUTE` 常量值）。
+包级模式 `android/tools/emu-modes/pip.sh` 逐条跑 `vela.app.pip.PipEmulatorTest`：`testHomeWithoutAutoEnterStopsAllWithinThreeSeconds`、`testHomeWithAutoEnterEitherEntersPipOrStopsAll`、`testAspectClampRejectsExtremeRatios`、`testMuteRemoteActionIntentExists`（发送 `ACTION_TOGGLE_MUTE` 广播验证静音态真实切换）。
 
 设备不支持 `FEATURE_PICTURE_IN_PICTURE` 时，S-C1 与 pip 模式期望全停，不算失败；S-C3 跳过关窗段。伪上游与夹具同 A / B，只用合成数据，不访问真实站点。测量口径与「尚未入库」清单见 `docs/PERF.md` 里程碑 C 一节。
