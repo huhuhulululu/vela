@@ -51,7 +51,6 @@ class TargetedMergeTests {
         assertTrue(stalled.reachedEnd, "游标没有前进：兜底停止，免得原地重复请求")
     }
 
-    @org.junit.jupiter.api.Disabled("deferred:sites-core-fix: 安卓 FeedStore.kt replace/append/mergePageAfterCurrent 遇空页即置 reachedEnd=true，未判断游标是否前进且未到底")
     @Test
     fun testFilteredEmptyPageWithAdvancingCursorDoesNotReachEnd() {
         val replaced = FeedStore()

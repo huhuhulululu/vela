@@ -301,7 +301,6 @@ class FavoriteStatusTests {
         assertFalse(Room.isValidUsername("名字很长"))
     }
 
-    @org.junit.jupiter.api.Disabled("deferred:sites-core-fix: 安卓 FavoriteCache.kt FavoriteResolver.plan 尚无 mode: SiteMode? 参数且 RoomKey.kt SiteMode 尚无 filterFavorites，Cam4 模式无法筛掉过期 Chaturbate 收藏")
     @Test
     fun testCam4ModeFavoritePlanSkipsChaturbateChallenge() = runBlocking {
         val cam4Room = Room(
@@ -312,8 +311,33 @@ class FavoriteStatusTests {
         )
         val cache = FavoriteCache().storing(mapOf("c4:sample_one" to FavoriteStatus.Online(cam4Room)), now)
         val allFavorites = listOf("alice", "c4:sample_one")
-        val plan = FavoriteResolver.plan(allFavorites, KnownCatalog(), cache, now)
-        // 修复后应传入 mode = SiteMode.cam4，期望 pending 为空且不请求 Chaturbate
-        assertTrue(plan.pending.isEmpty())
+
+        val cam4Plan = FavoriteResolver.plan(
+            favorites = allFavorites,
+            catalog = KnownCatalog(),
+            cache = cache,
+            now = now,
+            mode = vela.core.sites.SiteMode.cam4,
+        )
+        assertEquals(emptyList(), cam4Plan.pending)
+
+        val challenge = HTTPResult(status = 403, data = "<html>Just a moment</html>".toByteArray(Charsets.UTF_8))
+        val cbClient = RecordingClient { challenge }
+        val cbPending = cam4Plan.pending.filter { vela.core.sites.RoomKey.siteOfRef(it) == vela.core.sites.SiteID.chaturbate }
+        val fetched = FavoriteFetcher(cbClient).fetch(cbPending)
+        assertFalse(fetched.challenged)
+        assertTrue(cbClient.requested.isEmpty())
+
+        val rooms = FavoriteResolver.onlineRooms(listOf("c4:sample_one"), cam4Plan.resolved)
+        assertEquals(listOf("c4:sample_one"), rooms.map { it.ref })
+
+        val panelPlan = FavoriteResolver.plan(
+            favorites = allFavorites,
+            catalog = KnownCatalog(),
+            cache = cache,
+            now = now,
+            mode = null,
+        )
+        assertEquals(listOf("alice"), panelPlan.pending)
     }
 }

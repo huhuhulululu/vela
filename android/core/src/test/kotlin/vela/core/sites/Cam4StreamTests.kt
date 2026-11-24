@@ -225,7 +225,6 @@ class Cam4StreamTests {
         assertEquals(listOf("sample_one"), matched.rooms.map { it.username })
     }
 
-    @org.junit.jupiter.api.Disabled("deferred:sites-core-fix: 安卓 Cam4Adapter.fetchDirectory 仅取单页，本地过滤滤空后未继续往后取页（实测返回 [] 而非 [m1, m2]）")
     @Test
     fun testClientFilteredEmptyFirstPageContinuesToLaterMatchingPage() = runBlocking {
         val genderClient = ScriptClient(
@@ -254,7 +253,6 @@ class Cam4StreamTests {
         assertEquals(2, geoClient.requests.size)
     }
 
-    @org.junit.jupiter.api.Disabled("deferred:sites-core-fix: 安卓 Cam4Adapter/SiteDirectory/CatalogWindow 遇本地过滤短页即停在第 1 页（实测仅返回 [ok1]）")
     @Test
     fun testSingleSiteMultiPageContinuesThroughFilteredShortPage() = runBlocking {
         val client = ScriptClient(
@@ -278,7 +276,6 @@ class Cam4StreamTests {
         assertEquals(12, merged.nextOffset)
     }
 
-    @org.junit.jupiter.api.Disabled("deferred:sites-core-fix: 安卓 Cam4Adapter.resolveStream 过期重取写死 maxPageSize=90 未保留原页大小 40（实测返回 offline）")
     @Test
     fun testExpiredRefetchKeepsOriginalSmallPageSizeAndPageNumber() = runBlocking {
         val target = user("sample_100", hls = hls)

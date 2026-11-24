@@ -91,8 +91,12 @@ class CatalogAPI(
                 total = last.total,
             )
         ) {
-            last = fetch(query.withOffset(last.nextOffset))
-            if (last.rooms.isEmpty()) break
+            val nextOffset = last.nextOffset
+            last = fetch(query.withOffset(nextOffset))
+            if (last.rooms.isEmpty()) {
+                if (last.nextOffset > nextOffset) merged = PageMerge.appended(merged, last)
+                break
+            }
             merged = PageMerge.appended(merged, last)
             fetched += 1
         }

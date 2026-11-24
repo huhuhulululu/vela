@@ -3,4 +3,3 @@ swift_file	swift_test	reason
 Tests/VelaCoreTests/ShortcutSearchTests.swift	testPlainKeysOnlyWhenNothingElseOwnsTheKeyboard	不移植 ShortcutGate
 Tests/VelaCoreTests/VelaCoreTests.swift	testWheelCommitsOneRoom	不移植 WheelInterpreter（指针滚轮）
 Tests/VelaCoreTests/VelaCoreTests.swift	testPresenceIsConditional	不移植 Presence
-Tests/VelaCoreTests/TargetedMergeTests.swift	testFilteredEmptyPageWithAdvancingCursorDoesNotReachEnd	deferred:sites-core-fix 安卓 FeedStore.kt replace/append/mergePageAfterCurrent 遇过滤空页即标 reachedEnd=true，未判断游标前进

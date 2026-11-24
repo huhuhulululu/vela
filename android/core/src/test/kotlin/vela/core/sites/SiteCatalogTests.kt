@@ -145,7 +145,6 @@ class SiteCatalogTests {
         assertTrue(fetched.cursor.ended.contains(SiteID.cam4))
     }
 
-    @org.junit.jupiter.api.Disabled("deferred:sites-core-fix: 安卓 SiteCatalog.kt MixedCursor.withPage 遇空页即标 ended，忽略游标仍在前进")
     @Test
     fun testMixedFilteredEmptyPageWithAdvancingCursorDoesNotEndSite() = runBlocking {
         val cb = ScriptedAdapter(

@@ -186,6 +186,12 @@ enum class SiteMode {
             mixed -> listOf(SiteID.chaturbate, SiteID.cam4)
         }
 
+    /** 过滤出属于当前站点模式的收藏名单（保持原顺序）。 */
+    fun filterFavorites(names: List<String>): List<String> {
+        val allowed = sites.toSet()
+        return names.filter { RoomKey.siteOfRef(it) in allowed }
+    }
+
     companion object {
         fun restore(raw: String?): SiteMode {
             if (raw.isNullOrEmpty()) return chaturbate

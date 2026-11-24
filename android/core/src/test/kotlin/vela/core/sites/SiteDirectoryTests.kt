@@ -137,7 +137,6 @@ class SiteDirectoryTests {
         assertEquals(SiteID.chaturbate, RoomKey.siteOfRef("vela-perf-room"))
     }
 
-    @org.junit.jupiter.api.Disabled("deferred:sites-core-fix: 安卓 SiteDirectory.kt cursors 仅按 offset 索引且 offset<=0 清空，标签定向查询冲掉常规混合游标（实测第 4 页 nextOffset=4 而非 16）")
     @Test
     fun testTargetedTagQueryDoesNotClearMixedRegularCursors() = runBlocking {
         val client = HostClient(

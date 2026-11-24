@@ -25,12 +25,12 @@ data class MixedCursor(
     val isFinished: Boolean
         get() = offsets.isNotEmpty() && offsets.keys.all { it in ended }
 
-    fun withPage(site: SiteID, page: CatalogPage): MixedCursor {
-        val stillOpen = page.rooms.isNotEmpty() && page.nextOffset < page.total
+    fun withPage(site: SiteID, page: CatalogPage, previous: Int = offsets[site] ?: 0): MixedCursor {
+        val endedNow = page.nextOffset >= page.total || page.nextOffset <= previous
         return copy(
             offsets = offsets + (site to page.nextOffset),
             totals = totals + (site to page.total),
-            ended = if (stillOpen) ended - site else ended + site,
+            ended = if (endedNow) ended + site else ended - site,
         )
     }
 }
@@ -86,7 +86,8 @@ object SiteCatalog {
         val lists = ArrayList<List<Room>>()
         for (site in sites) {
             val page = results[site]?.getOrNull() ?: continue
-            next = next.withPage(site, page)
+            val previous = if (mode == SiteMode.mixed) (cursor.offsets[site] ?: 0) else maxOf(query.offset, 0)
+            next = next.withPage(site, page, previous)
             lists.add(page.rooms)
         }
         val merged = interleave(lists)

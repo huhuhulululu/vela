@@ -34,6 +34,7 @@ class Cam4Adapter(
     private data class Entry(
         val room: Room,
         val offset: Int,
+        val limit: Int,
         val fetchedAt: Instant,
         val geo: Boolean,
     )
@@ -48,8 +49,29 @@ class Cam4Adapter(
 
     override suspend fun fetchDirectory(query: CatalogQuery): CatalogPage {
         if (unsupported(query)) return CatalogPage(rooms = emptyList(), total = 0, nextOffset = 0)
-        val page = load(offset = maxOf(query.offset, 0), limit = query.limit)
-        return filtered(page, query)
+        val limit = query.limit.coerceIn(1, Cam4Directory.maxPageSize)
+        val needsFilter = viewerRegions.isNotEmpty() ||
+            query.gender != null ||
+            SiteSearchText.normalized(query.keywords) != null
+        var cursor = maxOf(query.offset, 0)
+        val collected = ArrayList<Room>()
+        val seen = HashSet<String>()
+        var total = 0
+        var scans = 0
+        while (true) {
+            val raw = load(offset = cursor, limit = limit)
+            scans += 1
+            total = maxOf(total, raw.total)
+            for (room in filtered(raw, query).rooms) {
+                if (seen.add(room.identity)) collected.add(room)
+            }
+            val advanced = raw.nextOffset > cursor
+            cursor = raw.nextOffset
+            if (!needsFilter || collected.size >= limit || raw.rooms.size < limit || !advanced || cursor >= total || scans >= maxFilterScans) {
+                break
+            }
+        }
+        return CatalogPage(rooms = collected, total = total, nextOffset = cursor)
     }
 
     override suspend fun resolveStream(room: Room): SourcedTicket {
@@ -58,9 +80,10 @@ class Cam4Adapter(
         if (cached != null && fresh(cached, streamTTLMillis, clock())) {
             return ticket(cached, cached.room.stream)
         }
-        val offset = lookup(name)?.offset ?: 0
+        val offset = cached?.offset ?: 0
+        val limit = cached?.limit ?: Cam4Directory.maxPageSize
         val stamp = clock()
-        load(offset = offset, limit = Cam4Directory.maxPageSize)
+        load(offset = offset, limit = limit)
         val again = lookup(name)
         if (again != null && !again.fetchedAt.isBefore(stamp)) {
             return ticket(again, again.room.stream)
@@ -110,7 +133,8 @@ class Cam4Adapter(
         if (gate != null && !gate.allows(SiteEndpoint.cam4Directory)) {
             throw EndpointBackedOff(SiteEndpoint.cam4Directory)
         }
-        val request = HTTPRequest(url = Cam4Directory.url(offset = offset, limit = limit).toString(), method = "GET")
+        val pageSize = limit.coerceIn(1, Cam4Directory.maxPageSize)
+        val request = HTTPRequest(url = Cam4Directory.url(offset = offset, limit = pageSize).toString(), method = "GET")
             .withHeader("User-Agent", UserAgent.safari)
             .withHeader("Accept", "application/json, text/plain, */*")
             .withHeader("Referer", "https://www.cam4.com/")
@@ -129,12 +153,12 @@ class Cam4Adapter(
         val now = clock()
         val page = Cam4Directory.decode(
             data = result.data,
-            requestLimit = limit,
+            requestLimit = pageSize,
             requestOffset = offset,
             now = now,
             viewerRegions = viewerRegions,
         )
-        remember(page.rooms, offset, now)
+        remember(page.rooms, offset, pageSize, now)
         return page
     }
 
@@ -151,11 +175,11 @@ class Cam4Adapter(
         return CatalogPage(rooms = rooms, total = page.total, nextOffset = page.nextOffset)
     }
 
-    private fun remember(rooms: List<Room>, offset: Int, at: Instant) {
+    private fun remember(rooms: List<Room>, offset: Int, limit: Int, at: Instant) {
         synchronized(lock) {
             for (room in rooms) {
                 val name = room.key.name.lowerRoot()
-                index[name] = Entry(room = room, offset = offset, fetchedAt = at, geo = geoBlocked(room))
+                index[name] = Entry(room = room, offset = offset, limit = limit, fetchedAt = at, geo = geoBlocked(room))
                 order.remove(name)
                 order.add(name)
             }
@@ -200,6 +224,8 @@ class Cam4Adapter(
         const val statusTTLMillis: Long = 3 * 60 * 1000
         const val indexLimit: Int = 2_000
         const val thumbnailMarginMillis: Long = 60_000
+        /** 本地过滤把原页滤短或滤空时，单次目录请求最多顺延扫描的原页数。 */
+        const val maxFilterScans: Int = 5
         private val MEDIA_HEADERS = mapOf(
             "Referer" to "https://www.cam4.com/",
             "Origin" to "https://www.cam4.com",

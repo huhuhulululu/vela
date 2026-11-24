@@ -189,7 +189,7 @@ FeedCache 的随机性质测试只断言不变量。Kotlin 用同一个种子，
 
 ## sites 暂缓项（欠账）
 
-`android/parity/skip*.tsv` 里理由以 `deferred:sites-app`、`deferred:sites-sync` 或 `deferred:sites-core-fix` 开头的行，是安卓侧确实缺实现或存在同款缺陷、不应写成 Apple 专属跳过的多站点用例（共 24 条）：
+`android/parity/skip*.tsv` 里理由以 `deferred:sites-app` 或 `deferred:sites-sync` 开头的行，是安卓侧确实缺实现、不应写成 Apple 专属跳过的多站点用例（共 17 条）：
 
 - `deferred:sites-app`（13 条）：安卓 `:app` 尚未接入站点模式、Cam4 起播/站点头/严格主列表失败、启动键迁移与直达前缀解析（含 `LaneHub`/`LaneHttpHeaders` 按源传站点 Referer/Origin）。
   1. `Tests/VelaRelayTests/RelayMultiSourceTests.swift#testEachSourceSendsItsOwnSiteHeaders`
@@ -210,12 +210,4 @@ FeedCache 的随机性质测试只断言不变量。Kotlin 用同一个种子，
   15. `Tests/VelaCoreTests/SyncSitesTests.swift#testCam4FavoritesAndBlocksRoundTripWithoutLoss`
   16. `Tests/VelaCoreTests/SyncSitesTests.swift#testProjectionKeepsCam4AndSkipsUnknownSites`
   17. `Tests/VelaCoreTests/SyncSitesTests.swift#testLegacyBareLocalNamesMigrateAsChaturbate`
-- `deferred:sites-core-fix`（7 条）：Swift 审计返工修复的同款缺陷在安卓 `:core` 同样存在，等价 Kotlin 用例已写入并标 `@Disabled`，待另派修复后解除忽略并删除对应暂缓行。
-  18. `Tests/VelaCoreTests/Cam4StreamTests.swift#testClientFilteredEmptyFirstPageContinuesToLaterMatchingPage`（`Cam4Adapter.kt`）
-  19. `Tests/VelaCoreTests/Cam4StreamTests.swift#testSingleSiteMultiPageContinuesThroughFilteredShortPage`（`Cam4Adapter.kt`、`SiteDirectory.kt`、`CatalogAPI.kt`）
-  20. `Tests/VelaCoreTests/Cam4StreamTests.swift#testExpiredRefetchKeepsOriginalSmallPageSizeAndPageNumber`（`Cam4Adapter.kt`）
-  21. `Tests/VelaCoreTests/SiteCatalogTests.swift#testMixedFilteredEmptyPageWithAdvancingCursorDoesNotEndSite`（`SiteCatalog.kt`）
-  22. `Tests/VelaCoreTests/SiteDirectoryTests.swift#testTargetedTagQueryDoesNotClearMixedRegularCursors`（`SiteDirectory.kt`）
-  23. `Tests/VelaCoreTests/TargetedMergeTests.swift#testFilteredEmptyPageWithAdvancingCursorDoesNotReachEnd`（`FeedStore.kt`）
-  24. `Tests/VelaCoreTests/FavoriteStatusTests.swift#testCam4ModeFavoritePlanSkipsChaturbateChallenge`（`FavoriteCache.kt`、`RoomKey.kt`）
 - 待对应安卓实现落地后必须补齐 Kotlin 测试并删掉这些暂缓行；收尾时 `grep -rn 'deferred:sites-' android/parity` 必须无输出。
