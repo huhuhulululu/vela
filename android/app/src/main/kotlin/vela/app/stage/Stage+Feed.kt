@@ -83,6 +83,10 @@ internal fun StageViewModel.move(delta: Int, userInitiated: Boolean): Boolean {
     }
     moveUserInitiated = false
     if (feed.currentUsername == before) return false
+    if (laneCount > 1 && before != null) {
+        recentSkips.record(before, now())
+        primaryCursor = primaryCursor.copy(previous = before)
+    }
     laneFace = laneFace.copy(
         manuallyPaused = MoveRules.pausedAfterMove(laneFace.manuallyPaused, userInitiated),
     )

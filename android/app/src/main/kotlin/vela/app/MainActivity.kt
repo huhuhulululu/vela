@@ -215,12 +215,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
-        val bytes = pendingExport ?: return
+        if (pendingExport == null) return
         outState.putBoolean(EXPORT_PENDING, true)
-        if (bytes.size <= EXPORT_INLINE_LIMIT) outState.putByteArray(EXPORT_BYTES, bytes)
-        if (pendingUriId == pendingExportId) {
-            pendingExportUri?.let { outState.putString(EXPORT_URI, it) }
-        }
     }
 
     override fun onStart() {
@@ -464,9 +460,6 @@ internal fun readLimited(input: InputStream, limit: Int): ByteArray {
 }
 
 private const val EXPORT_PENDING = "vela.pendingExport"
-private const val EXPORT_BYTES = "vela.pendingExportBytes"
-private const val EXPORT_URI = "vela.pendingExportUri"
-private const val EXPORT_INLINE_LIMIT = 400_000
 
 /** release 没有 StageHost，真实启动一律起舞台。hooks 自己出错也放行，避免把正式路径停掉。 */
 internal fun debugAllowsStageBoot(): Boolean {

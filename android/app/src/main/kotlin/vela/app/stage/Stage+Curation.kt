@@ -277,7 +277,7 @@ internal suspend fun StageViewModel.fetchFavoritesPage(): CatalogPage {
 
 internal fun StageViewModel.acceptFavoriteSuggest() {
     val prompt = favoriteSuggest ?: return
-    val room = feed.current ?: return
+    val room = roomOn(focusLane) ?: return
     if (WatchLedger.key(room.username) != prompt.username) return
     endFavoriteSuggest(SuggestEnd.accepted)
     if (curation.isFavorite(room.username)) return
@@ -292,7 +292,7 @@ internal fun StageViewModel.closeFavoriteSuggest() {
 
 internal fun StageViewModel.dismissFavoriteSuggestIfMismatch() {
     val prompt = favoriteSuggest
-    val current = feed.currentUsername
+    val current = roomOn(focusLane)?.username
     if (prompt == null || current == null || WatchLedger.key(current) != prompt.username) {
         favoriteSuggest = null
         favoriteSuggestJob?.cancel()

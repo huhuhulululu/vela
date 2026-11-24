@@ -127,6 +127,7 @@ internal fun StageViewModel.updateFeedLanes(
         primary = primaryCursor.copy(),
         secondary = secondaryCursor?.copy(),
         focus = if (secondaryCursor == null) LaneID.PRIMARY else focusLane,
+        recent = if (secondaryCursor == null) emptySet() else recentSkips.active(now()),
     )
     body(copy)
     val outcome = LaneSelection.resolveFeedChange(
@@ -165,8 +166,8 @@ internal fun StageViewModel.updateFeedLanes(
         val settled = secondaryDwell.switchTo(nextRoom, now())
         if (settled != null) recordSettlement(settled, endReason, userInitiated)
         secondaryDwell.setLedgerExcluded(taste.paused, now())
+        secondarySource = SiteSearch.dwellSource(loadedSource, siteSearch != null)
     }
-    secondarySource = SiteSearch.dwellSource(loadedSource, siteSearch != null)
     if (!sameUser(beforeSecondary, afterSecondary)) {
         val previous = secondaryFace
         val generation = (previous?.generation ?: 0) + 1
@@ -217,7 +218,20 @@ internal fun StageViewModel.recordSettlementLanes(
         endReason = endReason,
         userInitiated = userInitiated,
     )
-    taste = settlement.recording(taste, settled.room, at, tagRarity)
+    val isFocusLane = single || role == focusLane.role
+    val daily = when {
+        settlement.countsDaily -> settlement.dailySeconds
+        isFocusLane && settled.dwell <= 0.0 && !settlement.resumesAsNewDwell -> 0.0
+        else -> null
+    }
+    taste = taste.recording(
+        room = settled.room,
+        learnSeconds = if (settlement.learnsTaste) settlement.learnSeconds else null,
+        daily = daily,
+        source = settlement.source,
+        now = at,
+        rarity = tagRarity,
+    )
     tasteSaver.schedule(taste)
     val start = settled.start
     if (settled.ledgerSeconds <= 0.0 || start == null) return
@@ -698,6 +712,10 @@ internal fun StageViewModel.moveLane(id: LaneID, delta: Int, userInitiated: Bool
         deferSecondaryAutoplay = false
     }
     if (sameUser(secondaryCursor?.username, before)) return false
+    if (laneCount > 1 && before != null) {
+        recentSkips.record(before, now())
+        secondaryCursor = secondaryCursor?.copy(previous = before)
+    }
     secondaryFace = secondaryFace?.copy(
         manuallyPaused = MoveRules.pausedAfterMove(secondaryFace?.manuallyPaused == true, userInitiated),
     )

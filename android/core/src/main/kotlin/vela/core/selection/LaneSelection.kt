@@ -1,8 +1,49 @@
 package vela.core.selection
 
+import java.time.Instant
 import vela.core.base.lane.LaneCursor
 import vela.core.base.lane.LaneID
 import vela.core.base.model.lowerRoot
+import vela.core.base.model.timeIntervalSince1970
+
+/**
+ * 双窗共享的「最近划走」：任一路因划动离开的房间，30 分钟内另一路向前划时不再落上去。
+ * 只在内存里；不用定时器，到期按读取时刻判断；超过容量丢最旧。
+ */
+class RecentSkips {
+    private data class Entry(val name: String, val at: Instant)
+
+    private val entries = ArrayList<Entry>()
+
+    val count: Int
+        get() = entries.size
+
+    fun record(name: String, at: Instant) {
+        val key = name.lowerRoot()
+        entries.removeAll { it.name == key }
+        entries.add(Entry(key, at))
+        if (entries.size > capacity) {
+            entries.subList(0, entries.size - capacity).clear()
+        }
+    }
+
+    /** [at] 时仍在期内的房间（小写）。 */
+    fun active(at: Instant): Set<String> {
+        val nowSec = at.timeIntervalSince1970()
+        val result = HashSet<String>()
+        for (entry in entries) {
+            if (nowSec - entry.at.timeIntervalSince1970() < window) {
+                result.add(entry.name)
+            }
+        }
+        return result
+    }
+
+    companion object {
+        const val window: Double = 30.0 * 60.0
+        const val capacity: Int = 200
+    }
+}
 
 /**
  * 变更后两路各停在哪一间、焦点在哪一路，以及房间变了的原因。
@@ -43,6 +84,8 @@ object LaneSelection {
         val primary: LaneCursor,
         val secondary: LaneCursor?,
         val focus: LaneID,
+        /** 此刻仍在期内的「最近划走」房间（小写）。只有双窗划动用它。 */
+        val recent: Set<String> = emptySet(),
     )
 
     data class Outcome(
@@ -157,20 +200,9 @@ object LaneSelection {
         return outcome(before, primary, secondary, focus, placed(intent))
     }
 
-    /** 房间还在就不动。消失的副路沿自己的方向找，再反向；主路采用 FeedStore 的选择，落到副路就让开。 */
-    private fun filtered(before: Snapshot, afterRooms: List<String>, proposedPrimary: String?): Outcome {
-        val secondary = (before.secondary ?: LaneCursor()).copy()
-        val name = secondary.username
-        if (name != null) {
-            val kept = canonical(name, afterRooms)
-            secondary.username = kept ?: replacement(name, before.rooms, afterRooms, secondary.direction)
-        }
-        var primary = before.primary.copy(
-            username = proposedPrimary?.let { canonical(it, afterRooms) },
-        )
-        primary = yield(primary, secondary.username, afterRooms)
-        return outcome(before, primary, secondary, placed = Reason.FILTER)
-    }
+    /** 房间还在就不动。主路落到仍在的副路就让开；消失的副路排除主路后沿自己方向找替补；仍空着的副路从主路出发补位。 */
+    private fun filtered(before: Snapshot, afterRooms: List<String>, proposedPrimary: String?): Outcome =
+        kept(before, afterRooms, proposedPrimary?.let { canonical(it, afterRooms) }, placed = Reason.FILTER)
 
     /** 整表重载、全站搜索装入或退出：副路取新列表里主路之后的第一间。 */
     private fun reloaded(before: Snapshot, afterRooms: List<String>, proposedPrimary: String?): Outcome {
@@ -183,19 +215,47 @@ object LaneSelection {
         return outcome(before, primary, secondary, placed = Reason.SOURCE_CHANGE)
     }
 
-    /** 合并、重排、前置：还在列表里的房间不动。 */
+    /** 合并、重排、前置：还在列表里的房间不动；消失的副路排除主路找替补；空副路从主路出发补位。 */
     private fun merged(before: Snapshot, afterRooms: List<String>, proposedPrimary: String?): Outcome {
         val primaryKept = proposedPrimary?.let { canonical(it, afterRooms) }
             ?: before.primary.username?.let { canonical(it, afterRooms) }
-        var primary = before.primary.copy(username = primaryKept)
+        return kept(before, afterRooms, primaryKept, placed = Reason.MERGE)
+    }
+
+    private fun kept(
+        before: Snapshot,
+        afterRooms: List<String>,
+        primaryChoice: String?,
+        placed: Reason,
+    ): Outcome {
         val secondary = (before.secondary ?: LaneCursor()).copy()
-        val name = secondary.username
-        if (name != null) {
-            val kept = canonical(name, afterRooms)
-            secondary.username = kept ?: replacement(name, before.rooms, afterRooms, secondary.direction)
+        val oldSecondary = secondary.username
+        var secondaryMissing: String? = null
+        if (oldSecondary != null) {
+            val keptSecondary = canonical(oldSecondary, afterRooms)
+            if (keptSecondary != null) {
+                secondary.username = keptSecondary
+            } else {
+                secondary.username = null
+                secondaryMissing = oldSecondary
+            }
         }
+        var primary = before.primary.copy(username = primaryChoice)
         primary = yield(primary, secondary.username, afterRooms)
-        return outcome(before, primary, secondary, placed = Reason.MERGE)
+        if (secondaryMissing != null) {
+            secondary.username = replacement(
+                missing = secondaryMissing,
+                before = before.rooms,
+                after = afterRooms,
+                direction = secondary.direction,
+                excluding = skipping(primary.username),
+            )
+        }
+        if (secondary.username == null && primary.username != null) {
+            val anchor = primary.username!!
+            secondary.username = neighbor(anchor, afterRooms, secondary.direction, setOf(anchor))
+        }
+        return outcome(before, primary, secondary, placed = placed)
     }
 
     /** 目标正在另一路播放时只切焦点。否则主路改到目标上。 */
@@ -239,9 +299,9 @@ object LaneSelection {
         var secondary = (before.secondary ?: LaneCursor()).copy()
         when (lane) {
             LaneID.PRIMARY ->
-                primary = step(primary, delta, afterRooms, skipping(secondary.username))
+                primary = step(primary, delta, afterRooms, skipping(secondary.username), before.recent)
             LaneID.SECONDARY ->
-                secondary = step(secondary, delta, afterRooms, skipping(primary.username))
+                secondary = step(secondary, delta, afterRooms, skipping(primary.username), before.recent)
             // 快照仍只有两路。第三路的选房不在契约包；这里不改游标，避免把两窗结果写错。
             LaneID.TERTIARY -> Unit
         }
@@ -258,12 +318,29 @@ object LaneSelection {
         return outcome(before, primary, secondary, placed = Reason.RESUME)
     }
 
-    private fun step(cursor: LaneCursor, delta: Int, rooms: List<String>, skipping: Set<String>): LaneCursor {
+    /** `recent` 里的房间先一并跳过（本路自己的上一间除外）；这样没有落点时放宽成只避开另一路，仍不行才原地。 */
+    private fun step(
+        cursor: LaneCursor,
+        delta: Int,
+        rooms: List<String>,
+        skipping: Set<String>,
+        recent: Set<String> = emptySet(),
+    ): LaneCursor {
         if (delta == 0) return cursor.copy()
         val direction = if (delta > 0) 1 else -1
         if (rooms.isEmpty()) return cursor.copy(username = null, direction = direction)
         val origin = indexOf(cursor.username, rooms) ?: 0
-        val landed = LanePaging.landingIndex(origin, delta, rooms, skipping)
+        var landed = LanePaging.landingIndex(origin, delta, rooms, skipping)
+        if (recent.isNotEmpty()) {
+            val shunned = recent.mapTo(HashSet()) { it.lowerRoot() }
+            cursor.previous?.let { shunned.remove(it.lowerRoot()) }
+            val banned = skipping.mapTo(HashSet()) { it.lowerRoot() }
+            banned.addAll(shunned)
+            val strict = LanePaging.landingIndex(origin, delta, rooms, banned)
+            if (strict != origin && rooms[strict].lowerRoot() !in banned) {
+                landed = strict
+            }
+        }
         return cursor.copy(username = rooms[landed], direction = direction)
     }
 
@@ -275,15 +352,18 @@ object LaneSelection {
         )
     }
 
-    /** 从已经不在新列表里的房间出发，沿方向找仍可见的下一间，没有再反方向。 */
+    /** 从已经不在新列表里的房间出发，沿方向找仍可见、未被占用的下一间，没有再反方向。 */
     private fun replacement(
         missing: String,
         before: List<String>,
         after: List<String>,
         direction: Int,
+        excluding: Set<String> = emptySet(),
     ): String? {
         val at = indexOf(missing, before) ?: return null
-        fun allowed(name: String): Boolean = !same(name, missing) && after.any { same(it, name) }
+        val banned = excluding.mapTo(HashSet()) { it.lowerRoot() }
+        fun allowed(name: String): Boolean =
+            !same(name, missing) && name.lowerRoot() !in banned && after.any { same(it, name) }
         val later = before.drop(at + 1).firstOrNull(::allowed)?.let { canonical(it, after) }
         val earlier = before.take(at).lastOrNull(::allowed)?.let { canonical(it, after) }
         return if (direction >= 0) later ?: earlier else earlier ?: later

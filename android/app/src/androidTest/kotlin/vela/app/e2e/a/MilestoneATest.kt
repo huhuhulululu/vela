@@ -29,7 +29,6 @@ import vela.app.infra.Settings
 import vela.app.lane.DisplayCheck
 import vela.app.lane.LaneFrame
 import vela.app.lane.LaneLog
-import vela.app.lane.LanePlayer
 import vela.app.stage.StageIntent
 import vela.app.stage.StageSurface
 import vela.app.ui.primaryTarget
@@ -394,22 +393,9 @@ class MilestoneATest {
         return null
     }
 
-    private fun playerVolume(lane: vela.app.lane.PlaybackLane): Float {
-        val outer = lane.javaClass.getDeclaredField("player")
-        outer.isAccessible = true
-        val delegate = outer.get(lane) as LanePlayer
-        val inner = delegate.javaClass.getDeclaredField("player")
-        inner.isAccessible = true
-        val player = inner.get(delegate) as androidx.media3.common.Player
-        return player.volume
-    }
+    private fun playerVolume(lane: vela.app.lane.PlaybackLane): Float = lane.playerVolumeForTest()
 
-    private fun audioEnabled(lane: vela.app.lane.PlaybackLane): Int {
-        val outer = lane.javaClass.getDeclaredField("player")
-        outer.isAccessible = true
-        val delegate = outer.get(lane) as LanePlayer
-        return delegate.audioEnabledCount()
-    }
+    private fun audioEnabled(lane: vela.app.lane.PlaybackLane): Int = lane.audioEnabledCountForTest()
 
     private fun exoThreads(): List<String> = threadNames().filter { name ->
         name.startsWith("ExoPlayer") && name != "ExoPlayer:Backg"

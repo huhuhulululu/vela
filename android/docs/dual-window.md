@@ -18,7 +18,7 @@
 | 目标路操作 | 收藏、屏蔽、不感兴趣、重试、暂停经 `RoomTarget` / `matchedLane`，只作用于点到的那一路。 |
 | 热降档 | `ThermalMonitor` 订阅 `PowerManager`（API 29+）；`noteThermal` + `LaneQuality`：未发热不封顶；`SERIOUS` 及以上按 `estimatedDisplayHeight` 降档，下限 896 kbps；回到 `FAIR` 及以下连续满 60 秒回升。起播经 `ThermalCapSink` 带上限。 |
 | 副路资源不足 | `PlaybackFailureClassifier.Outcome.RESOURCE_DEGRADE` 仅副路：`degradeLane` 停播并显示「双窗暂不可用」，不记房间失败、不自动跳过。 |
-| 最近划走 | 双窗下主/副各自记录 `recentSkip`，前进选房互相避开对方刚离开的房间（单窗不记）。 |
+| 最近划走 | `RecentSkips` + `LaneSelection`：双窗下任一路划走房间记入共享集合（30 分钟有效、上限 200），另一路前进避开，回划本路 `previous` 允许，直达与单窗不受限，列表重载保留。 |
 
 日志 category：`vela.stage`，关键字 `lanes`、`focus`、`thermal limit|recover`、`degrade secondary`、`lane-rooms distinct=`。
 
@@ -66,11 +66,11 @@
 | `degradeLaneForTest` | 同上 | 副路降级 |
 | `PlaybackLane.audioEnabledCountForTest` / `playerVolumeForTest` | `PlaybackLane.kt` | 出声与音量 |
 
-单元测试：`E2eBTestHooksTest`、`SecondaryLaneReleaseTest`、`StageContractDualTest`、`Stage+Lanes` 相关 JVM 测试。仪器：`MilestoneBTest` + `E2eBSupport`，CI 模式 `android/tools/emu-modes/e2e-b.sh`。
+单元测试：`E2eBTestHooksTest`、`SecondaryLaneReleaseTest`、`StageContractDualTest`、`DualStageTest`、`DualDwellParityTest`、`DualWindowParityTest`、`DualAudioParityTest`。仪器：`MilestoneBTest` + `E2eBSupport`，CI 模式 `android/tools/emu-modes/e2e-b.sh`。
 
-**反射待清理（里程碑 B 文档登记，不改本包代码）**
+**反射待清理**
 
-- `MilestoneATest` 仍用 `getDeclaredField("player")` 读音量与音轨，应改为 `playerVolumeForTest` / `audioEnabledCountForTest`（E2eB 已用正式接口）。
+- `MilestoneATest` 已改为 `playerVolumeForTest` / `audioEnabledCountForTest`（不再使用 `getDeclaredField`）。
 - `PlaybackFaceObserveTest` 反射 `observe`；`BandwidthMeterIsolationTest` 反射 Media3 内部字段，仅限 JVM，可保留或另做 test 替身。
 - `MainActivity` 对 `Hooks` 的反射是 release 无 hooks 类的既定启动路径，不是测试债务。
 

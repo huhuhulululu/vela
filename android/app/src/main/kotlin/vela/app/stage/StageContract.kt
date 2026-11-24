@@ -200,7 +200,7 @@ data class StageUiState(
         }
 
     val currentIsFavorite: Boolean
-        get() = current?.let { curation.isFavorite(it.username) } ?: false
+        get() = focusRoom?.let { curation.isFavorite(it.username) } ?: false
 
     /** 多于一路。单窗为假。 */
     val dualWindow: Boolean
