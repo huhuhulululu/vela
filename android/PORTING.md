@@ -175,26 +175,21 @@ FeedCache 的随机性质测试只断言不变量。Kotlin 用同一个种子，
 - [Track selection](https://developer.android.com/media/media3/exoplayer/track-selection)：关音轨、限制视频码率走 `TrackSelectionParameters`。
 - [`DefaultLoadControl`](https://developer.android.com/reference/androidx/media3/exoplayer/DefaultLoadControl) 与 [`TrackSelectionParameters.Builder.setMaxVideoBitrate`](https://developer.android.com/reference/androidx/media3/common/TrackSelectionParameters.Builder#setMaxVideoBitrate(int)) 的 API 参考页存在。缓冲 min/max 6000 ms、`setMaxVideoBitrate` 按计划在后续播放任务里用，不在这四篇指南正文里。
 
-## milestone-B 跳过项（2026-11-20 里程碑 B 代码已合入后的登记状态）
+## milestone-B 跳过项（2026-11-24 parity 清账后状态）
 
-`android/parity/skip.tsv` 里 **121 条**理由以 `milestone-B:` 开头。它们是 Swift 里已有、安卓侧尚未逐条登记 parity 的双窗 / 三窗 / 多路音频用例，**只为让 `parity.py --all` 不失败**，不等于行为不移植或已放弃。
+原有 **121 条** `milestone-B:` 条目（均位于 `parity.py` 的 `GLOBAL_SKIP_FILES`，须留在 `android/parity/skip.tsv`）已清账如下：
 
-| 理由摘要（条数） | 含义 | 安卓现状 |
+| 归类 | 条数 | 说明 |
 |---|---|---|
-| 双窗开关、副路选房与目标路操作（27） | `DualWindowTests` 全集 | 舞台与部分 JVM 测试已覆盖；parity 未逐条映射 |
-| 三窗路数迁移、选房与焦点路操作（32） | `TripleWindowTests` | 未做三窗播放；契约/UI 预留第三格 |
-| 三窗出声、停留与按格画质（19） | `TripleLaneMediaTests` | 未移植；计划中无安卓三窗里程碑 |
-| 音频切换的执行顺序（15） | `AudioTransitionRunnerTests` | `AudioFocusPlan` + 仪器 E2eB 部分断言；Runner 逐步未移植 |
-| 双窗停留口径 / 焦点秒（12 + 7） | `DualDwellTests`、`DwellFocusTests` | `FocusSegments` + 双路结算已接线；细粒度测试未登记 |
-| 双窗按路画质与热降档（5） | `DualQualityTests` | `LaneQuality` + `ThermalCapSink` + E2eB 热场景 |
-| 双窗切焦点的出声互斥（4） | `DualAudioFocusTests` 子集 | E2eB 焦点出声；其余条未映射 |
+| 真测试（`replaced-by:`） | 57 | `DualDwellParityTest`（19：`DwellFocusTests` 7 + `DualDwellTests` 12）、`DualWindowParityTest`（25：`DualWindowTests` 20 + `DualQualityTests` 5）、`DualAudioParityTest`（13：`AudioTransitionRunnerTests` 10 + `DualAudioFocusTests` 3） |
+| 不移植：三窗 | 51 | `TripleWindowTests`（32）+ `TripleLaneMediaTests`（19），按编排者 2026-11-24 裁决改写理由为 `不移植：三窗（安卓无三窗里程碑，编排者 2026-11-24 裁决）` |
+| 待裁决（保留 `milestone-B:`） | 13 | iOS `AVAudioSession` 专有行为 6 条（`AudioTransitionRunnerTests` 5 + `DualAudioFocusTests` 1）；`recentSkips` 未移植 6 条（`DualWindowTests`）；搜索清空后空副路补位 1 条（`DualWindowTests#testLocalSearchNarrowingStaysDistinct`，与 `skip-selection.tsv` 的 `testFilterRelaxRefillsEmptySecondary` 同源） |
 
 **规则（不变）**
 
-- 里程碑 B **产品行为**验收以 S-B1、S-B2 与 `emu-modes/e2e-b.sh` 为准；parity 里这 121 条可在后续包（或 C9 扩展）里改成 Kotlin 测试 + `split-*.tsv`，或拆成「三窗永不过」并改写理由为「不移植：三窗」。须编排者裁决，执行者不得自行改名糊弄 `--all`。
+- 里程碑 B **产品行为**验收以 S-B1、S-B2 与 `emu-modes/e2e-b.sh` 为准；上述 13 条待裁决项保留原 `milestone-B:` 行，须编排者裁决，执行者不得自行改名糊弄 `--all`。
 - 里程碑 C **产品行为**验收以 S-C1、S-C2、S-C3 与 `emu-modes/e2e-c.sh` 为准（`MilestoneCTest`）；`emu-modes/pip.sh`（`PipEmulatorTest`）为包级补充。这是行为门，不是性能基线。
 - 理由以「不移植：iOS」开头的是真平台绑定（AVAudioSession、UIKit PiP、MetricKit 等），长期保留。
-- 里程碑 B 收尾若要求 `grep -rn 'milestone-B' android/parity` 为零，需要上述迁移或裁决 **之后**再删行；D-B 只记录现状，不删 skip。
 
 ### 仪器测试：优先用正式钩子，少反射
 
@@ -204,7 +199,7 @@ FeedCache 的随机性质测试只断言不变量。Kotlin 用同一个种子，
 - `StageViewModel.injectThermalForTest`、`isQualityLimitedForTest`、`laneCapForTest`、`degradeLaneForTest`
 - `PlaybackLane.audioEnabledCountForTest`、`playerVolumeForTest`
 
-`androidTest/.../e2e/b/` 应只走这些接口（见 `E2eBSupport.kt`）。**待办**：`e2e/a/MilestoneATest.kt` 的 `playerVolume` / `audioEnabled` 仍反射 `PlaybackLane` 私有 `player` 字段，应改为与 E2eB 相同的上列方法。`PlaybackFaceObserveTest` 反射 `AppPlaybackSession.observe` 可改为 package-visible 测试入口或 Robolectric 替身。
+`androidTest/.../e2e/b/` 与 `e2e/a/MilestoneATest.kt` 均已走上列公开测试接口（不再反射 `PlaybackLane` 私有 `player` 字段）。剩余待办：`PlaybackFaceObserveTest` 反射 `AppPlaybackSession.observe` 可改为 package-visible 测试入口或 Robolectric 替身。
 
 `VisibleForTesting` 为 CLASS retention，仪器进程不能单靠反射查注解；单测 `E2eBTestHooksTest` 用 `getMethod` 钉住 JVM 签名即可。
 
