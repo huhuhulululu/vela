@@ -14,6 +14,16 @@ public enum PiPPolicy {
         case starting
         case active
         case stopping
+
+        /// 日志里的画中画状态标签。
+        public var label: String {
+            switch self {
+            case .none: return "none"
+            case .starting: return "starting"
+            case .active: return "active"
+            case .stopping: return "stopping"
+            }
+        }
     }
 
     public struct Input: Equatable, Sendable {

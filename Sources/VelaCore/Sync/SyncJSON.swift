@@ -22,6 +22,20 @@ public enum SyncJSON {
 
     public enum ParseError: Error, Equatable {
         case tooLarge, bom, invalidUTF8, syntax, duplicateKey, escape, controlCharacter, tooDeep
+
+        /// 解码失败原因里的显式标签。
+        public var label: String {
+            switch self {
+            case .tooLarge: return "tooLarge"
+            case .bom: return "bom"
+            case .invalidUTF8: return "invalidUTF8"
+            case .syntax: return "syntax"
+            case .duplicateKey: return "duplicateKey"
+            case .escape: return "escape"
+            case .controlCharacter: return "controlCharacter"
+            case .tooDeep: return "tooDeep"
+            }
+        }
     }
 
     public static func parse(_ input: [UInt8], limit: Int = SyncLimits.plaintextBytes, maxDepth: Int = 3) throws -> Value {

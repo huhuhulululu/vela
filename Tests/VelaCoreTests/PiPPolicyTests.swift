@@ -437,7 +437,7 @@ final class PiPPolicyTests: XCTestCase {
             (.stopping, "stopping"),
         ]
         for (state, expected) in cases {
-            XCTAssertEqual(String(describing: state), expected)
+            XCTAssertEqual(state.label, expected)
         }
     }
 }

@@ -187,7 +187,7 @@ final class LaneSettlementTests: XCTestCase {
             (.notInterested, "notInterested"),
         ]
         for (reason, expected) in cases {
-            XCTAssertEqual(String(describing: reason), expected)
+            XCTAssertEqual(reason.label, expected)
         }
     }
 }

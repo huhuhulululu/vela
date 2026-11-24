@@ -17,7 +17,7 @@ extension StageModel {
         let now = Date()
         lane.quality.observe(enabled: restSavesPower, engaged: engaged, now: now)
         let canSwitch = canSwitchQuality(lane)
-        let signature = "\(restSavesPower)|\(engaged)|\(canSwitch)|\(lane.playGeneration)|\(lane.quality.tier)"
+        let signature = "\(restSavesPower)|\(engaged)|\(canSwitch)|\(lane.playGeneration)|\(lane.quality.tier.label)"
         guard signature != lane.qualitySignature else { return }
         lane.qualitySignature = signature
         lane.qualityTask?.cancel()
@@ -76,7 +76,7 @@ extension StageModel {
             lane.currentCap = cap
             rebuilt = true
         }
-        Self.qualityLog.info("quality -> \(target == .low ? "low" : "full", privacy: .public) cap=\(cap.isFinite ? Int(cap) : -1) rebuilt=\(rebuilt) fallbackMaster=\(playable.isUnselected)")
+        Self.qualityLog.info("quality -> \(target.label, privacy: .public) cap=\(cap.isFinite ? Int(cap) : -1) rebuilt=\(rebuilt) fallbackMaster=\(playable.isUnselected)")
         lane.quality.didSwitch(to: target, now: Date())
         lane.qualitySignature = ""
         refreshQuality(on: lane)

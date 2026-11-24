@@ -47,6 +47,20 @@ public struct LaneSettlement: Equatable, Sendable {
         case sourceChange
         case failed
         case notInterested
+
+        /// 日志里的结束原因标签。
+        public var label: String {
+            switch self {
+            case .swipe: return "swipe"
+            case .autoSkip: return "autoSkip"
+            case .block: return "block"
+            case .background: return "background"
+            case .layoutChange: return "layoutChange"
+            case .sourceChange: return "sourceChange"
+            case .failed: return "failed"
+            case .notInterested: return "notInterested"
+            }
+        }
     }
 
     public let lane: PlaybackLaneRole

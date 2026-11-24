@@ -138,7 +138,7 @@ final class PhoneLifecycleTests: XCTestCase {
             (.playing, "playing"),
         ]
         for (activity, expected) in cases {
-            XCTAssertEqual(String(describing: activity), expected)
+            XCTAssertEqual(activity.label, expected)
         }
     }
 }
