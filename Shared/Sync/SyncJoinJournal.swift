@@ -53,7 +53,7 @@ final class FileJoinJournal: SyncJoinJournal {
     let dir: URL
     let files: [URL]
     let readSettings: () -> [String: Bool]
-    let writeSettings: ([String: Bool?]) -> Void
+    let writeSettings: ([String: Bool?]) -> Bool
     let settingKeys: [String]
     /// 写一个小文件；测试可注入失败。
     var writeFile: (URL, Data) -> Bool = { url, data in
@@ -71,9 +71,13 @@ final class FileJoinJournal: SyncJoinJournal {
     var readFile: (URL) -> Data? = { url in
         FileManager.default.contents(atPath: url.path)
     }
+    /// 列快照目录；测试可注入失败。失败时直接返回 false，绝不退回无序删除。
+    var listDirectory: (URL) -> [String]? = { url in
+        try? FileManager.default.contentsOfDirectory(atPath: url.path)
+    }
     private let fm = FileManager.default
 
-    init(dir: URL, files: [URL], settingKeys: [String], readSettings: @escaping () -> [String: Bool], writeSettings: @escaping ([String: Bool?]) -> Void) {
+    init(dir: URL, files: [URL], settingKeys: [String], readSettings: @escaping () -> [String: Bool], writeSettings: @escaping ([String: Bool?]) -> Bool) {
         self.dir = dir
         self.files = files
         self.settingKeys = settingKeys
@@ -95,13 +99,14 @@ final class FileJoinJournal: SyncJoinJournal {
     }
 
     /// 只看发布目录（写操作闸门每次都会问，不扫目录）。崩溃留下的临时目录从未发布、不会被换回，下次快照或删除时清掉。
-    /// 未提交快照只要 `settings.json` 仍在且可解码（无论 `complete` 是否已删）就保持 `.pending`：
-    /// 即使在「`complete` 已删、设置尚未刷盘」之间被杀进程，重启仍会重放 `settings.json`（及任何残留副本）后再删目录；
-    /// 缺 `settings.json` 或无法解码的半截目录视为 `.incomplete`，只删不换回，避免永久卡在「需要修复」。
+    /// 必须同时具备 `complete` 完整性标记与可解码的 `settings.json` 才判 `.pending`：
+    /// - 创建阶段中断留下的半份快照缺 `complete`，即便已有 `settings.json` 也判 `.incomplete`（只删不重放）；
+    /// - 曾完整发布、正在丢弃途中的未提交快照在删 `settings.json` 之前保留 `complete` 与 `settings.json`（仍可重放），
+    ///   删掉 `settings.json` 之后（设置已刷盘确认）转为 `.incomplete`（只删残留 `complete` 与空目录）。
     var status: SyncJoinJournalStatus {
         guard fm.fileExists(atPath: dir.path) else { return .none }
         if has(Self.committedMarker) { return .committed }
-        return hasRestorableSettings() ? .pending : .incomplete
+        return has(Self.completeMarker) && hasRestorableSettings() ? .pending : .incomplete
     }
 
     private func hasRestorableSettings() -> Bool {
@@ -171,8 +176,7 @@ final class FileJoinJournal: SyncJoinJournal {
               let saved = try? JSONDecoder().decode([String: Bool].self, from: data) else { return false }
         var values: [String: Bool?] = [:]
         for key in settingKeys { values[key] = saved[key] }
-        writeSettings(values)
-        return true
+        return writeSettings(values)
     }
 
     func discard() -> Bool {
@@ -184,22 +188,24 @@ final class FileJoinJournal: SyncJoinJournal {
         return ok
     }
 
-    /// 删发布快照目录：先删完整性标记，再按状态决定最后一个删除的文件，最后删空目录。
-    /// - 已提交快照：把 `committed` 留到最后删（此时其余文件与 `settings.json` 已删完），任意一步中断都不会退回 `.pending`。
-    /// - 未提交快照：把 `settings.json` 留到最后删，删它之前中断仍为 `.pending`（重启重放设置再清理），删完后目录为空转为 `.incomplete` 直接删掉。
+    /// 删发布快照目录：列目录失败直接返回 false，绝不退回无序删除。
+    /// - 已提交快照：先删其余条目（含 `complete` 与 `settings.json`），最后删 `committed`，任意中断点都不会退回 `.pending`。
+    /// - 未提交快照：先删其余条目，再删 `settings.json`，最后删 `complete`；删 `settings.json` 前中断仍为 `.pending`（可重放设置），
+    ///   删掉 `settings.json` 后（设置刷盘已确认成功）转为 `.incomplete`，重启只删残留 `complete` 与空目录。
     private func removeSnapshotDirectory(_ d: URL) -> Bool {
-        let isCommitted = fm.fileExists(atPath: d.appendingPathComponent(Self.committedMarker).path)
-        let complete = d.appendingPathComponent(Self.completeMarker)
-        if fm.fileExists(atPath: complete.path) {
-            guard removeItem(complete) else { return false }
-        }
-        if let names = try? fm.contentsOfDirectory(atPath: d.path) {
-            let deferred = isCommitted ? Self.committedMarker : Self.settingsFile
-            for name in names.sorted() where name != deferred {
+        guard let names = listDirectory(d) else { return false }
+        if names.contains(Self.committedMarker) {
+            for name in names.sorted() where name != Self.committedMarker {
                 guard removeItem(d.appendingPathComponent(name)) else { return false }
             }
-            if names.contains(deferred) {
-                guard removeItem(d.appendingPathComponent(deferred)) else { return false }
+            guard removeItem(d.appendingPathComponent(Self.committedMarker)) else { return false }
+        } else {
+            let tail = [Self.settingsFile, Self.completeMarker]
+            for name in names.sorted() where !tail.contains(name) {
+                guard removeItem(d.appendingPathComponent(name)) else { return false }
+            }
+            for name in tail where names.contains(name) {
+                guard removeItem(d.appendingPathComponent(name)) else { return false }
             }
         }
         return removeItem(d)

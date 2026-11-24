@@ -54,10 +54,6 @@ final class SyncHub: ObservableObject {
     private var cycleTask: Task<Void, Never>?
     private var rerun = false
     private var observers: [NSObjectProtocol] = []
-    #if os(macOS)
-    private var pasteboardCleanup = SyncPasteboardCleanup()
-    private var pasteboardExitObserver: NSObjectProtocol?
-    #endif
     private var panelWatch: [AnyCancellable] = []
 
     /// 构建注入的默认服务器地址（`Config/Local.xcconfig` 的 `VELA_SYNC_BASE`）。没有配置时隐藏「开启」，但可以「加入」。
@@ -81,7 +77,7 @@ final class SyncHub: ObservableObject {
             readSettings: { keys.reduce(into: [:]) { out, k in out[k] = settings.explicitBool(forKey: k) } },
             writeSettings: { values in
                 for (k, v) in values { settings.setExplicit(k, v) }
-                settings.synchronize()
+                return settings.synchronize()
             }
         )
     }
@@ -203,10 +199,6 @@ final class SyncHub: ObservableObject {
         editTask = nil
         for o in observers { NotificationCenter.default.removeObserver(o) }
         observers = []
-        #if os(macOS)
-        // 只摘同步本身的观察者；剪贴板退出清理不注销，关闭开关后退出仍清理已复制的同步码。
-        pasteboardCleanup.unwire()
-        #endif
         panelWatch = []
         RoomInfoPrefs.shared.onUserToggle = nil
         RoomInfoPrefs.shared.allowsToggle = nil
@@ -226,12 +218,6 @@ final class SyncHub: ObservableObject {
                 self?.pushBeforeExit()
             }
         })
-        // 剪贴板退出清理独立注册、不进 `observers`：关闭实验开关 `unwire()` 时不撤销，且重复开关只注册一次。
-        if pasteboardCleanup.wire() {
-            pasteboardExitObserver = center.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { _ in
-                SyncPasteboard.expireNow()
-            }
-        }
         #elseif os(iOS)
         observers.append(center.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.trigger(.foreground) }

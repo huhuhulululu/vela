@@ -17,7 +17,10 @@ final class SyncFileJournalTests: XCTestCase {
         let journal = FileJoinJournal(dir: dir.appendingPathComponent("sync-join-snapshot"), files: [curation, taste],
                                       settingKeys: ["publicOnly", "infoAlwaysOn"],
                                       readSettings: { settings },
-                                      writeSettings: { values in for (k, v) in values { settings[k] = v } })
+                                      writeSettings: { values in
+                                          for (k, v) in values { settings[k] = v }
+                                          return true
+                                      })
         XCTAssertFalse(journal.exists)
         XCTAssertTrue(journal.snapshot())
         XCTAssertTrue(journal.exists)
@@ -59,7 +62,10 @@ final class SyncFileJournalTests: XCTestCase {
             FileJoinJournal(dir: dir.appendingPathComponent("sync-join-snapshot"), files: [curation],
                             settingKeys: ["publicOnly", "infoAlwaysOn"],
                             readSettings: { settings },
-                            writeSettings: { values in for (k, v) in values { settings[k] = v } })
+                            writeSettings: { values in
+                                for (k, v) in values { settings[k] = v }
+                                return true
+                            })
         }
         let j1 = makeJournal()
         XCTAssertTrue(j1.snapshot())
@@ -71,6 +77,7 @@ final class SyncFileJournalTests: XCTestCase {
 
         // 重启后按 SyncService.start() 规则收尾：不得永久卡在 restore() == false。
         let restarted = makeJournal()
+        XCTAssertEqual(restarted.status, .incomplete)
         switch restarted.status {
         case .none: break
         case .incomplete, .committed:
@@ -84,7 +91,7 @@ final class SyncFileJournalTests: XCTestCase {
         XCTAssertEqual(settings, ["publicOnly": false])
     }
 
-    /// 验收 2：覆盖「既有文件 + 原本不存在文件」场景，对换回与删快照流程里的每一个文件操作步骤逐一注入中断，
+    /// 验收 2：覆盖「既有文件 + 原本不存在文件」场景，对换回与删快照流程里的每一个文件操作步骤（含列目录）逐一注入中断，
     /// 验证每处中断后重启都能收敛到「已换回并清掉快照」，无永久卡死状态。
     func testRollbackConvergesAfterFaultAtEveryFileStep_ExistingAndAbsent() throws {
         let trace = try runRollbackScenario(tasteInitiallyExists: false, failAtStep: nil)
@@ -93,10 +100,11 @@ final class SyncFileJournalTests: XCTestCase {
             "remove:feed-taste.json",
             "remove:absent-feed-taste.json",
             "read:settings.json",
-            "remove:complete",
+            "list:sync-join-snapshot",
             "remove:settings.json",
+            "remove:complete",
             "remove:sync-join-snapshot",
-        ], "删快照必须先删 complete 再删 settings.json")
+        ], "未提交快照删除顺序：列目录 → 删 settings.json → 删 complete → 删目录")
         for step in 0..<trace.steps.count {
             let outcome = try runRollbackScenario(tasteInitiallyExists: false, failAtStep: step)
             XCTAssertFalse(outcome.firstAttemptCompleted, "第 \(step) 步（\(trace.steps[step])）必须触发失败")
@@ -114,8 +122,9 @@ final class SyncFileJournalTests: XCTestCase {
             "rename:feed-curation.json",
             "rename:feed-taste.json",
             "read:settings.json",
-            "remove:complete",
+            "list:sync-join-snapshot",
             "remove:settings.json",
+            "remove:complete",
             "remove:sync-join-snapshot",
         ])
         for step in 0..<trace.steps.count {
@@ -141,7 +150,10 @@ final class SyncFileJournalTests: XCTestCase {
                 FileJoinJournal(dir: dir.appendingPathComponent("sync-join-snapshot"), files: [curation],
                                 settingKeys: ["publicOnly", "infoAlwaysOn"],
                                 readSettings: { settings },
-                                writeSettings: { values in for (k, v) in values { settings[k] = v } })
+                                writeSettings: { values in
+                                    for (k, v) in values { settings[k] = v }
+                                    return true
+                                })
             }
             let j = make()
             XCTAssertTrue(j.snapshot())
@@ -150,7 +162,14 @@ final class SyncFileJournalTests: XCTestCase {
             settings = ["publicOnly": true, "infoAlwaysOn": true]
 
             var steps: [String] = []
+            let origList = j.listDirectory
             let origRemove = j.removeItem
+            j.listDirectory = { url in
+                let idx = steps.count
+                steps.append("list:" + url.lastPathComponent)
+                if failAtStep == idx { return nil }
+                return origList(url)
+            }
             j.removeItem = { url in
                 let idx = steps.count
                 steps.append("remove:" + url.lastPathComponent)
@@ -169,12 +188,13 @@ final class SyncFileJournalTests: XCTestCase {
 
         let base = try run(failAtStep: nil)
         XCTAssertEqual(base.steps, [
+            "list:sync-join-snapshot",
             "remove:complete",
             "remove:feed-curation.json",
             "remove:settings.json",
             "remove:committed",
             "remove:sync-join-snapshot",
-        ], "committed 必须在 settings.json 之后删除，避免退回 .pending")
+        ], "committed 必须在 settings.json 与 complete 之后删除，避免退回 .pending")
         for step in 0..<base.steps.count {
             let r = try run(failAtStep: step)
             XCTAssertEqual(r.finalStatus, .none, "第 \(step) 步（\(base.steps[step])）")
@@ -186,6 +206,7 @@ final class SyncFileJournalTests: XCTestCase {
     private struct RollbackRun {
         var steps: [String]
         var firstAttemptCompleted: Bool
+        var statusAfterFault: SyncJoinJournalStatus
         var finalStatus: SyncJoinJournalStatus
         var finalCuration: String
         var finalTaste: String?
@@ -211,7 +232,9 @@ final class SyncFileJournalTests: XCTestCase {
                             readSettings: { cached },
                             writeSettings: { values in
                                 for (k, v) in values { cached[k] = v }
-                                if !dropFlush { persisted = cached }
+                                if dropFlush { return false }
+                                persisted = cached
+                                return true
                             })
         }
 
@@ -227,6 +250,7 @@ final class SyncFileJournalTests: XCTestCase {
         let origRename = j.renameItem
         let origRemove = j.removeItem
         let origRead = j.readFile
+        let origList = j.listDirectory
         j.renameItem = { from, to in
             let idx = steps.count
             steps.append("rename:" + to.lastPathComponent)
@@ -245,6 +269,12 @@ final class SyncFileJournalTests: XCTestCase {
             if failAtStep == idx { return nil }
             return origRead(url)
         }
+        j.listDirectory = { url in
+            let idx = steps.count
+            steps.append("list:" + url.lastPathComponent)
+            if failAtStep == idx { return nil }
+            return origList(url)
+        }
 
         let completed = j.restore() && j.discard()
 
@@ -252,7 +282,8 @@ final class SyncFileJournalTests: XCTestCase {
         cached = persisted
         dropFlush = false
         let restarted = make()
-        switch restarted.status {
+        let afterFault = restarted.status
+        switch afterFault {
         case .none:
             break
         case .incomplete, .committed:
@@ -268,6 +299,7 @@ final class SyncFileJournalTests: XCTestCase {
         return RollbackRun(
             steps: steps,
             firstAttemptCompleted: completed,
+            statusAfterFault: afterFault,
             finalStatus: restarted.status,
             finalCuration: try String(contentsOf: curation, encoding: .utf8),
             finalTaste: finalTaste,
@@ -275,25 +307,21 @@ final class SyncFileJournalTests: XCTestCase {
         )
     }
 
-    /// 审计 high：换回后删快照若在「complete 已删、UserDefaults 设置尚未刷盘」之间被杀进程，
-    /// 残留的 `settings.json`（以及任何未换回的文件副本）仍须被重启流程重放并落盘，不能只删目录把投影设置留在磁盘上。
-    func testCompleteDeletedBeforeSettingsFlushReplaysSettingsOnRestart() throws {
-        // 覆盖「仅剩 settings.json」以及「complete 已删但 settings.json 仍在」两种中断点，且首次写设置未刷盘。
-        let trace = try runRollbackScenario(tasteInitiallyExists: false, failAtStep: nil)
-        let settingsRemoveStep = try XCTUnwrap(trace.steps.firstIndex(of: "remove:settings.json"))
-        for step in 0...settingsRemoveStep {
-            let outcome = try runRollbackScenario(tasteInitiallyExists: false, failAtStep: step, dropFirstFlush: true)
-            XCTAssertFalse(outcome.firstAttemptCompleted, "第 \(step) 步（\(trace.steps[step])）")
-            XCTAssertEqual(outcome.finalStatus, .none, "第 \(step) 步（\(trace.steps[step])）")
-            XCTAssertEqual(outcome.finalCuration, "old-curation", "第 \(step) 步（\(trace.steps[step])）")
-            XCTAssertNil(outcome.finalTaste, "第 \(step) 步（\(trace.steps[step])）")
-            XCTAssertEqual(outcome.finalSettings, ["publicOnly": false], "第 \(step) 步（\(trace.steps[step])）：未刷盘被杀重启须重放设置")
-        }
+    /// 审计 A/B：设置刷盘失败（`writeSettings` 返回 false）必须由 `restore()` 传播出来，
+    /// 不得丢弃快照，快照保持 `.pending`（可再次换回）；重启后刷盘恢复即完整换回并清理。
+    func testRestorePropagatesWriteSettingsFailureAndKeepsSnapshotPending() throws {
+        let outcome = try runRollbackScenario(tasteInitiallyExists: false, failAtStep: nil, dropFirstFlush: true)
+        XCTAssertFalse(outcome.firstAttemptCompleted, "设置刷盘失败时 restore() 必须返回 false，不得进入 discard()")
+        XCTAssertEqual(outcome.statusAfterFault, .pending, "刷盘失败不得丢弃快照，状态保持可再次换回")
+        XCTAssertEqual(outcome.finalStatus, .none)
+        XCTAssertEqual(outcome.finalCuration, "old-curation")
+        XCTAssertNil(outcome.finalTaste)
+        XCTAssertEqual(outcome.finalSettings, ["publicOnly": false], "重启重试后设置须完整恢复")
     }
 
-    /// `settings.json` 损坏不可解码时按 `.incomplete` 只删不换回，不会永久卡在需要修复。
-    func testCorruptSettingsJsonIsIncompleteAndConverges() throws {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("journal-corrupt-\(UUID().uuidString)")
+    /// 审计 C：列目录失败时 `discard()` 必须直接返回 false，绝不退回无序的递归删除。
+    func testDiscardFailsWithoutUnorderedDeleteWhenListDirectoryFails() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("journal-listfail-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         addTeardownBlock { try? FileManager.default.removeItem(at: dir) }
         let curation = dir.appendingPathComponent("feed-curation.json")
@@ -302,11 +330,100 @@ final class SyncFileJournalTests: XCTestCase {
         let j = FileJoinJournal(dir: dir.appendingPathComponent("sync-join-snapshot"), files: [curation],
                                 settingKeys: ["publicOnly", "infoAlwaysOn"],
                                 readSettings: { settings },
-                                writeSettings: { values in for (k, v) in values { settings[k] = v } })
+                                writeSettings: { values in
+                                    for (k, v) in values { settings[k] = v }
+                                    return true
+                                })
         XCTAssertTrue(j.snapshot())
+        var removedCount = 0
+        j.listDirectory = { _ in nil }
+        j.removeItem = { _ in removedCount += 1; return true }
+        XCTAssertFalse(j.discard(), "列目录失败必须直接返回 false")
+        XCTAssertEqual(removedCount, 0, "不得退回无序删除")
+        XCTAssertEqual(j.status, .pending, "目录与关键标记完好保留")
+    }
+
+    /// 审计 D（情形 1）：创建阶段中断留下的半份快照，哪怕已经写了部分文件与合法的 `settings.json`，
+    /// 只要缺少 `complete` 完整性标记就必须判 `.incomplete`：绝不得重放，只能丢弃。
+    func testHalfBuiltSnapshotWithSettingsButNoCompleteIsIncompleteAndNeverReplayed() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("journal-half-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: dir) }
+        let curation = dir.appendingPathComponent("feed-curation.json")
+        try Data("current-curation".utf8).write(to: curation)
+        let snapDir = dir.appendingPathComponent("sync-join-snapshot")
+        try FileManager.default.createDirectory(at: snapDir, withIntermediateDirectories: true)
+        // 半份快照：已有旧收藏副本与合法 settings.json，但从未写 complete 标记。
+        try Data("stale-curation".utf8).write(to: snapDir.appendingPathComponent("feed-curation.json"))
+        try JSONEncoder().encode(["publicOnly": false]).write(to: snapDir.appendingPathComponent(FileJoinJournal.settingsFile))
+
+        var settings: [String: Bool] = ["publicOnly": true, "infoAlwaysOn": true]
+        let restarted = FileJoinJournal(dir: snapDir, files: [curation],
+                                        settingKeys: ["publicOnly", "infoAlwaysOn"],
+                                        readSettings: { settings },
+                                        writeSettings: { values in
+                                            for (k, v) in values { settings[k] = v }
+                                            return true
+                                        })
+        XCTAssertEqual(restarted.status, .incomplete, "缺 complete 标记的半份快照不得判 .pending")
+        XCTAssertFalse(restarted.restore(), "半份快照绝不得重放")
+        XCTAssertTrue(restarted.discard())
+        XCTAssertEqual(restarted.status, .none)
+        XCTAssertEqual(try String(contentsOf: curation, encoding: .utf8), "current-curation", "不得用残缺副本覆盖本机文件")
+        XCTAssertEqual(settings, ["publicOnly": true, "infoAlwaysOn": true], "不得用残缺快照覆盖本机设置")
+    }
+
+    /// 审计 D（情形 2）：快照曾经完整、正在丢弃途中，删 `settings.json` 前中断仍为 `.pending` 可重放，
+    /// 删 `settings.json` 后中断（设置已刷盘）转为 `.incomplete` 安全清理，任一步均收敛且不丢设置。
+    func testCompleteSnapshotMidDiscardRemainsPendingBeforeSettingsRemovedThenConverges() throws {
+        let trace = try runRollbackScenario(tasteInitiallyExists: false, failAtStep: nil)
+        let settingsRemoveStep = try XCTUnwrap(trace.steps.firstIndex(of: "remove:settings.json"))
+        let completeRemoveStep = try XCTUnwrap(trace.steps.firstIndex(of: "remove:complete"))
+        XCTAssertLessThan(settingsRemoveStep, completeRemoveStep, "未提交快照须先删 settings.json 再删 complete")
+
+        // 删 settings.json 之前中断：complete 与 settings.json 都在，保持 .pending 可再次换回。
+        let beforeSettings = try runRollbackScenario(tasteInitiallyExists: false, failAtStep: settingsRemoveStep)
+        XCTAssertEqual(beforeSettings.statusAfterFault, .pending)
+        XCTAssertEqual(beforeSettings.finalStatus, .none)
+        XCTAssertEqual(beforeSettings.finalSettings, ["publicOnly": false])
+
+        // 删 settings.json 之后、删 complete 之前中断：设置已刷盘，转为 .incomplete，重启安全删干净。
+        let afterSettings = try runRollbackScenario(tasteInitiallyExists: false, failAtStep: completeRemoveStep)
+        XCTAssertEqual(afterSettings.statusAfterFault, .incomplete)
+        XCTAssertEqual(afterSettings.finalStatus, .none)
+        XCTAssertEqual(afterSettings.finalSettings, ["publicOnly": false])
+    }
+
+    /// 审计 E：`settings.json` 损坏不可解码时重启按 `.incomplete` 只删不换回，不会覆盖现有数据也不会永久卡在需要修复。
+    func testCorruptSettingsJsonIsIncompleteAndConverges() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("journal-corrupt-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: dir) }
+        let curation = dir.appendingPathComponent("feed-curation.json")
+        try Data("old-curation".utf8).write(to: curation)
+        var settings: [String: Bool] = ["publicOnly": false]
+        let make = {
+            FileJoinJournal(dir: dir.appendingPathComponent("sync-join-snapshot"), files: [curation],
+                            settingKeys: ["publicOnly", "infoAlwaysOn"],
+                            readSettings: { settings },
+                            writeSettings: { values in
+                                for (k, v) in values { settings[k] = v }
+                                return true
+                            })
+        }
+        let j = make()
+        XCTAssertTrue(j.snapshot())
+        // 快照后本机已被新数据改写，随后快照里的 settings.json 损坏。
+        try Data("projected".utf8).write(to: curation)
+        settings = ["publicOnly": true, "infoAlwaysOn": true]
         try Data("{corrupt".utf8).write(to: j.dir.appendingPathComponent(FileJoinJournal.settingsFile))
-        XCTAssertEqual(j.status, .incomplete)
-        XCTAssertTrue(j.discard())
-        XCTAssertEqual(j.status, .none)
+
+        let restarted = make()
+        XCTAssertEqual(restarted.status, .incomplete)
+        XCTAssertFalse(restarted.restore(), "损坏快照不得重放")
+        XCTAssertTrue(restarted.discard())
+        XCTAssertEqual(restarted.status, .none)
+        XCTAssertEqual(try String(contentsOf: curation, encoding: .utf8), "projected", "只删不换回")
+        XCTAssertEqual(settings, ["publicOnly": true, "infoAlwaysOn": true], "只删不换回")
     }
 }

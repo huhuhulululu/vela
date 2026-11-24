@@ -102,7 +102,7 @@ final class SyncJoinRealFilesTests: XCTestCase {
             self.dir = dir
             sink = FileSink(dir: dir, settings: settings)
             store = HookedStore(NoopStore())
-            journal = FileJoinJournal(dir: dir, files: [], settingKeys: [], readSettings: { [:] }, writeSettings: { _ in })
+            journal = FileJoinJournal(dir: dir, files: [], settingKeys: [], readSettings: { [:] }, writeSettings: { _ in true })
             service = SyncService(env: SyncService.Environment(stateStore: store, keyStore: keys, makeTransport: { _, _ in ScriptedTransport() }))
             restart()
         }
@@ -116,7 +116,10 @@ final class SyncJoinRealFilesTests: XCTestCase {
             journal = FileJoinJournal(dir: snapshotDir, files: [sink.curationStore.url, sink.tasteStore.url],
                                       settingKeys: ["publicOnly", "infoAlwaysOn"],
                                       readSettings: { settings.values },
-                                      writeSettings: { values in for (k, v) in values { settings.values[k] = v } })
+                                      writeSettings: { values in
+                                          for (k, v) in values { settings.values[k] = v }
+                                          return true
+                                      })
             let transport = t
             service = SyncService(env: SyncService.Environment(
                 stateStore: store, keyStore: keys, makeTransport: { _, _ in transport }, journal: journal,
