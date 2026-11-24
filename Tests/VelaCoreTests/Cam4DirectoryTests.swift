@@ -147,10 +147,51 @@ final class Cam4DirectoryTests: XCTestCase {
           {"username": "valid_one", "gender": "female", "viewers": 20}
         ]
         """.utf8)
-        let bare = try Cam4Directory.decode(arrayJSON, requestLimit: 2, requestOffset: 0, now: now, viewerRegions: [])
-        XCTAssertEqual(bare.rooms.map(\.username), ["valid_one"])
-        XCTAssertEqual(bare.total, 2)
-        XCTAssertEqual(bare.nextOffset, 2)
+        let bareShort = try Cam4Directory.decode(arrayJSON, requestLimit: 3, requestOffset: 0, now: now, viewerRegions: [])
+        XCTAssertEqual(bareShort.rooms.map(\.username), ["valid_one"])
+        XCTAssertEqual(bareShort.total, 2)
+        XCTAssertEqual(bareShort.nextOffset, 2)
+    }
+
+    /// 盲审 4：非满页但未到 total 时游标对齐下一页起始偏移（避免反复拉第 1 页）；裸数组非首页不误判到底且 total 不小于 nextOffset。
+    func testShortPageAlignsNextOffsetAndBareArrayPaginationDoesNotEndEarly() throws {
+        let shortObj = Data("""
+        {
+          "totalCount": 500,
+          "users": [
+            {"username": "user_one", "gender": "female", "viewers": 10},
+            {"username": "user_two", "gender": "female", "viewers": 20}
+          ]
+        }
+        """.utf8)
+        let first = try Cam4Directory.decode(shortObj, requestLimit: 90, requestOffset: 0, now: now, viewerRegions: [])
+        XCTAssertEqual(first.nextOffset, 90, "非满页但 total 更大时应直接对齐到第 2 页起始偏移")
+        XCTAssertEqual(query(Cam4Directory.url(offset: first.nextOffset, limit: 90))["page"], "2")
+
+        let second = try Cam4Directory.decode(shortObj, requestLimit: 90, requestOffset: 90, now: now, viewerRegions: [])
+        XCTAssertEqual(second.nextOffset, 180)
+        XCTAssertEqual(query(Cam4Directory.url(offset: second.nextOffset, limit: 90))["page"], "3")
+
+        // 空页时停步，不无限递增。
+        let emptyObj = Data(#"{"totalCount": 500, "users": []}"#.utf8)
+        let empty = try Cam4Directory.decode(emptyObj, requestLimit: 90, requestOffset: 90, now: now, viewerRegions: [])
+        XCTAssertEqual(empty.nextOffset, 90)
+
+        // 裸数组第 2 页满页：不误判到底。
+        let fullBareJSON = Data("""
+        [
+          {"username": "user_one", "gender": "female", "viewers": 10},
+          {"username": "user_two", "gender": "female", "viewers": 20}
+        ]
+        """.utf8)
+        let fullBare = try Cam4Directory.decode(fullBareJSON, requestLimit: 2, requestOffset: 2, now: now, viewerRegions: [])
+        XCTAssertEqual(fullBare.nextOffset, 4)
+        XCTAssertGreaterThan(fullBare.total, fullBare.nextOffset, "裸数组满页时应允许继续翻下一页")
+
+        // 裸数组第 2 页不足满页：以 requestOffset + step 封底，避免 total < nextOffset。
+        let shortBare = try Cam4Directory.decode(fullBareJSON, requestLimit: 90, requestOffset: 90, now: now, viewerRegions: [])
+        XCTAssertEqual(shortBare.nextOffset, 92)
+        XCTAssertEqual(shortBare.total, 92)
     }
 
     private func fixture() throws -> Data {

@@ -39,6 +39,7 @@ extension StageModel {
         lane.skips.reset()
         if let username = name(of: lane) {
             prepared.remove(username)
+            invalidateSiteStream(username)
         }
         requestPlay(on: lane)
     }
@@ -95,6 +96,7 @@ extension StageModel {
             return
         }
         prepared.remove(username)
+        invalidateSiteStream(username)
         let generation = lane.playGeneration
         Task { [weak self] in
             guard let self else { return }
@@ -258,7 +260,8 @@ extension StageModel {
         let picked = await fetchRendition(master: master, cap: cap, for: username)
         guard token == lane.playGeneration, !Task.isCancelled, lifecycleAllows(.beforeCommit, life) else { return nil }
         if let failure = picked.failure {
-            // strictMaster 站点（Cam4）主列表取不到（个别 CDN 504 等）：这一间不可播，提示后自动跳过。
+            // strictMaster 站点（Cam4）主列表取不到（个别 CDN 504 等）：令缓存失效并提示后自动跳过。
+            invalidateSiteStream(username)
             stopLane(lane)
             noteUnplayable(failure, username: username, token: token, lane: lane)
             return nil
@@ -527,6 +530,7 @@ extension StageModel {
         // 固定测试流不会 403，也不能为它请求真实站点。
         if PerfStream.isTestRoom(username) { return nil }
         #endif
+        invalidateSiteStream(username)
         guard let ticket = try? await resolve(username), ticket.isPlayable, let master = ticket.url else {
             Self.playbackLog.info("renew-abort resolve")
             return nil

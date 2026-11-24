@@ -53,6 +53,9 @@ public protocol SiteAdapter: Sendable {
 
     /// 该站点能否处理本次目录查询。默认按 `capabilities` 判定地区、标签、新开播三项服务端专属条件。
     func supportsDirectory(_ query: CatalogQuery) -> Bool
+
+    /// 令缓存中的房间流地址失效，下次解析强制刷新（无流缓存的站点忽略）。
+    func invalidateStream(for key: RoomKey)
 }
 
 public extension SiteAdapter {
@@ -62,6 +65,8 @@ public extension SiteAdapter {
         if query.newCams, !capabilities.contains(.freshCams) { return false }
         return true
     }
+
+    func invalidateStream(for key: RoomKey) {}
 }
 
 public enum SiteError: Error, Equatable, Sendable {

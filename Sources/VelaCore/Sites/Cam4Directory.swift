@@ -38,13 +38,42 @@ public enum Cam4Directory {
         now: Date,
         viewerRegions: Set<String>
     ) throws -> CatalogPage {
+        try decodeWithRawCount(data, requestLimit: requestLimit, requestOffset: requestOffset, now: now, viewerRegions: viewerRegions).page
+    }
+
+    static func decodeWithRawCount(
+        _ data: Data,
+        requestLimit: Int,
+        requestOffset: Int,
+        now: Date,
+        viewerRegions: Set<String>
+    ) throws -> (page: CatalogPage, rawCount: Int) {
         guard ResponseShape.looksLikeJSON(data) else { throw CatalogFailure.malformed }
         let parsed = try parse(data)
+        let base = max(requestOffset, 0)
         let limit = min(max(requestLimit, 1), maxPageSize)
         let rooms = parsed.users.compactMap { $0.room(now: now, viewerRegions: viewerRegions) }
-        let total = parsed.total ?? parsed.users.count
         let step = min(parsed.users.count, limit)
-        return CatalogPage(rooms: rooms, total: total, nextOffset: requestOffset + step)
+        let nextPage = ((base / limit) + 1) * limit
+        let total: Int
+        let nextOffset: Int
+        if let serverTotal = parsed.total {
+            total = serverTotal
+            if parsed.users.isEmpty {
+                nextOffset = base
+            } else if nextPage < serverTotal {
+                nextOffset = nextPage
+            } else {
+                nextOffset = base + step
+            }
+        } else if parsed.users.count < limit {
+            nextOffset = base + step
+            total = nextOffset
+        } else {
+            nextOffset = nextPage
+            total = nextOffset + 1
+        }
+        return (CatalogPage(rooms: rooms, total: total, nextOffset: nextOffset), parsed.users.count)
     }
 
     private struct Parsed {
@@ -58,7 +87,7 @@ public enum Cam4Directory {
             return Parsed(users: object.list ?? [], total: object.total)
         }
         if let list = try? decoder.decode([Cam4User].self, from: data) {
-            return Parsed(users: list, total: list.count)
+            return Parsed(users: list, total: nil)
         }
         throw CatalogFailure.malformed
     }

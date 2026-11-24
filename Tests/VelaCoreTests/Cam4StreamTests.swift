@@ -340,6 +340,45 @@ final class Cam4StreamTests: XCTestCase {
         XCTAssertEqual(client.requests.count, 2)
     }
 
+    /// 盲审 5（复审）：TTL 内流地址提前 403/失败经 invalidateStream 失效后，重拉原页取新地址，并受短冷却防抖保护。
+    func testInvalidateStreamRefetchesOriginalPageWithinTTLAndHonorsCooldown() async throws {
+        let freshHLS = "https://preview.example/sample_one/master.m3u8?token=fresh"
+        let newerHLS = "https://preview.example/sample_one/master.m3u8?token=newer"
+        let client = ScriptClient(results: [
+            page(users: [user("sample_one", hls: hls)], total: 200),
+            page(users: [user("sample_one", hls: freshHLS)], total: 200),
+            page(users: [user("sample_one", hls: newerHLS)], total: 200)
+        ])
+        let clock = Clock(Date(timeIntervalSince1970: 10_000))
+        let adapter = Cam4Adapter(client: client, backoff: nil, viewerRegions: [], clock: { clock.date })
+        _ = try await adapter.fetchDirectory(CatalogQuery(limit: 40, offset: 80))
+        let key = RoomKey(site: .cam4, name: "sample_one")!
+        let room = Room.direct(key: key)
+
+        // TTL 内失效后立即重拉原页（page=3, resultsPerPage=40）拿到新地址。
+        clock.date = clock.date.addingTimeInterval(30)
+        adapter.invalidateStream(for: key)
+        let refreshed = try await adapter.resolveStream(room)
+        XCTAssertEqual(refreshed.ticket.url?.absoluteString, freshHLS)
+        XCTAssertEqual(client.requests.count, 2)
+        let items = URLComponents(url: client.requests[1].url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        XCTAssertEqual(items.first { $0.name == "page" }?.value, "3")
+        XCTAssertEqual(items.first { $0.name == "resultsPerPage" }?.value, "40")
+
+        // 冷却窗口内再次失效不重复刷目录。
+        clock.date = clock.date.addingTimeInterval(2)
+        adapter.invalidateStream(for: key)
+        let throttled = try await adapter.resolveStream(room)
+        XCTAssertEqual(throttled.ticket.url?.absoluteString, freshHLS)
+        XCTAssertEqual(client.requests.count, 2, "短冷却期内不应高频刷目录")
+
+        // 冷却过后再次解析会重新拉取。
+        clock.date = clock.date.addingTimeInterval(Cam4Adapter.refreshCooldown)
+        let afterCooldown = try await adapter.resolveStream(room)
+        XCTAssertEqual(afterCooldown.ticket.url?.absoluteString, newerHLS)
+        XCTAssertEqual(client.requests.count, 3)
+    }
+
     private func user(
         _ name: String, hls: String? = nil, privateRoom: Bool = false, blocked: [String] = [], gender: String = "female"
     ) -> [String: Any] {

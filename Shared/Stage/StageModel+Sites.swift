@@ -39,6 +39,12 @@ extension StageModel {
         return try await adapter.resolveStream(room)
     }
 
+    /// 令该房间的站点流缓存失效（403 续期、主列表失败、自动/手动重试前调用）。
+    func invalidateSiteStream(_ ref: String) {
+        guard let key = RoomKey(parsing: ref), key.site != .chaturbate else { return }
+        sites.adapter(for: key.site)?.invalidateStream(for: key)
+    }
+
     /// 不可播时能否据此把房间从列表筛掉：只认接口实测确认的非公开状态（`StreamTicket.delistedShow`）。
     /// Cam4 只有目录明确标了私密才算确认；它的「离线」是重取那一页没找到推断出来的（可能只是换了页），不筛只跳过。
     func delistState(_ ticket: StreamTicket, forRef ref: String) -> ShowState? {

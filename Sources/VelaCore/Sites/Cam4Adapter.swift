@@ -10,6 +10,8 @@ public final class Cam4Adapter: SiteAdapter, @unchecked Sendable {
     public static let indexLimit = 2_000
     /// 缩略图在过期前这么久就不再用，等下次目录刷新。
     public static let thumbnailMargin: TimeInterval = 60
+    /// 流失效强制刷新目录的最短间隔，避免 403 高频刷目录。
+    public static let refreshCooldown: TimeInterval = 15
 
     /// 本地过滤把原页滤短或滤空时，单次目录请求最多顺延扫描的原页数。
     public static let maxFilterScans = 5
@@ -20,6 +22,7 @@ public final class Cam4Adapter: SiteAdapter, @unchecked Sendable {
         var limit: Int
         var fetchedAt: Date
         var geo: Bool
+        var invalidated: Bool = false
     }
 
     private let client: any HTTPClient
@@ -29,6 +32,7 @@ public final class Cam4Adapter: SiteAdapter, @unchecked Sendable {
     private let lock = NSLock()
     private var index: [String: Entry] = [:]
     private var order: [String] = []
+    private var lastForcedRefresh: [String: Date] = [:]
 
     public init(
         client: any HTTPClient,
@@ -58,7 +62,8 @@ public final class Cam4Adapter: SiteAdapter, @unchecked Sendable {
         var total = 0
         var scans = 0
         while true {
-            let raw = try await load(offset: cursor, limit: limit)
+            let loaded = try await load(offset: cursor, limit: limit)
+            let raw = loaded.page
             scans += 1
             total = max(total, raw.total)
             for room in filtered(raw, query: query).rooms where seen.insert(room.identity).inserted {
@@ -66,18 +71,30 @@ public final class Cam4Adapter: SiteAdapter, @unchecked Sendable {
             }
             let upstreamStep = raw.nextOffset - cursor
             cursor = raw.nextOffset
-            if !needsFilter || collected.count >= limit || upstreamStep < limit || upstreamStep <= 0 || cursor >= total || scans >= Self.maxFilterScans {
+            if !needsFilter || collected.count >= limit || loaded.rawCount < limit || upstreamStep <= 0 || cursor >= total || scans >= Self.maxFilterScans {
                 break
             }
         }
         return CatalogPage(rooms: collected, total: total, nextOffset: cursor)
     }
 
+    public func invalidateStream(for key: RoomKey) {
+        guard key.site == site else { return }
+        let name = key.name.lowercased()
+        lock.lock()
+        defer { lock.unlock() }
+        index[name]?.invalidated = true
+    }
+
     public func resolveStream(_ room: Room) async throws -> SourcedTicket {
         let name = room.key.name.lowercased()
+        let now = clock()
         let cached = lookup(name)
-        if let cached, fresh(cached, ttl: Self.streamTTL, now: clock()) {
-            return ticket(cached, url: cached.room.stream)
+        if let cached, fresh(cached, ttl: Self.streamTTL, now: now) {
+            if !cached.invalidated || inRefreshCooldown(name, now: now) {
+                return ticket(cached, url: cached.room.stream)
+            }
+            recordForcedRefresh(name, at: now)
         }
         let offset = cached?.offset ?? 0
         let limit = cached?.limit ?? Cam4Directory.maxPageSize
@@ -131,7 +148,7 @@ public final class Cam4Adapter: SiteAdapter, @unchecked Sendable {
 
     // MARK: 目录
 
-    private func load(offset: Int, limit: Int) async throws -> CatalogPage {
+    private func load(offset: Int, limit: Int) async throws -> (page: CatalogPage, rawCount: Int) {
         if let backoff, !backoff.allows(.cam4Directory) { throw EndpointBackedOff(.cam4Directory) }
         let pageSize = min(max(limit, 1), Cam4Directory.maxPageSize)
         var request = URLRequest(url: Cam4Directory.url(offset: offset, limit: pageSize))
@@ -152,11 +169,11 @@ public final class Cam4Adapter: SiteAdapter, @unchecked Sendable {
             throw CatalogFailure.malformed
         }
         let now = clock()
-        let page = try Cam4Directory.decode(
+        let decoded = try Cam4Directory.decodeWithRawCount(
             result.data, requestLimit: pageSize, requestOffset: offset, now: now, viewerRegions: viewerRegions
         )
-        remember(page.rooms, offset: offset, limit: pageSize, at: now)
-        return page
+        remember(decoded.page.rooms, offset: offset, limit: pageSize, at: now)
+        return decoded
     }
 
     /// 观看地区被主播屏蔽的房间不进目录（只留在索引里供状态与直达起播判 geo）；总数与游标仍按原页。
@@ -184,6 +201,7 @@ public final class Cam4Adapter: SiteAdapter, @unchecked Sendable {
         while order.count > Self.indexLimit {
             let oldest = order.removeFirst()
             index.removeValue(forKey: oldest)
+            lastForcedRefresh.removeValue(forKey: oldest)
         }
     }
 
@@ -198,10 +216,24 @@ public final class Cam4Adapter: SiteAdapter, @unchecked Sendable {
         return index[name]
     }
 
+    private func inRefreshCooldown(_ name: String, now: Date) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let last = lastForcedRefresh[name] else { return false }
+        return now.timeIntervalSince(last) < Self.refreshCooldown
+    }
+
+    private func recordForcedRefresh(_ name: String, at date: Date) {
+        lock.lock()
+        defer { lock.unlock() }
+        lastForcedRefresh[name] = date
+    }
+
     private func drop(_ name: String) {
         lock.lock()
         defer { lock.unlock() }
         index.removeValue(forKey: name)
+        lastForcedRefresh.removeValue(forKey: name)
         order.removeAll { $0 == name }
     }
 
