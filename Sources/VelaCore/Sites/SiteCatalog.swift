@@ -64,10 +64,15 @@ public enum SiteCatalog {
         registry: SiteRegistry
     ) async throws -> (page: CatalogPage, cursor: MixedCursor, failures: [SiteID: Error]) {
         let sites = mode.sites
+        var unsupported = Set<SiteID>()
         var results: [SiteID: Result<CatalogPage, Error>] = [:]
         await withTaskGroup(of: (SiteID, Result<CatalogPage, Error>).self) { group in
             for site in sites where !cursor.ended.contains(site) {
                 let siteQuery = queryFor(site, mode: mode, query: query, cursor: cursor)
+                if mode == .mixed, let adapter = registry.adapter(for: site), !adapter.supportsDirectory(siteQuery) {
+                    unsupported.insert(site)
+                    continue
+                }
                 group.addTask {
                     guard let adapter = registry.adapter(for: site) else {
                         return (site, .failure(SiteError.unknownSite(site.rawValue)))
@@ -84,6 +89,13 @@ public enum SiteCatalog {
             }
         }
 
+        try Task.checkCancellation()
+        for site in sites {
+            if case .failure(let error) = results[site], RenewalPolicy.isCancellation(error) {
+                throw error
+            }
+        }
+
         var failures: [SiteID: Error] = [:]
         var firstError: Error?
         for site in sites {
@@ -93,11 +105,12 @@ public enum SiteCatalog {
             }
         }
         let successes = sites.filter { if case .success = results[$0] { return true } else { return false } }
-        if successes.isEmpty, let firstError, !sites.allSatisfy({ cursor.ended.contains($0) }) {
+        if successes.isEmpty, let firstError {
             throw firstError
         }
 
         var next = cursor
+        for site in unsupported { next.ended.insert(site) }
         var lists: [[Room]] = []
         for site in sites {
             guard case .success(let page) = results[site] else { continue }
@@ -113,8 +126,20 @@ public enum SiteCatalog {
         }
 
         let merged = interleave(lists)
-        let total = sites.reduce(0) { $0 + (next.totals[$1] ?? 0) }
         let nextOffset = sites.reduce(0) { $0 + (next.offsets[$1] ?? 0) }
+        var total: Int
+        if mode == .mixed {
+            total = sites.reduce(0) { sum, site in
+                let siteTotal = next.totals[site] ?? 0
+                let siteOffset = next.offsets[site] ?? 0
+                return sum + (next.ended.contains(site) ? max(siteTotal, siteOffset) : siteTotal)
+            }
+            if !next.isFinished, total <= nextOffset {
+                total = nextOffset + 1
+            }
+        } else {
+            total = sites.reduce(0) { $0 + (next.totals[$1] ?? 0) }
+        }
         return (CatalogPage(rooms: merged, total: total, nextOffset: nextOffset), next, failures)
     }
 

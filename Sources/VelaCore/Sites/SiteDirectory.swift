@@ -61,14 +61,14 @@ public final class SiteDirectory: @unchecked Sendable {
         let sites = mode.sites
         let scope = QueryScope(query)
         let cursor: MixedCursor = lock.withLock {
-            if query.offset <= 0 { cursors[scope] = [:] }
+            if query.offset <= 0 { return MixedCursor(sites: sites) }
             touchScope(scope)
             return cursors[scope]?[query.offset] ?? MixedCursor(sites: sites)
         }
         let result = try await SiteCatalog.fetch(mode: mode, query: query, cursor: cursor, registry: registry)
         lock.withLock {
             failed = sites.filter { result.failures[$0] != nil }
-            var bucket = cursors[scope] ?? [:]
+            var bucket = query.offset <= 0 ? [:] : (cursors[scope] ?? [:])
             if bucket.count >= 64 { bucket = [:] }
             bucket[result.page.nextOffset] = result.cursor
             cursors[scope] = bucket
@@ -90,8 +90,9 @@ public final class SiteDirectory: @unchecked Sendable {
 extension RoomKey {
     /// 内存 ref 属于哪个站：带已知站点前缀的按前缀，其余（裸名、测试房间）一律是 cb。
     public static func site(ofRef ref: String) -> SiteID {
-        guard let colon = ref.firstIndex(of: ":"),
-              let site = SiteID(rawValue: ref[..<colon].lowercased()) else { return .chaturbate }
+        let trimmed = ref.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let colon = trimmed.firstIndex(of: ":"),
+              let site = SiteID(rawValue: SyncKeys.asciiLowercased(String(trimmed[..<colon]))) else { return .chaturbate }
         return site
     }
 }

@@ -50,6 +50,18 @@ public protocol SiteAdapter: Sendable {
 
     /// 主列表状态码是否已能定论为不可播。仅 `strictMaster` 站点返回非 nil。
     func masterFailure(status: Int) -> StreamFailure?
+
+    /// 该站点能否处理本次目录查询。默认按 `capabilities` 判定地区、标签、新开播三项服务端专属条件。
+    func supportsDirectory(_ query: CatalogQuery) -> Bool
+}
+
+public extension SiteAdapter {
+    func supportsDirectory(_ query: CatalogQuery) -> Bool {
+        if query.region != nil, !capabilities.contains(.serverRegion) { return false }
+        if CatalogQuery.normalizedHashtag(query.tag) != nil, !capabilities.contains(.serverTag) { return false }
+        if query.newCams, !capabilities.contains(.freshCams) { return false }
+        return true
+    }
 }
 
 public enum SiteError: Error, Equatable, Sendable {

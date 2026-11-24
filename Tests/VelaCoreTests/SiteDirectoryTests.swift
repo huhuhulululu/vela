@@ -106,6 +106,46 @@ final class SiteDirectoryTests: XCTestCase {
         XCTAssertEqual(RoomKey.site(ofRef: "C4:Sample_One"), .cam4)
         XCTAssertEqual(RoomKey.site(ofRef: "cb:alice"), .chaturbate)
         XCTAssertEqual(RoomKey.site(ofRef: "vela-perf-room"), .chaturbate)
+        XCTAssertEqual(RoomKey.site(ofRef: " c4:alice "), .cam4, "前导空白应先裁剪再识别站点")
+        XCTAssertEqual(RoomKey.site(ofRef: "\tC4:bob\n"), .cam4)
+        XCTAssertEqual(SiteMode.cam4.filterFavorites([" c4:alice ", "alice"]), [" c4:alice "])
+    }
+
+    /// 盲审 3：混合目录 offset=0 重载失败不能提前清空游标表，否则后续翻页回退第 1 页并永久判到底。
+    func testMixedReloadFailureKeepsExistingPaginationCursors() async throws {
+        let client = HostClient(
+            cbResults: [
+                HTTPResult(status: 200, data: cbBody(["cb_1", "cb_2"], total: 20)),
+                HTTPResult(status: 503, data: Data("{}".utf8)),
+                HTTPResult(status: 200, data: cbBody(["cb_3", "cb_4"], total: 20))
+            ],
+            c4Results: [
+                HTTPResult(status: 200, data: c4Body(["c4_1", "c4_2"], total: 20)),
+                HTTPResult(status: 503, data: Data("{}".utf8)),
+                HTTPResult(status: 200, data: c4Body(["c4_3", "c4_4"], total: 20))
+            ]
+        )
+        let dir = directory(.mixed, client)
+        let page1 = try await dir.fetch(CatalogQuery(limit: 2, offset: 0))
+        XCTAssertEqual(page1.nextOffset, 4)
+
+        do {
+            _ = try await dir.fetch(CatalogQuery(limit: 2, offset: 0))
+            XCTFail("模拟的重载应失败")
+        } catch {}
+
+        var feed = FeedStore()
+        feed.replace(with: page1)
+        let page2 = try await dir.fetch(CatalogQuery(limit: 2, offset: page1.nextOffset))
+        XCTAssertEqual(page2.nextOffset, 8, "重载失败后继续翻页应沿原游标前进")
+        XCTAssertEqual(page2.rooms.map(\.id), ["cb_3", "c4:c4_3", "cb_4", "c4:c4_4"])
+        feed.append(page2, from: page1.nextOffset)
+        XCTAssertFalse(feed.reachedEnd)
+
+        let cbOffsets = client.urls.filter { $0.host == "chaturbate.com" }.map { $0.query(named: "offset") }
+        let c4Pages = client.urls.filter { $0.host == "www.cam4.com" }.map { $0.query(named: "page") }
+        XCTAssertEqual(cbOffsets, ["0", "0", "2"])
+        XCTAssertEqual(c4Pages, ["1", "1", "2"])
     }
 
     func testTargetedTagQueryDoesNotClearMixedRegularCursors() async throws {
@@ -155,15 +195,21 @@ final class SiteDirectoryTests: XCTestCase {
 /// 按主机分别排队应答，记下每次请求的地址。
 private final class HostClient: HTTPClient, @unchecked Sendable {
     private let lock = NSLock()
-    private var cb: [Data]
-    private var c4: [Data]
+    private var cb: [HTTPResult]
+    private var c4: [HTTPResult]
     private let c4Status: Int
     private(set) var urls: [URL] = []
 
     init(cb: [Data] = [], c4: [Data] = [], c4Status: Int = 200) {
-        self.cb = cb
-        self.c4 = c4
+        self.cb = cb.map { HTTPResult(status: 200, data: $0) }
+        self.c4 = c4.map { HTTPResult(status: 200, data: $0) }
         self.c4Status = c4Status
+    }
+
+    init(cbResults: [HTTPResult], c4Results: [HTTPResult]) {
+        self.cb = cbResults
+        self.c4 = c4Results
+        self.c4Status = 200
     }
 
     func send(_ request: URLRequest) async throws -> HTTPResult {
@@ -173,10 +219,10 @@ private final class HostClient: HTTPClient, @unchecked Sendable {
         urls.append(url)
         if url.host == "www.cam4.com" {
             guard c4Status == 200, !c4.isEmpty else { return HTTPResult(status: c4Status == 200 ? 404 : c4Status, data: Data("{}".utf8)) }
-            return HTTPResult(status: 200, data: c4.removeFirst())
+            return c4.removeFirst()
         }
         guard !cb.isEmpty else { return HTTPResult(status: 404, data: Data("{}".utf8)) }
-        return HTTPResult(status: 200, data: cb.removeFirst())
+        return cb.removeFirst()
     }
 }
 

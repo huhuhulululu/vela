@@ -47,7 +47,7 @@ public final class Cam4Adapter: SiteAdapter, @unchecked Sendable {
     public var challengeHome: URL? { nil }
 
     public func fetchDirectory(_ query: CatalogQuery) async throws -> CatalogPage {
-        if unsupported(query) {
+        if !supportsDirectory(query) {
             return CatalogPage(rooms: [], total: 0, nextOffset: 0)
         }
         let limit = min(max(query.limit, 1), Cam4Directory.maxPageSize)
@@ -130,10 +130,6 @@ public final class Cam4Adapter: SiteAdapter, @unchecked Sendable {
     }
 
     // MARK: 目录
-
-    private func unsupported(_ query: CatalogQuery) -> Bool {
-        query.region != nil || CatalogQuery.normalizedHashtag(query.tag) != nil || query.newCams
-    }
 
     private func load(offset: Int, limit: Int) async throws -> CatalogPage {
         if let backoff, !backoff.allows(.cam4Directory) { throw EndpointBackedOff(.cam4Directory) }
