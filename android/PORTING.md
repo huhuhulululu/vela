@@ -218,3 +218,9 @@ FeedCache 的随机性质测试只断言不变量。Kotlin 用同一个种子，
 - 不新增任何权限（`check-apk.sh` 权限白名单不变），不引入新第三方依赖（传输层直接用平台 `HttpURLConnection`）。
 - 备份排除同时覆盖 API 31+（`res/xml/data_extraction_rules.xml`）与 API 26–30（`res/xml/full_backup_content.xml`），显式排除 `vela_sync.xml`、`Vela/sync-state.json`、`Vela/sync-state.json.corrupt` 与 `Vela/sync-join-snapshot`。
 - 真机/模拟器仪器测试在 `android/app/src/androidTest/kotlin/vela/app/sync/SyncDeviceInstrumentTest.kt`（验证真实 `AndroidKeyStore` 包裹、设备 P-256 探针、`android.icu` 与敏感剪贴板标记）。
+
+### 跨设备同步宿主接线与审计修复（A-SYNC-2）
+
+- 已完成真实宿主接线：`MainActivity` 启动创建并 `attach()` `SyncHub`（未配置服务端地址或不支持时不创建），`LifecycleWiring` 转发进后台与回前台，`StageScreen` → `TasteSheet` 透传 `SyncHub` 与零权限锁屏验证回调（`KeyguardManager.createConfirmDeviceCredentialIntent`，`SyncPanel` 未传验证器时 fail closed），舞台收藏、屏蔽、口味、停留结算与两个同步设置全部接入提交锁与 `SyncHub.perform`。
+- 同步修复三项审计缺陷：释放 `gate` 后串行派发文档变更通知（消除 Hub 回调重入死锁）、传播 `SharedPreferences.Editor.commit()` 失败以使回滚写盘失败进入「需要修复」、为阻塞 `HttpURLConnection` 增加单次请求总期限与协程取消即时断连。
+
