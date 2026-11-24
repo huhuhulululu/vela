@@ -37,6 +37,8 @@ import vela.app.stage.DayBarState
 import vela.app.stage.StageIntent
 import vela.app.stage.StageUiState
 import vela.app.stage.TasteRowState
+import vela.app.sync.SyncHub
+import vela.app.sync.SyncSettingsSection
 import vela.app.ui.theme.Theme
 import vela.core.base.model.TasteKeys
 import vela.core.taste.Taste
@@ -52,6 +54,7 @@ fun TasteSheet(
     dispatch: (StageIntent) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
+    syncHub: SyncHub? = null,
 ) {
     var likedExpanded by remember { mutableStateOf(false) }
     var dislikedExpanded by remember { mutableStateOf(false) }
@@ -125,6 +128,9 @@ fun TasteSheet(
                     },
                 )
                 GenderSection(taste.genders, dispatch)
+                if (syncHub != null) {
+                    SyncSettingsSection(syncHub)
+                }
             }
             Footer(taste.paused, confirm, dispatch) { confirm = it }
         }

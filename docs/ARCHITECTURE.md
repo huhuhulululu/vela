@@ -488,13 +488,15 @@ xcodebuild -project Vela.xcodeproj -scheme Vela -destination 'platform=macOS' \
 | `android/core/src/main/kotlin/vela/core/curation` | 收藏、屏蔽、上次开播、名单提交 |
 | `android/core/src/main/kotlin/vela/core/selection` | 联合选房与一路停留结算 |
 | `android/core/src/main/kotlin/vela/core/audio` | `AudioFocusPlan`：焦点步骤，不碰 Android API |
+| `android/core/src/main/kotlin/vela/core/sync` | 跨设备同步协议核心（S4）：同步码、文档/HLC/合并/投影、P-256/HKDF/AES-GCM、状态机、生命周期与调度 |
 | `android/app/src/main/kotlin/vela/app/MainActivity.kt` | 入口；Compose `StageScreen`，双路各挂 `LaneFrame`；创建 `PiPCoordinator`，设备支持时挂 `ActivityPictureInPicture`。偏好放在应用私有目录里名为 Vela 的子目录 |
 | `android/app/src/main/kotlin/vela/app/infra` | 不存 cookie 的 HTTP、设置、原子写文件、缩略图缓存、空的 `Probe` |
 | `android/app/src/main/kotlin/vela/app/playback` | 进程内数据源 `LaneHub` / `LaneDataSource`、播放器默认值 `LaneEngine`、列表请求 `LaneHttp` |
 | `android/app/src/main/kotlin/vela/app/lane` | 一路播放 `PlaybackLane`、ExoPlayer 封装、`ThermalMonitor`、`SurfaceView` 画面 |
 | `android/app/src/main/kotlin/vela/app/stage` | `StageViewModel`（含 `setPipSolo`、`focusLocked`、`laneCountLocked`）；`Stage+Lanes.kt` 双路选房、焦点、热降档、横屏与画中画共用的可见性；目录、起播、收藏、口味；`LifecycleWiring` 主副路会话并接 `PiPCoordinator`；侧车 |
 | `android/app/src/main/kotlin/vela/app/pip` | `ActivityPictureInPicture`（系统参数、比例、静音 RemoteAction、自动进入）、`PiPCoordinator`（状态机与 3 秒回退）、`PiPAspect`、`PiPFallback`、`PiPEvent`、`PictureInPictureControlling` |
-| `android/app/src/main/kotlin/vela/app/ui` | `StageScreen`（单窗分页 + 竖屏双格切换）、`DualStageScreen`、顶栏、收藏夹、口味、质询、年龄确认 |
+| `android/app/src/main/kotlin/vela/app/sync` | 跨设备同步 App 层接线（S6，见 `android/docs/sync.md`）：minSdk 26 门槛、P-256 探针分级、`AndroidKeyStore` 密钥包裹、`HttpURLConnection` 传输、启动检查屏障、加入快照事务、`SyncHub` 与 `SyncPanel` |
+| `android/app/src/main/kotlin/vela/app/ui` | `StageScreen`（单窗分页 + 竖屏双格切换）、`DualStageScreen`、顶栏、收藏夹、口味（底部可选挂 `SyncSettingsSection`）、质询、年龄确认 |
 | `android/app/src/main/kotlin/vela/app/audio` | 双路时只听焦点路；`AudioFocusRequest` 执行 `AudioFocusPlan` |
 | `android/app/src/hooks/kotlin/vela/app/hooks` | 仅 debug / perf：首帧记录、站点根地址覆盖、仪器测试用的空宿主 |
 
@@ -565,8 +567,9 @@ xcodebuild -project Vela.xcodeproj -scheme Vela -destination 'platform=macOS' \
 | feed-taste.json | `android/core/src/main/kotlin/vela/core/taste/TasteStore.kt` | 口味画像。不从旧版偏好文件迁移 |
 | feed-curation.json | `android/core/src/main/kotlin/vela/core/curation/Curation.kt` | 收藏与屏蔽 |
 | watch-ledger.json | `android/core/src/main/kotlin/vela/core/ledger/WatchLedgerStore.kt` | 观看账本 |
+| sync-state.json（及 `.corrupt`、`sync-join-snapshot/`） | `android/app/src/main/kotlin/vela/app/sync/SyncMarkedStateStore.kt`、`SyncJoinJournal.kt` | 跨设备同步状态、损坏标记与加入提交快照（不进备份与设备间迁移） |
 
-上限与桌面版同一套常量（标签、名单、字节），写入仍走原子替换。SharedPreferences 名 `com.vela.stage`：`ageConfirmed`、`muted`、`volume`、`source`、`publicOnly`、`infoAlwaysOn`、`hintSeen`、`tag`、`gender`、`region`，以及已接线的 `dualWindow`（竖屏双窗）与 `autoEnterPip`（回桌面自动进入画中画，默认开，经 `Settings.autoEnterPip` 读写）。不存置顶、透明度、老板键、菜单栏。收藏、屏蔽、口味、账本只在这台设备上，不进云备份。
+上限与桌面版同一套常量（标签、名单、字节），写入仍走原子替换。SharedPreferences 名 `com.vela.stage`：`ageConfirmed`、`muted`、`volume`、`source`、`publicOnly`、`infoAlwaysOn`、`hintSeen`、`tag`、`gender`、`region`，以及已接线的 `dualWindow`（竖屏双窗）、`autoEnterPip`（回桌面自动进入画中画，默认开，经 `Settings.autoEnterPip` 读写）与同步实验开关 `experimentSync`（默认关，经 `SyncPrefs` 读写）。专用 SharedPreferences `vela_sync` 存放经 `AndroidKeyStore`（别名 `vela_sync_wrap`）包裹的密钥密文，通过 `data_extraction_rules.xml` 与 `full_backup_content.xml` 排除云备份与设备间迁移。不存置顶、透明度、老板键、菜单栏。收藏、屏蔽、口味、账本默认只在这台设备上，不进云备份。
 
 ### 11.7 构建与测试
 

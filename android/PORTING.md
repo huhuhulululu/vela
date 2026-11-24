@@ -210,3 +210,11 @@ FeedCache 的随机性质测试只断言不变量。Kotlin 用同一个种子，
 ## 本次 release 体积
 
 2026-11-18，本机 `check-apk.sh` 对 `app-release.apk`：`apk_bytes=667213`（651.6 KB），低于 5120 KB。`--max-kb 1` 因超过 1024 字节失败。权限只有 `INTERNET`、`ACCESS_NETWORK_STATE`、`vela.app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`。`allowBackup=false`。R8 mapping 里没有 `vela.app.hooks`。`:app:assemblePerf` 也能打出包。
+
+## 跨设备同步接线（S6）
+
+安卓端跨设备同步核心（S4）位于 `android/core/src/main/kotlin/vela/core/sync/`，App 层接线位于 `android/app/src/main/kotlin/vela/app/sync/`，设置页入口在 `TasteSheet.kt` 底部（可选参数 `syncHub`）。详细接线、探针分级、Keystore 三类失败处理、备份排除规则与待编排者收尾的越界文件清单见 `android/docs/sync.md`。
+
+- 不新增任何权限（`check-apk.sh` 权限白名单不变），不引入新第三方依赖（传输层直接用平台 `HttpURLConnection`）。
+- 备份排除同时覆盖 API 31+（`res/xml/data_extraction_rules.xml`）与 API 26–30（`res/xml/full_backup_content.xml`），显式排除 `vela_sync.xml`、`Vela/sync-state.json`、`Vela/sync-state.json.corrupt` 与 `Vela/sync-join-snapshot`。
+- 真机/模拟器仪器测试在 `android/app/src/androidTest/kotlin/vela/app/sync/SyncDeviceInstrumentTest.kt`（验证真实 `AndroidKeyStore` 包裹、设备 P-256 探针、`android.icu` 与敏感剪贴板标记）。
