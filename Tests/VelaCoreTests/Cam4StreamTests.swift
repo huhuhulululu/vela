@@ -196,13 +196,88 @@ final class Cam4StreamTests: XCTestCase {
         XCTAssertEqual(matched.rooms.map(\.username), ["sample_one"])
     }
 
+    /// 审计发现 2：性别或地区本地过滤把首页滤空时，若原页未到底应继续往后取到匹配房间。
+    func testClientFilteredEmptyFirstPageContinuesToLaterMatchingPage() async throws {
+        let genderClient = ScriptClient(results: [
+            page(users: [user("f1", hls: hls, gender: "female"), user("f2", hls: hls, gender: "female")], total: 6),
+            page(users: [user("m1", hls: hls, gender: "male"), user("m2", hls: hls, gender: "male")], total: 6)
+        ])
+        let genderAdapter = Cam4Adapter(client: genderClient, backoff: nil, viewerRegions: [])
+        let malePage = try await genderAdapter.fetchDirectory(CatalogQuery(gender: .male, limit: 2, offset: 0))
+        XCTAssertEqual(malePage.rooms.map(\.username), ["m1", "m2"])
+        XCTAssertEqual(malePage.nextOffset, 4)
+        XCTAssertEqual(malePage.total, 6)
+        XCTAssertEqual(genderClient.requests.count, 2)
+
+        let geoClient = ScriptClient(results: [
+            page(users: [user("b1", hls: hls, blocked: ["US"]), user("b2", hls: hls, blocked: ["US"])], total: 6),
+            page(users: [user("ok1", hls: hls), user("ok2", hls: hls)], total: 6)
+        ])
+        let geoAdapter = Cam4Adapter(client: geoClient, backoff: nil, viewerRegions: ["US"])
+        let visiblePage = try await geoAdapter.fetchDirectory(CatalogQuery(limit: 2, offset: 0))
+        XCTAssertEqual(visiblePage.rooms.map(\.username), ["ok1", "ok2"])
+        XCTAssertEqual(visiblePage.nextOffset, 4)
+        XCTAssertEqual(geoClient.requests.count, 2)
+    }
+
+    /// 审计发现 6：单站多页拉取时，本地地区/性别过滤造成短页不应让 CatalogWindow 提前停在第 1 页。
+    func testSingleSiteMultiPageContinuesThroughFilteredShortPage() async throws {
+        let client = ScriptClient(results: [
+            page(users: [user("b1", hls: hls, blocked: ["US"]), user("ok1", hls: hls)], total: 12),
+            page(users: [user("b2", hls: hls, blocked: ["US"]), user("ok2", hls: hls)], total: 12),
+            page(users: [user("b3", hls: hls, blocked: ["US"]), user("ok3", hls: hls)], total: 12),
+            page(users: [user("b4", hls: hls, blocked: ["US"]), user("ok4", hls: hls)], total: 12),
+            page(users: [user("b5", hls: hls, blocked: ["US"]), user("ok5", hls: hls)], total: 12),
+            page(users: [user("b6", hls: hls, blocked: ["US"]), user("ok6", hls: hls)], total: 12)
+        ])
+        let adapter = Cam4Adapter(client: client, backoff: nil, viewerRegions: ["US"])
+        let dir = SiteDirectory(
+            mode: .cam4,
+            registry: SiteRegistry(adapters: [adapter]),
+            chaturbate: CatalogAPI(client: client, backoff: nil)
+        )
+        let merged = try await dir.fetchPages(CatalogQuery(limit: 2, offset: 0), pages: 3)
+        XCTAssertEqual(merged.rooms.map(\.username), ["ok1", "ok2", "ok3", "ok4", "ok5", "ok6"])
+        XCTAssertEqual(merged.nextOffset, 12)
+    }
+
+    /// 审计发现 3：小页（如热门 limit=40）非首页房间过期刷新时，必须按原页大小与原页码重取。
+    func testExpiredRefetchKeepsOriginalSmallPageSizeAndPageNumber() async throws {
+        let target = user("sample_100", hls: hls)
+        let decoy = user("other_room", hls: hls)
+        let page3Data = try! JSONSerialization.data(withJSONObject: ["users": [target], "totalCount": 200])
+        let decoyData = try! JSONSerialization.data(withJSONObject: ["users": [decoy], "totalCount": 200])
+        let client = QueryRoutingClient { url in
+            let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            let page = items.first { $0.name == "page" }?.value
+            let size = items.first { $0.name == "resultsPerPage" }?.value
+            if page == "3", size == "40" {
+                return HTTPResult(status: 200, data: page3Data)
+            }
+            return HTTPResult(status: 200, data: decoyData)
+        }
+        let clock = Clock(Date(timeIntervalSince1970: 5_000))
+        let adapter = Cam4Adapter(client: client, backoff: nil, viewerRegions: [], clock: { clock.date })
+        let listed = try await adapter.fetchDirectory(CatalogQuery(limit: 40, offset: 80))
+        XCTAssertEqual(listed.rooms.map(\.username), ["sample_100"])
+
+        clock.date = clock.date.addingTimeInterval(Cam4Adapter.streamTTL + 5)
+        let ticket = try await adapter.resolveStream(Room(username: "sample_100", site: .cam4))
+        XCTAssertNil(ticket.failure, "应按原 page=3&resultsPerPage=40 刷新并保持在线")
+        XCTAssertEqual(ticket.ticket.url?.absoluteString, hls)
+        XCTAssertEqual(client.requests.count, 2)
+        let items = URLComponents(url: client.requests[1].url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        XCTAssertEqual(items.first { $0.name == "page" }?.value, "3")
+        XCTAssertEqual(items.first { $0.name == "resultsPerPage" }?.value, "40")
+    }
+
     private func user(
-        _ name: String, hls: String? = nil, privateRoom: Bool = false, blocked: [String] = []
+        _ name: String, hls: String? = nil, privateRoom: Bool = false, blocked: [String] = [], gender: String = "female"
     ) -> [String: Any] {
         var item: [String: Any] = [
             "username": name,
             "privateRoom": privateRoom,
-            "gender": "female",
+            "gender": gender,
             "viewers": 3,
             "snapshotImageLink": "https://snapshots.example/\(name).jpg?sign=1"
         ]
@@ -211,9 +286,21 @@ final class Cam4StreamTests: XCTestCase {
         return item
     }
 
-    private func page(users: [[String: Any]]) -> HTTPResult {
-        let data = try! JSONSerialization.data(withJSONObject: ["users": users, "totalCount": 100])
+    private func page(users: [[String: Any]], total: Int = 100) -> HTTPResult {
+        let data = try! JSONSerialization.data(withJSONObject: ["users": users, "totalCount": total])
         return HTTPResult(status: 200, data: data)
+    }
+}
+
+private final class QueryRoutingClient: HTTPClient, @unchecked Sendable {
+    private let handler: @Sendable (URL) -> HTTPResult
+    private(set) var requests: [URLRequest] = []
+
+    init(_ handler: @escaping @Sendable (URL) -> HTTPResult) { self.handler = handler }
+
+    func send(_ request: URLRequest) async throws -> HTTPResult {
+        requests.append(request)
+        return handler(request.url!)
     }
 }
 

@@ -167,7 +167,10 @@ public enum CatalogWindow {
         ) {
             next.offset = last.nextOffset
             last = try await fetch(next)
-            if last.rooms.isEmpty { break }
+            if last.rooms.isEmpty {
+                if last.nextOffset > next.offset { merged = PageMerge.appended(merged, last) }
+                break
+            }
             merged = PageMerge.appended(merged, last)
             fetched += 1
         }
