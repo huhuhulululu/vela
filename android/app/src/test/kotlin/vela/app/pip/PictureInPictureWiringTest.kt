@@ -188,7 +188,43 @@ class PictureInPictureWiringTest {
     fun testAspectClampUsedByFallbackConstants() {
         assertTrue(PiPAspect.MIN < 1.0)
         assertTrue(PiPAspect.MAX > 1.0)
-        assertTrue(PiPAspect.clamp(9.0, 16.0).toDouble() >= PiPAspect.MIN - 0.001)
+        assertTrue(PiPAspect.clamp(9.0, 16.0).toDouble() >= PiPAspect.MIN)
+    }
+
+    @Test
+    fun testDirectPipEntryWithoutOnStopEntersBackgroundAndReleasesNonFocus() {
+        val harness = open(withPip = true, playing = true, dual = true)
+        harness.wiring.moveTo(PhoneScenePhase.ACTIVE)
+        harness.wiring.moveTo(PhoneScenePhase.INACTIVE)
+        // Android 12+ 自动画中画：按 HOME 后直接进 PiP，不经过 onStop。
+        harness.wiring.onPictureInPictureEvent(PiPEvent.WillStart)
+        harness.wiring.onPictureInPictureEvent(PiPEvent.DidStart)
+
+        assertEquals(PhoneScenePhase.BACKGROUND, harness.wiring.phase)
+        assertEquals(PlaybackLaneRole.PRIMARY, harness.stage.lifecycleEpoch.allowedLane)
+        assertEquals(1, harness.session.released.count { it == PlaybackLaneRole.SECONDARY })
+        assertEquals(0, harness.session.released.count { it == PlaybackLaneRole.PRIMARY })
+        assertTrue(harness.wiring.wasSuspended)
+        assertTrue(harness.stage.focusLocked)
+        assertTrue(harness.stage.laneCountLocked)
+    }
+
+    @Test
+    fun testLatePauseAfterPipDidStartDoesNotRevertBackgroundPhase() {
+        val harness = open(withPip = true, playing = true, dual = true)
+        harness.wiring.moveTo(PhoneScenePhase.ACTIVE)
+        // 部分时序下 onPictureInPictureModeChanged(true) 先于 onPause 到达。
+        harness.wiring.onPictureInPictureEvent(PiPEvent.WillStart)
+        harness.wiring.onPictureInPictureEvent(PiPEvent.DidStart)
+        assertEquals(PhoneScenePhase.BACKGROUND, harness.wiring.phase)
+
+        harness.wiring.moveTo(PhoneScenePhase.INACTIVE)
+        assertEquals(
+            "画中画进行中收到迟到 onPause 不得把 phase 退回 INACTIVE",
+            PhoneScenePhase.BACKGROUND,
+            harness.wiring.phase,
+        )
+        assertEquals(PlaybackLaneRole.PRIMARY, harness.stage.lifecycleEpoch.allowedLane)
     }
 
     private fun background(harness: Harness): List<String> {

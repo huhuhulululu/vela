@@ -236,6 +236,168 @@ class PictureInPictureVideoSizeTest {
             directory.toFile().deleteRecursively()
         }
     }
+
+    @Test
+    fun testExpandFromPipRestoresForegroundWithoutFullStop() {
+        val (controller, stage, wiring, pip, directory) = buildPipActivityHarness("vela-pip-expand")
+        val activity = controller.get()
+        try {
+            // 1. 前台起播双窗。
+            wiring.moveTo(vela.core.lifecycle.PhoneScenePhase.ACTIVE)
+            stage.notePlaying("alice")
+            ShadowLooper.idleMainLooper()
+            assertTrue(RecordingPipParamsShadow.recorded.last().isAutoEnterEnabled)
+
+            // 2. 模拟 API 34 自动进入画中画：onPause -> onPictureInPictureModeChanged(true)，无 onStop。
+            controller.pause()
+            wiring.moveTo(vela.core.lifecycle.PhoneScenePhase.INACTIVE)
+            pip.onPictureInPictureModeChanged(true)
+            ShadowLooper.idleMainLooper()
+            assertEquals(vela.core.lifecycle.PhoneScenePhase.BACKGROUND, wiring.phase)
+            assertEquals(vela.core.base.lane.PlaybackLaneRole.PRIMARY, stage.lifecycleEpoch.allowedLane)
+
+            // 3. 模拟用户点小窗展开回全屏：Activity 仍 STARTED 且未 finish，先回调 onPictureInPictureModeChanged(false)，再 onResume。
+            pip.onPictureInPictureModeChanged(false)
+            ShadowLooper.idleMainLooper()
+            assertTrue("展开回全屏时在 onResume 到达前不得立即全停", stage.playbackGateOpen)
+
+            controller.resume()
+            wiring.moveTo(vela.core.lifecycle.PhoneScenePhase.ACTIVE)
+            ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
+            assertEquals(vela.core.lifecycle.PhoneScenePhase.ACTIVE, wiring.phase)
+            assertTrue("回到前台后应保持播放门打开", stage.playbackGateOpen)
+            assertTrue(!stage.focusLocked && !stage.laneCountLocked)
+        } finally {
+            pip.detach()
+            controller.destroy()
+            directory.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun testDismissingPipAfterOnStopStopsAllImmediately() {
+        val (controller, stage, wiring, pip, directory) = buildPipActivityHarness("vela-pip-dismiss")
+        try {
+            wiring.moveTo(vela.core.lifecycle.PhoneScenePhase.ACTIVE)
+            stage.notePlaying("alice")
+            ShadowLooper.idleMainLooper()
+
+            // 自动进入画中画（无 onStop）。
+            controller.pause()
+            wiring.moveTo(vela.core.lifecycle.PhoneScenePhase.INACTIVE)
+            pip.onPictureInPictureModeChanged(true)
+            ShadowLooper.idleMainLooper()
+            assertEquals(vela.core.lifecycle.PhoneScenePhase.BACKGROUND, wiring.phase)
+
+            // 模拟用户关闭小窗：系统先 onStop（lifecycle 降为 CREATED），再 onPictureInPictureModeChanged(false)。
+            controller.stop()
+            wiring.moveTo(vela.core.lifecycle.PhoneScenePhase.BACKGROUND)
+            pip.onPictureInPictureModeChanged(false)
+            ShadowLooper.idleMainLooper()
+            assertTrue("关闭画中画后必须立即关掉播放门", !stage.playbackGateOpen)
+            assertEquals("关闭画中画后不得再放行任何路", null, stage.lifecycleEpoch.allowedLane)
+        } finally {
+            pip.detach()
+            controller.destroy()
+            directory.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun testPausedStateChangesDoNotRefreshParamsUntilResumed() {
+        val (controller, stage, _, pip, directory) = buildPipActivityHarness("vela-pip-pause-suppress")
+        try {
+            stage.notePlaying("alice")
+            ShadowLooper.idleMainLooper()
+            assertTrue(RecordingPipParamsShadow.recorded.last().isAutoEnterEnabled)
+
+            // 离场进入 onPause（不在画中画）：后续舞台状态变化不应在后台持续刷 setPictureInPictureParams。
+            controller.pause()
+            RecordingPipParamsShadow.recorded.clear()
+            stage.dispatch(vela.app.stage.StageIntent.TogglePause(null))
+            ShadowLooper.idleMainLooper()
+            assertTrue(
+                "onPause 后非画中画期间不应刷新系统参数，实际=${RecordingPipParamsShadow.recorded.size}",
+                RecordingPipParamsShadow.recorded.isEmpty(),
+            )
+
+            // 回到前台 onResume：应补刷一次最新状态（此时已手动暂停，autoEnterEnabled 应同步为 false）。
+            controller.resume()
+            ShadowLooper.idleMainLooper()
+            assertEquals("回前台后应补刷一次参数", 1, RecordingPipParamsShadow.recorded.size)
+            assertTrue(!RecordingPipParamsShadow.recorded.last().isAutoEnterEnabled)
+        } finally {
+            pip.detach()
+            controller.destroy()
+            directory.toFile().deleteRecursively()
+        }
+    }
+
+    private data class PipHarness(
+        val controller: org.robolectric.android.controller.ActivityController<ComponentActivity>,
+        val stage: StageViewModel,
+        val wiring: vela.app.stage.LifecycleWiring,
+        val pip: ActivityPictureInPicture,
+        val directory: java.nio.file.Path,
+    )
+
+    private fun buildPipActivityHarness(prefix: String): PipHarness {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        context.getSharedPreferences(Settings.PREFS_NAME, Context.MODE_PRIVATE).edit().clear().commit()
+        val settings = Settings(context)
+        settings.ageConfirmed = true
+        settings.hintSeen = true
+        settings.muted = true
+        settings.autoEnterPip = true
+        val directory = Files.createTempDirectory(prefix)
+        val controller = Robolectric.buildActivity(ComponentActivity::class.java).setup()
+        val activity = controller.get()
+        val stage = StageViewModel(
+            settings = settings,
+            http = object : HTTPClient {
+                override suspend fun send(request: HTTPRequest): HTTPResult =
+                    HTTPResult(status = 200, data = ByteArray(0))
+            },
+            directory = directory,
+            context = activity,
+        )
+        opened.add(stage)
+        stage.updateFeed(installing = FeedSource.popular) { store ->
+            store.replace(
+                vela.core.base.site.CatalogPage(
+                    rooms = listOf(
+                        vela.core.base.model.Room(username = "alice", viewers = 2, show = vela.core.base.model.ShowState.publicShow),
+                        vela.core.base.model.Room(username = "bob", viewers = 2, show = vela.core.base.model.ShowState.publicShow),
+                    ),
+                    total = 2,
+                    nextOffset = 2,
+                ),
+            )
+        }
+        stage.dispatch(vela.app.stage.StageIntent.SetDual(true))
+        val session = object : vela.app.stage.LifecycleSession {
+            override fun closeGate() = Unit
+            override fun onEpoch(epoch: vela.core.lifecycle.LifecycleEpoch) = Unit
+            override fun suspendLanes() = Unit
+            override fun deactivateAudio() = Unit
+            override fun prepareAudio() = Unit
+            override fun stopListener() = Unit
+            override fun ensureLane() = Unit
+            override fun restoreUi() = Unit
+        }
+        val wiring = vela.app.stage.LifecycleWiring(stage, session)
+        val coordinator = PiPCoordinator(stage = stage, wiring = wiring, audio = { null })
+        val pip = ActivityPictureInPicture(
+            activity = activity,
+            stage = stage,
+            onEvent = { event -> wiring.onPictureInPictureEvent(event) },
+        )
+        coordinator.pip = pip
+        wiring.attachPictureInPicture(coordinator)
+        pip.attach()
+        ShadowLooper.idleMainLooper()
+        return PipHarness(controller, stage, wiring, pip, directory)
+    }
 }
 
 /** 系统影子不记 setPictureInPictureParams，这里补一层记录，供断言比例用。 */

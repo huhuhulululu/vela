@@ -12,6 +12,9 @@ import android.graphics.drawable.Icon
 import android.os.Build
 import android.util.Log
 import androidx.activity.ComponentActivity
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -38,10 +41,26 @@ class ActivityPictureInPicture(
 
     private var receiverRegistered = false
     private var bound = false
+    private var inPip = false
     private var notedWidth = 0.0
     private var notedHeight = 0.0
     private var stateJob: Job? = null
     private var observedKey: ParamsKey? = null
+
+    private val lifecycleObserver = object : DefaultLifecycleObserver {
+        override fun onResume(owner: LifecycleOwner) {
+            if (!bound) return
+            onStageState(stage.state.value)
+        }
+
+        override fun onStop(owner: LifecycleOwner) {
+            if (!bound || !inPip) return
+            if (!activity.isFinishing && activity.isInPictureInPictureMode) return
+            inPip = false
+            onEvent(PiPEvent.WillStop)
+            onEvent(PiPEvent.DidStop)
+        }
+    }
 
     override var autoEnter: Boolean = stage.settings.autoEnterPip
         set(value) {
@@ -60,6 +79,7 @@ class ActivityPictureInPicture(
         if (!supported || bound) return
         bound = true
         registerMuteReceiver()
+        activity.lifecycle.addObserver(lifecycleObserver)
         observedKey = currentParamsKey(stage.state.value)
         updateParams(enter = false)
         stateJob?.cancel()
@@ -72,6 +92,8 @@ class ActivityPictureInPicture(
     fun detach() {
         if (!bound) return
         bound = false
+        inPip = false
+        activity.lifecycle.removeObserver(lifecycleObserver)
         stateJob?.cancel()
         stateJob = null
         observedKey = null
@@ -114,10 +136,18 @@ class ActivityPictureInPicture(
 
     fun onPictureInPictureModeChanged(inPip: Boolean) {
         if (inPip) {
+            if (this.inPip) return
+            this.inPip = true
             onEvent(PiPEvent.WillStart)
             onEvent(PiPEvent.DidStart)
             updateParams(enter = false)
         } else {
+            if (!this.inPip) return
+            this.inPip = false
+            // Android 上展开回全屏不会先经过 onStop（仍为 STARTED 且未 finish）；关闭小窗则先走 onStop 或 finish。
+            if (!activity.isFinishing && activity.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                onEvent(PiPEvent.RestoreRequested)
+            }
             onEvent(PiPEvent.WillStop)
             onEvent(PiPEvent.DidStop)
         }
@@ -140,8 +170,16 @@ class ActivityPictureInPicture(
 
     private fun onStageState(state: StageUiState) {
         if (!bound) return
+        val inPictureInPicture = inPip || activity.isInPictureInPictureMode
+        val resumed = activity.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+        // onPause/onStop 离场期间（且不在画中画）不再刷系统参数，待回前台 onResume 时统一同步。
+        if (!resumed && !inPictureInPicture) return
         val key = currentParamsKey(state)
         if (key == observedKey) return
+        if (inPictureInPicture && observedKey?.muted == key.muted) {
+            observedKey = key
+            return
+        }
         if (observedKey?.focusLane != key.focusLane) {
             notedWidth = 0.0
             notedHeight = 0.0
