@@ -29,6 +29,7 @@ GROUPS = (
     "recommend",
     "curation",
     "selection",
+    "sites",
     "sync",
     "audio",
     "cross",
@@ -157,6 +158,15 @@ WHOLE = {
     "Tests/VelaSyncTests/SyncStateBackupTests.swift": "sync",
     "Tests/VelaSyncTests/SyncStatusTextTests.swift": "sync",
     "Tests/VelaSyncTests/SyncTransportLimitsTests.swift": "sync",
+    "Tests/VelaCoreTests/Cam4DirectoryTests.swift": "sites",
+    "Tests/VelaCoreTests/Cam4StreamTests.swift": "sites",
+    "Tests/VelaCoreTests/ChaturbateAdapterTests.swift": "sites",
+    "Tests/VelaCoreTests/RoomKeyTests.swift": "sites",
+    "Tests/VelaCoreTests/SiteCatalogTests.swift": "sites",
+    "Tests/VelaCoreTests/SiteDirectoryTests.swift": "sites",
+    "Tests/VelaCoreTests/SiteStorageTests.swift": "sites",
+    "Tests/VelaCoreTests/SyncSitesTests.swift": "sites",
+    "Tests/VelaPhoneTests/SiteWiringTests.swift": "sites",
 }
 
 PARTIAL = {
