@@ -70,4 +70,14 @@ final class SyncSourceGuardTests: XCTestCase {
         let exitObserverPos = try XCTUnwrap(observeBody.range(of: "pasteboardExitObserver =")).lowerBound
         XCTAssertLessThan(exitObserverPos, expirePos, "expireNow() 必须挂在独立的 pasteboardExitObserver 上")
     }
+
+    /// 审计 high：加入回滚写回设置后必须调用 `settings.synchronize()`，避免删快照前设置仍停在 UserDefaults 缓存。
+    func testJoinJournalWriteSettingsSynchronizes() throws {
+        let hub = try text("Shared/Stage/StageModel+Sync.swift")
+        let start = try XCTUnwrap(hub.range(of: "static func journal(settings:")).lowerBound
+        let end = try XCTUnwrap(hub.range(of: "static func defaultEnvironment()")).lowerBound
+        let body = String(hub[start..<end])
+        XCTAssertTrue(body.contains("settings.setExplicit("))
+        XCTAssertTrue(body.contains("settings.synchronize()"), "writeSettings 写回设置后必须 synchronize() 刷盘")
+    }
 }

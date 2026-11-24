@@ -79,7 +79,10 @@ final class SyncHub: ObservableObject {
             files: [CurationStore.defaultURL(), TasteStore.defaultURL()],
             settingKeys: keys,
             readSettings: { keys.reduce(into: [:]) { out, k in out[k] = settings.explicitBool(forKey: k) } },
-            writeSettings: { values in for (k, v) in values { settings.setExplicit(k, v) } }
+            writeSettings: { values in
+                for (k, v) in values { settings.setExplicit(k, v) }
+                settings.synchronize()
+            }
         )
     }
 

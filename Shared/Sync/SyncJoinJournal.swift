@@ -95,12 +95,22 @@ final class FileJoinJournal: SyncJoinJournal {
     }
 
     /// 只看发布目录（写操作闸门每次都会问，不扫目录）。崩溃留下的临时目录从未发布、不会被换回，下次快照或删除时清掉。
-    /// 完整性要求 `complete` 与 `settings.json` 同时存在：构建时二者一并原子发布，换回不删 `settings.json`，
-    /// 只有删快照中途中断才可能缺 `settings.json`，按 `.incomplete` 直接清理，不再永久卡在「需要修复」。
+    /// 未提交快照只要 `settings.json` 仍在且可解码（无论 `complete` 是否已删）就保持 `.pending`：
+    /// 即使在「`complete` 已删、设置尚未刷盘」之间被杀进程，重启仍会重放 `settings.json`（及任何残留副本）后再删目录；
+    /// 缺 `settings.json` 或无法解码的半截目录视为 `.incomplete`，只删不换回，避免永久卡在「需要修复」。
     var status: SyncJoinJournalStatus {
         guard fm.fileExists(atPath: dir.path) else { return .none }
         if has(Self.committedMarker) { return .committed }
-        return has(Self.completeMarker) && has(Self.settingsFile) ? .pending : .incomplete
+        return hasRestorableSettings() ? .pending : .incomplete
+    }
+
+    private func hasRestorableSettings() -> Bool {
+        let url = settingsURL(in: dir)
+        guard fm.fileExists(atPath: url.path) else { return false }
+        // 文件存在但临时读不到（权限或 I/O 故障）时宁可保持 `.pending`，避免误删尚未换回的快照；
+        // 明确读到且无法解码为合法 JSON 时才判 `.incomplete`。
+        guard let data = fm.contents(atPath: url.path) else { return true }
+        return (try? JSONDecoder().decode([String: Bool].self, from: data)) != nil
     }
 
     func snapshot() -> Bool {
@@ -174,17 +184,22 @@ final class FileJoinJournal: SyncJoinJournal {
         return ok
     }
 
-    /// 删发布快照目录：先删完整性标记，再逐个删其余条目，最后删空目录。
-    /// 删标记前失败：快照完整保留，重启可再次换回；删标记后中断：目录转为 `.incomplete`（或保持 `.committed`），
-    /// 重启直接删掉，不会留下「缺 `settings.json` 的未提交快照」。
+    /// 删发布快照目录：先删完整性标记，再按状态决定最后一个删除的文件，最后删空目录。
+    /// - 已提交快照：把 `committed` 留到最后删（此时其余文件与 `settings.json` 已删完），任意一步中断都不会退回 `.pending`。
+    /// - 未提交快照：把 `settings.json` 留到最后删，删它之前中断仍为 `.pending`（重启重放设置再清理），删完后目录为空转为 `.incomplete` 直接删掉。
     private func removeSnapshotDirectory(_ d: URL) -> Bool {
+        let isCommitted = fm.fileExists(atPath: d.appendingPathComponent(Self.committedMarker).path)
         let complete = d.appendingPathComponent(Self.completeMarker)
         if fm.fileExists(atPath: complete.path) {
             guard removeItem(complete) else { return false }
         }
         if let names = try? fm.contentsOfDirectory(atPath: d.path) {
-            for name in names.sorted() {
+            let deferred = isCommitted ? Self.committedMarker : Self.settingsFile
+            for name in names.sorted() where name != deferred {
                 guard removeItem(d.appendingPathComponent(name)) else { return false }
+            }
+            if names.contains(deferred) {
+                guard removeItem(d.appendingPathComponent(deferred)) else { return false }
             }
         }
         return removeItem(d)
