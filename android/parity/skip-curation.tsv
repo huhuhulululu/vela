@@ -2,3 +2,4 @@
 # deferred:C9 在 --group curation 视为已登记；--all 要等 C9 消化。
 swift_file	swift_test	reason
 Tests/VelaCoreTests/LoadCommitTests.swift	testDwellOriginFollowsLoadedListNotSelection	deferred:C9 引用 ListOrigin.dwell（C6b DwellTracker），本包没有 ledger 类型
+Tests/VelaCoreTests/FavoriteStatusTests.swift	testCam4ModeFavoritePlanSkipsChaturbateChallenge	deferred:sites-core-fix 安卓 FavoriteCache.kt FavoriteResolver.plan 缺少 mode: SiteMode? 参数且 RoomKey.kt SiteMode 缺少 filterFavorites

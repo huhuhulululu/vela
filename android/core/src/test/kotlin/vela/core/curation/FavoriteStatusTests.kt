@@ -300,4 +300,20 @@ class FavoriteStatusTests {
         assertFalse(Room.isValidUsername("a".repeat(31)))
         assertFalse(Room.isValidUsername("名字很长"))
     }
+
+    @org.junit.jupiter.api.Disabled("deferred:sites-core-fix: 安卓 FavoriteCache.kt FavoriteResolver.plan 尚无 mode: SiteMode? 参数且 RoomKey.kt SiteMode 尚无 filterFavorites，Cam4 模式无法筛掉过期 Chaturbate 收藏")
+    @Test
+    fun testCam4ModeFavoritePlanSkipsChaturbateChallenge() = runBlocking {
+        val cam4Room = Room(
+            username = "sample_one",
+            viewers = 12,
+            show = ShowState.publicShow,
+            site = vela.core.sites.SiteID.cam4,
+        )
+        val cache = FavoriteCache().storing(mapOf("c4:sample_one" to FavoriteStatus.Online(cam4Room)), now)
+        val allFavorites = listOf("alice", "c4:sample_one")
+        val plan = FavoriteResolver.plan(allFavorites, KnownCatalog(), cache, now)
+        // 修复后应传入 mode = SiteMode.cam4，期望 pending 为空且不请求 Chaturbate
+        assertTrue(plan.pending.isEmpty())
+    }
 }

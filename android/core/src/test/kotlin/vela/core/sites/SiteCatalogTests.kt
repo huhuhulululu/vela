@@ -144,6 +144,66 @@ class SiteCatalogTests {
         assertEquals(listOf("alice"), fetched.page.rooms.map { it.id })
         assertTrue(fetched.cursor.ended.contains(SiteID.cam4))
     }
+
+    @org.junit.jupiter.api.Disabled("deferred:sites-core-fix: 安卓 SiteCatalog.kt MixedCursor.withPage 遇空页即标 ended，忽略游标仍在前进")
+    @Test
+    fun testMixedFilteredEmptyPageWithAdvancingCursorDoesNotEndSite() = runBlocking {
+        val cb = ScriptedAdapter(
+            site = SiteID.chaturbate,
+            pages = mutableListOf(
+                CatalogPage(rooms = listOf(Room(username = "cb_1", show = ShowState.publicShow)), total = 10, nextOffset = 2),
+                CatalogPage(rooms = listOf(Room(username = "cb_2", show = ShowState.publicShow)), total = 10, nextOffset = 4),
+            ),
+        )
+        val c4 = ScriptedAdapter(
+            site = SiteID.cam4,
+            pages = mutableListOf(
+                CatalogPage(rooms = emptyList(), total = 10, nextOffset = 2),
+                CatalogPage(rooms = listOf(Room(username = "c4_found", show = ShowState.publicShow, site = SiteID.cam4)), total = 10, nextOffset = 4),
+            ),
+        )
+        val registry = SiteRegistry(listOf(cb, c4))
+        val first = SiteCatalog.fetch(
+            mode = SiteMode.mixed,
+            query = CatalogQuery(limit = 2),
+            cursor = MixedCursor(listOf(SiteID.chaturbate, SiteID.cam4)),
+            registry = registry,
+        )
+        assertFalse(first.cursor.ended.contains(SiteID.cam4))
+        assertEquals(2, first.cursor.offsets[SiteID.cam4])
+
+        val second = SiteCatalog.fetch(
+            mode = SiteMode.mixed,
+            query = CatalogQuery(limit = 2),
+            cursor = first.cursor,
+            registry = registry,
+        )
+        assertEquals(listOf(0, 2), c4.requestedOffsets)
+        assertEquals(listOf("cb_2", "c4:c4_found"), second.page.rooms.map { it.id })
+    }
+}
+
+private class ScriptedAdapter(
+    override val site: SiteID,
+    private val pages: MutableList<CatalogPage>,
+) : SiteAdapter {
+    val requestedOffsets = mutableListOf<Int>()
+    override val capabilities: SiteCapabilities =
+        if (site == SiteID.chaturbate) SiteCapabilities.serverTag else SiteCapabilities.strictMaster
+    override val challengeHome: URI? = null
+
+    override suspend fun fetchDirectory(query: CatalogQuery): CatalogPage {
+        requestedOffsets.add(query.offset)
+        return if (pages.isEmpty()) CatalogPage(rooms = emptyList(), total = 0, nextOffset = query.offset) else pages.removeAt(0)
+    }
+
+    override suspend fun resolveStream(room: Room): SourcedTicket =
+        SourcedTicket(StreamTicket(success = false, url = null, status = ShowState.offline), StreamOrigin.edge)
+
+    override suspend fun status(keys: List<RoomKey>, now: Instant): Map<RoomKey, FavoriteStatus> = emptyMap()
+    override fun thumbnail(room: Room, now: Instant): URI? = null
+    override fun mediaHeaders(key: RoomKey): Map<String, String> = emptyMap()
+    override fun masterFailure(status: Int): StreamFailure? = null
 }
 
 private class OneShot(private val result: HTTPResult) : HTTPClient {

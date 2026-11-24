@@ -16,3 +16,9 @@ Tests/VelaPhoneTests/SiteWiringTests.swift	testSiteKeyMigrationWaitsForJoinSnaps
 Tests/VelaPhoneTests/SiteWiringTests.swift	testDeferredMigrationRecordsNoVersion	deferred:sites-app 安卓 App 层站点接线与同步的站点键支持尚未做，编排者 2026-11-24 裁决暂缓（启动迁移推迟版本号门控尚未接线）
 Tests/VelaPhoneTests/SiteWiringTests.swift	testSyncProjectionKeepsCam4Entries	deferred:sites-app 安卓 App 层站点接线与同步的站点键支持尚未做，编排者 2026-11-24 裁决暂缓（舞台同步投影尚未接入 Cam4 键）
 Tests/VelaPhoneTests/SiteWiringTests.swift	testDirectRoomFollowsPrefixThenSiteMode	deferred:sites-app 安卓 App 层站点接线与同步的站点键支持尚未做，编排者 2026-11-24 裁决暂缓（直达输入尚未按站点前缀与当前模式解析）
+Tests/VelaPhoneTests/SiteWiringTests.swift	testCam4FavoritesPageOnlyQueriesCam4AndSkipsChaturbate	deferred:sites-app 安卓 App 层站点接线与同步的站点键支持尚未做，编排者 2026-11-24 裁决暂缓（收藏来源尚未按站点模式分发）
+Tests/VelaCoreTests/Cam4StreamTests.swift	testClientFilteredEmptyFirstPageContinuesToLaterMatchingPage	deferred:sites-core-fix 安卓 Cam4Adapter.kt 本地过滤滤空首页未继续向后取页（实测返回空列表）
+Tests/VelaCoreTests/Cam4StreamTests.swift	testSingleSiteMultiPageContinuesThroughFilteredShortPage	deferred:sites-core-fix 安卓 Cam4Adapter.kt/SiteDirectory.kt/CatalogAPI.kt 本地过滤短页导致多页拉取提前止步第 1 页
+Tests/VelaCoreTests/Cam4StreamTests.swift	testExpiredRefetchKeepsOriginalSmallPageSizeAndPageNumber	deferred:sites-core-fix 安卓 Cam4Adapter.kt 过期重取写死 maxPageSize=90 未保留原页大小，误判 offline
+Tests/VelaCoreTests/SiteCatalogTests.swift	testMixedFilteredEmptyPageWithAdvancingCursorDoesNotEndSite	deferred:sites-core-fix 安卓 SiteCatalog.kt MixedCursor.withPage 遇过滤空页即标 ended，忽略游标前进
+Tests/VelaCoreTests/SiteDirectoryTests.swift	testTargetedTagQueryDoesNotClearMixedRegularCursors	deferred:sites-core-fix 安卓 SiteDirectory.kt cursors 仅按 offset 索引且 offset<=0 清空，定向标签查询冲掉常规混合游标

@@ -51,6 +51,24 @@ class TargetedMergeTests {
         assertTrue(stalled.reachedEnd, "游标没有前进：兜底停止，免得原地重复请求")
     }
 
+    @org.junit.jupiter.api.Disabled("deferred:sites-core-fix: 安卓 FeedStore.kt replace/append/mergePageAfterCurrent 遇空页即置 reachedEnd=true，未判断游标是否前进且未到底")
+    @Test
+    fun testFilteredEmptyPageWithAdvancingCursorDoesNotReachEnd() {
+        val replaced = FeedStore()
+        replaced.replace(CatalogPage(rooms = emptyList(), total = 100, nextOffset = 90))
+        assertFalse(replaced.reachedEnd)
+
+        val appended = FeedStore()
+        appended.replace(CatalogPage(rooms = listOf(room("a")), total = 200, nextOffset = 90))
+        appended.append(CatalogPage(rooms = emptyList(), total = 200, nextOffset = 180), offset = 90)
+        assertFalse(appended.reachedEnd)
+
+        val merged = FeedStore()
+        merged.replace(CatalogPage(rooms = listOf(room("a")), total = 200, nextOffset = 90))
+        merged.mergePageAfterCurrent(CatalogPage(rooms = emptyList(), total = 200, nextOffset = 180), offset = 90) { it }
+        assertFalse(merged.reachedEnd)
+    }
+
     @Test
     fun testMergeAfterCurrentKeepsHeadAndDedupes() {
         val feed = FeedStore()

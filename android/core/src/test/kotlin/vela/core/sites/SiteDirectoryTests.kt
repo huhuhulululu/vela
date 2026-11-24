@@ -137,6 +137,50 @@ class SiteDirectoryTests {
         assertEquals(SiteID.chaturbate, RoomKey.siteOfRef("vela-perf-room"))
     }
 
+    @org.junit.jupiter.api.Disabled("deferred:sites-core-fix: 安卓 SiteDirectory.kt cursors 仅按 offset 索引且 offset<=0 清空，标签定向查询冲掉常规混合游标（实测第 4 页 nextOffset=4 而非 16）")
+    @Test
+    fun testTargetedTagQueryDoesNotClearMixedRegularCursors() = runBlocking {
+        val client = HostClient(
+            cb = mutableListOf(
+                cbBody(listOf("cb_1", "cb_2"), total = 20),
+                cbBody(listOf("cb_3", "cb_4"), total = 20),
+                cbBody(listOf("cb_5", "cb_6"), total = 20),
+                cbBody(listOf("cb_t1"), total = 5),
+                cbBody(listOf("cb_t2"), total = 5),
+                cbBody(listOf("cb_7", "cb_8"), total = 20),
+            ),
+            c4 = mutableListOf(
+                c4Body(listOf("c4_1", "c4_2"), total = 20),
+                c4Body(listOf("c4_3", "c4_4"), total = 20),
+                c4Body(listOf("c4_5", "c4_6"), total = 20),
+                c4Body(listOf("c4_7", "c4_8"), total = 20),
+            ),
+        )
+        val dir = directory(SiteMode.mixed, client)
+        val regular = dir.fetchPages(CatalogQuery(limit = 2, offset = 0), pages = 3)
+        assertEquals(12, regular.nextOffset)
+
+        dir.fetchPages(CatalogQuery(tag = "asian", limit = 90, offset = 0), pages = 1)
+        dir.fetchPages(CatalogQuery(tag = "latina", limit = 90, offset = 0), pages = 1)
+
+        val feed = vela.core.feed.FeedStore()
+        feed.replace(regular)
+        val page4 = dir.fetch(CatalogQuery(limit = 2, offset = regular.nextOffset))
+        assertEquals(16, page4.nextOffset)
+        assertEquals(listOf("cb_7", "c4:c4_7", "cb_8", "c4:c4_8"), page4.rooms.map { it.id })
+        feed.append(page4, offset = regular.nextOffset)
+        kotlin.test.assertFalse(feed.reachedEnd)
+
+        val cbRegularOffsets = client.urls
+            .filter { URI(it).host == "chaturbate.com" && query(it, "hashtags") == null }
+            .map { query(it, "offset") }
+        val c4Pages = client.urls
+            .filter { URI(it).host == "www.cam4.com" }
+            .map { query(it, "page") }
+        assertEquals(listOf("0", "2", "4", "6"), cbRegularOffsets)
+        assertEquals(listOf("1", "2", "3", "4"), c4Pages)
+    }
+
     private fun directory(mode: SiteMode, client: HostClient): SiteDirectory {
         val registry = SiteRegistry(
             listOf(

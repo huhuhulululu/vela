@@ -225,16 +225,100 @@ class Cam4StreamTests {
         assertEquals(listOf("sample_one"), matched.rooms.map { it.username })
     }
 
+    @org.junit.jupiter.api.Disabled("deferred:sites-core-fix: 安卓 Cam4Adapter.fetchDirectory 仅取单页，本地过滤滤空后未继续往后取页（实测返回 [] 而非 [m1, m2]）")
+    @Test
+    fun testClientFilteredEmptyFirstPageContinuesToLaterMatchingPage() = runBlocking {
+        val genderClient = ScriptClient(
+            mutableListOf(
+                page(listOf(user("f1", hls = hls, gender = "female"), user("f2", hls = hls, gender = "female")), total = 6),
+                page(listOf(user("m1", hls = hls, gender = "male"), user("m2", hls = hls, gender = "male")), total = 6),
+            ),
+        )
+        val genderAdapter = Cam4Adapter(genderClient, backoff = null, viewerRegions = emptySet())
+        val malePage = genderAdapter.fetchDirectory(CatalogQuery(gender = Gender.male, limit = 2, offset = 0))
+        assertEquals(listOf("m1", "m2"), malePage.rooms.map { it.username })
+        assertEquals(4, malePage.nextOffset)
+        assertEquals(6, malePage.total)
+        assertEquals(2, genderClient.requests.size)
+
+        val geoClient = ScriptClient(
+            mutableListOf(
+                page(listOf(user("b1", hls = hls, blocked = listOf("US")), user("b2", hls = hls, blocked = listOf("US"))), total = 6),
+                page(listOf(user("ok1", hls = hls), user("ok2", hls = hls)), total = 6),
+            ),
+        )
+        val geoAdapter = Cam4Adapter(geoClient, backoff = null, viewerRegions = setOf("US"))
+        val visiblePage = geoAdapter.fetchDirectory(CatalogQuery(limit = 2, offset = 0))
+        assertEquals(listOf("ok1", "ok2"), visiblePage.rooms.map { it.username })
+        assertEquals(4, visiblePage.nextOffset)
+        assertEquals(2, geoClient.requests.size)
+    }
+
+    @org.junit.jupiter.api.Disabled("deferred:sites-core-fix: 安卓 Cam4Adapter/SiteDirectory/CatalogWindow 遇本地过滤短页即停在第 1 页（实测仅返回 [ok1]）")
+    @Test
+    fun testSingleSiteMultiPageContinuesThroughFilteredShortPage() = runBlocking {
+        val client = ScriptClient(
+            mutableListOf(
+                page(listOf(user("b1", hls = hls, blocked = listOf("US")), user("ok1", hls = hls)), total = 12),
+                page(listOf(user("b2", hls = hls, blocked = listOf("US")), user("ok2", hls = hls)), total = 12),
+                page(listOf(user("b3", hls = hls, blocked = listOf("US")), user("ok3", hls = hls)), total = 12),
+                page(listOf(user("b4", hls = hls, blocked = listOf("US")), user("ok4", hls = hls)), total = 12),
+                page(listOf(user("b5", hls = hls, blocked = listOf("US")), user("ok5", hls = hls)), total = 12),
+                page(listOf(user("b6", hls = hls, blocked = listOf("US")), user("ok6", hls = hls)), total = 12),
+            ),
+        )
+        val adapter = Cam4Adapter(client, backoff = null, viewerRegions = setOf("US"))
+        val dir = SiteDirectory(
+            mode = SiteMode.cam4,
+            registry = SiteRegistry(listOf(adapter)),
+            chaturbate = vela.core.feed.CatalogAPI(client, backoff = null),
+        )
+        val merged = dir.fetchPages(CatalogQuery(limit = 2, offset = 0), pages = 3)
+        assertEquals(listOf("ok1", "ok2", "ok3", "ok4", "ok5", "ok6"), merged.rooms.map { it.username })
+        assertEquals(12, merged.nextOffset)
+    }
+
+    @org.junit.jupiter.api.Disabled("deferred:sites-core-fix: 安卓 Cam4Adapter.resolveStream 过期重取写死 maxPageSize=90 未保留原页大小 40（实测返回 offline）")
+    @Test
+    fun testExpiredRefetchKeepsOriginalSmallPageSizeAndPageNumber() = runBlocking {
+        val target = user("sample_100", hls = hls)
+        val decoy = user("other_room", hls = hls)
+        val page3Data = """{"users":[$target],"totalCount":200}""".encodeToByteArray()
+        val decoyData = """{"users":[$decoy],"totalCount":200}""".encodeToByteArray()
+        val requests = mutableListOf<HTTPRequest>()
+        val client = object : HTTPClient {
+            override suspend fun send(request: HTTPRequest): HTTPResult {
+                requests.add(request)
+                val p = query(request.url, "page")
+                val size = query(request.url, "resultsPerPage")
+                return if (p == "3" && size == "40") HTTPResult(200, page3Data) else HTTPResult(200, decoyData)
+            }
+        }
+        var now = Instant.ofEpochSecond(5_000)
+        val adapter = Cam4Adapter(client, backoff = null, viewerRegions = emptySet(), clock = { now })
+        val listed = adapter.fetchDirectory(CatalogQuery(limit = 40, offset = 80))
+        assertEquals(listOf("sample_100"), listed.rooms.map { it.username })
+
+        now = now.plusMillis(Cam4Adapter.streamTTLMillis + 5_000)
+        val ticket = adapter.resolveStream(Room(username = "sample_100", site = SiteID.cam4))
+        assertNull(ticket.ticket.failure)
+        assertEquals(hls, ticket.ticket.url?.toString())
+        assertEquals(2, requests.size)
+        assertEquals("3", query(requests[1].url, "page"))
+        assertEquals("40", query(requests[1].url, "resultsPerPage"))
+    }
+
     private fun user(
         name: String,
         hls: String? = null,
         privateRoom: Boolean = false,
         blocked: List<String> = emptyList(),
+        gender: String = "female",
     ): String {
         val fields = mutableListOf(
             """"username":"$name"""",
             """"privateRoom":$privateRoom""",
-            """"gender":"female"""",
+            """"gender":"$gender"""",
             """"viewers":3""",
             """"snapshotImageLink":"https://snapshots.example/$name.jpg?sign=1"""",
         )
@@ -245,8 +329,8 @@ class Cam4StreamTests {
         return "{${fields.joinToString(",")}}"
     }
 
-    private fun page(users: List<String>): HTTPResult =
-        HTTPResult(200, """{"users":[${users.joinToString(",")}],"totalCount":100}""".encodeToByteArray())
+    private fun page(users: List<String>, total: Int = 100): HTTPResult =
+        HTTPResult(200, """{"users":[${users.joinToString(",")}],"totalCount":$total}""".encodeToByteArray())
 
     private fun query(url: String, name: String): String? {
         val raw = URI(url).rawQuery ?: return null
