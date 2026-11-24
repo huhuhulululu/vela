@@ -14,11 +14,11 @@ extension StageModel {
     /// 解析全部收藏的状态并写进缓存。键为小写用户名；`challenged` 表示被站点拦截，已停止查询。
     /// 同一时间只有一批查询：新请求取消在途批次，等它收尾后再开新批（并发不叠加）；
     /// 被取代的调用方拿到最新一批的结果，旧批次不写回缓存，`favoritesChecking` 只在最后一批结束时关闭。
-    func resolveFavorites() async -> FavoriteResolution {
+    func resolveFavorites(mode: SiteMode? = nil) async -> FavoriteResolution {
         // 挂起期间（iOS 后台）不查，也不动补查冷却。
         guard sharedToken() != nil else { return FavoriteResolution(statuses: [:], challenged: false) }
         favoritesChecking = true
-        let result = await favoriteRunner.run { [self] id in await runFavoriteBatch(id) }
+        let result = await favoriteRunner.run { [self] id in await runFavoriteBatch(id, mode: mode) }
         if !favoriteRunner.isRunning { favoritesChecking = false }
         guard sharedToken() != nil else { return result }
         noteFavoriteOutcome(result)
@@ -35,10 +35,10 @@ extension StageModel {
         }
     }
 
-    private func runFavoriteBatch(_ id: Int) async -> FavoriteResolution {
+    private func runFavoriteBatch(_ id: Int, mode: SiteMode?) async -> FavoriteResolution {
         let life = sharedToken()
         let plan = FavoriteResolver.plan(
-            favorites: curation.favorites, catalog: knownCatalog, cache: favoriteStatus, now: Date()
+            favorites: curation.favorites, mode: mode, catalog: knownCatalog, cache: favoriteStatus, now: Date()
         )
         var statuses = plan.resolved
         var fetched: [String: FavoriteStatus] = [:]
@@ -85,9 +85,10 @@ extension StageModel {
     }
 
     func fetchFavoritesPage() async throws -> CatalogPage {
+        let mode = siteMode
         let names = favoritesInMode(curation.favorites)
-        let result = await resolveFavorites()
-        if result.challenged { throw CatalogFailure.challenge }
+        let result = await resolveFavorites(mode: mode)
+        if result.challenged, mode.sites.contains(.chaturbate) { throw CatalogFailure.challenge }
         let rooms = FavoriteResolver.onlineRooms(favorites: names, statuses: result.statuses)
         return CatalogPage(rooms: rooms, total: rooms.count, nextOffset: rooms.count)
     }

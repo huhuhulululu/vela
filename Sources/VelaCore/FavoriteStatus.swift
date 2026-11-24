@@ -240,13 +240,16 @@ public final class SupersedingRunner<Value: Sendable> {
 }
 
 public enum FavoriteResolver {
-    public static func plan(favorites: [String], catalog: KnownCatalog, cache: FavoriteCache, now: Date) -> FavoritePlan {
+    public static func plan(
+        favorites: [String], mode: SiteMode? = nil, catalog: KnownCatalog, cache: FavoriteCache, now: Date
+    ) -> FavoritePlan {
         let known = Dictionary(
             catalog.usable(now: now).map { (Curation.key($0.room.ref), $0) },
             uniquingKeysWith: { first, second in first.at >= second.at ? first : second }
         )
+        let scoped = mode.map { $0.filterFavorites(favorites) } ?? favorites
         var plan = FavoritePlan(resolved: [:], fromCatalog: [:], pending: [])
-        for name in favorites {
+        for name in scoped {
             let key = Curation.key(name)
             guard plan.resolved[key] == nil, !plan.pending.contains(where: { Curation.key($0) == key }) else { continue }
             if let cached = cache.fresh(for: name, now: now) {

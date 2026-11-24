@@ -233,4 +233,31 @@ final class FavoriteStatusTests: XCTestCase {
         XCTAssertFalse(Room.isValidUsername(String(repeating: "a", count: 31)))
         XCTAssertFalse(Room.isValidUsername("名字很长"))
     }
+
+    /// 审计发现 4：Cam4 收藏来源只解析当前站点模式的收藏，过期 Chaturbate 收藏的质询不能阻断 Cam4 收藏页。
+    func testCam4ModeFavoritePlanSkipsChaturbateChallenge() async {
+        let cam4Room = Room(username: "sample_one", viewers: 12, show: .publicShow, site: .cam4)
+        let cache = FavoriteCache().storing(["c4:sample_one": .online(cam4Room)], at: now)
+        let allFavorites = ["alice", "c4:sample_one"]
+
+        let cam4Plan = FavoriteResolver.plan(
+            favorites: allFavorites, mode: .cam4, catalog: KnownCatalog(), cache: cache, now: now
+        )
+        XCTAssertEqual(cam4Plan.pending, [], "Cam4 模式不把过期 Chaturbate 收藏放进待查名单")
+
+        let challenge = HTTPResult(status: 403, data: Data("<html>Just a moment</html>".utf8))
+        let cbClient = RecordingClient { _ in challenge }
+        let cbPending = cam4Plan.pending.filter { RoomKey.site(ofRef: $0) == .chaturbate }
+        let fetched = await FavoriteFetcher(client: cbClient).fetch(cbPending)
+        XCTAssertFalse(fetched.challenged, "未请求 Chaturbate，不应触发质询")
+        XCTAssertTrue(cbClient.requested.isEmpty)
+
+        let rooms = FavoriteResolver.onlineRooms(favorites: ["c4:sample_one"], statuses: cam4Plan.resolved)
+        XCTAssertEqual(rooms.map(\.ref), ["c4:sample_one"])
+
+        let panelPlan = FavoriteResolver.plan(
+            favorites: allFavorites, mode: nil, catalog: KnownCatalog(), cache: cache, now: now
+        )
+        XCTAssertEqual(panelPlan.pending, ["alice"], "收藏面板未限定站点时仍查询全部收藏")
+    }
 }
