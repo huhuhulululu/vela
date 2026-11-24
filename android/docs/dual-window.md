@@ -17,7 +17,8 @@
 | 焦点 | `setFocus` 更新 `focusLane`、停留焦点段 `FocusSegments`、音量推送与 `onLaneFocusChanged`；非焦点路 ExoPlayer 音轨关闭。 |
 | 目标路操作 | 收藏、屏蔽、不感兴趣、重试、暂停经 `RoomTarget` / `matchedLane`，只作用于点到的那一路。 |
 | 热降档 | `ThermalMonitor` 订阅 `PowerManager`（API 29+）；`noteThermal` + `LaneQuality`：未发热不封顶；`SERIOUS` 及以上按 `estimatedDisplayHeight` 降档，下限 896 kbps；回到 `FAIR` 及以下连续满 60 秒回升。起播经 `ThermalCapSink` 带上限。 |
-| 副路资源不足 | `PlaybackFailureClassifier.Outcome.RESOURCE_DEGRADE` 仅副路：`degradeLane` 停播并显示「双窗暂不可用」，不记房间失败、不自动跳过。 |
+| 副路资源不足 | `PlaybackFailureClassifier.Outcome.RESOURCE_DEGRADE` 仅副路：`degradeLane` 取消在途解析并停播，显示「双窗暂不可用」，不记房间失败、不自动跳过。 |
+| 副路续签与空路停播 | 副路续签走按路校验的 `renewLaneRendition`（核对副路用户名与 generation）；筛选/搜索使副路变空或横屏/画中画隐藏副路时，经 `stopSecondaryPlayback` 取消在途解析并停播。 |
 | 最近划走 | `RecentSkips` + `LaneSelection`：双窗下任一路划走房间记入共享集合（30 分钟有效、上限 200），另一路前进避开，回划本路 `previous` 允许，直达与单窗不受限，列表重载保留。 |
 
 日志 category：`vela.stage`，关键字 `lanes`、`focus`、`thermal limit|recover`、`degrade secondary`、`lane-rooms distinct=`。
@@ -42,7 +43,7 @@
 
 ### 横屏（临时释放，可恢复）
 
-`SetLandscape(true)` → `syncLaneVisibility`：非焦点路 `visible = false`，`PlaybackSink.stop()`，**保留** `secondaryCursor`、房间与 `LaneFace` 状态。回竖屏后可见路按 `PhoneLifecycle.shouldPlay` 再 `requestLane`。
+`SetLandscape(true)` → `syncLaneVisibility`：非焦点路 `visible = false`，取消在途解析并 `PlaybackSink.stop()`，**保留** `secondaryCursor`、房间与 `LaneFace` 状态。回竖屏后可见路按 `PhoneLifecycle.shouldPlay` 再 `requestLane`。
 
 ### 画中画（里程碑 C，已接）
 
@@ -54,7 +55,7 @@
 
 ## 声音
 
-双路时 `AudioFocusController` 经 `StageAudioSinks` 只听焦点路；切焦点走 `AudioFocusPlan`，不得两路同时开音轨。仪器测试用 `PlaybackLane.audioEnabledCountForTest()` 断言互斥（见下节）。
+双路时 `AudioFocusController` 经 `StageAudioSinks` 只听焦点路；切焦点走 `AudioFocusPlan`，不得两路同时开音轨。主路 `ThermalCapSink` 拦截音量写入并统一路由到 `pushVolumes()` 按焦点路计算，副路聚焦时调音量或主路异步起播完成均不会解除非焦点主路静音。仪器测试用 `PlaybackLane.audioEnabledCountForTest()` 断言互斥（见下节）。
 
 ## 测试与正式钩子
 
