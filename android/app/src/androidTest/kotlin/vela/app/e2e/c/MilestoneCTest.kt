@@ -152,9 +152,19 @@ class MilestoneCTest {
                         line.contains("gravity=fit") &&
                         line.contains("uncropped=true")
                 } || run {
-                    // 小窗尺寸可能暂未刷日志：用焦点路面尺寸夹紧结果兜底。
-                    val size = activity.session.lane.value?.currentVideoSize()
-                    size == null || (size.width > 0 && size.height > 0)
+                    // 小窗尺寸日志未刷出时，要求焦点路真实已有正尺寸且经 PiPAspect 夹紧落于合法区间。
+                    val lane = when (focusBefore) {
+                        LaneID.PRIMARY -> activity.session.lane.value
+                        LaneID.SECONDARY -> E2eCSupport.secondaryLane(activity.session)
+                        LaneID.TERTIARY -> null
+                    }
+                    val size = lane?.currentVideoSize()
+                    if (size == null || size.width <= 0.0 || size.height <= 0.0) {
+                        false
+                    } else {
+                        val ratio = vela.app.pip.PiPAspect.clamp(size.width, size.height).toDouble()
+                        ratio >= vela.app.pip.PiPAspect.MIN && ratio <= vela.app.pip.PiPAspect.MAX
+                    }
                 }
             },
         )
@@ -168,10 +178,10 @@ class MilestoneCTest {
             E2eCSupport.waitUntil(8_000) { activity.wiring.phase == PhoneScenePhase.ACTIVE },
         )
         assertTrue(
-            "退出画中画后应恢复路数 remembered=${stage.state.value.rememberedLaneCount} now=${stage.state.value.laneCount}",
+            "退出画中画后应恢复路数 now=${stage.state.value.laneCount} before=$lanesBefore",
             E2eCSupport.waitUntil(12_000) {
-                stage.state.value.laneCount >= lanesBefore ||
-                    stage.state.value.rememberedLaneCount >= lanesBefore
+                stage.state.value.laneCount >= lanesBefore &&
+                    !stage.pictureInPicture
             },
         )
         assertFalse(stage.focusLocked)

@@ -42,6 +42,7 @@ class ActivityPictureInPicture(
     private var receiverRegistered = false
     private var bound = false
     private var inPip = false
+    private var pendingRestore = false
     private var notedWidth = 0.0
     private var notedHeight = 0.0
     private var stateJob: Job? = null
@@ -49,12 +50,19 @@ class ActivityPictureInPicture(
 
     private val lifecycleObserver = object : DefaultLifecycleObserver {
         override fun onResume(owner: LifecycleOwner) {
+            pendingRestore = false
             if (!bound) return
             onStageState(stage.state.value)
         }
 
         override fun onStop(owner: LifecycleOwner) {
-            if (!bound || !inPip) return
+            if (!bound) return
+            if (pendingRestore) {
+                pendingRestore = false
+                onEvent(PiPEvent.Failed("dismissed"))
+                return
+            }
+            if (!inPip) return
             if (!activity.isFinishing && activity.isInPictureInPictureMode) return
             inPip = false
             onEvent(PiPEvent.WillStop)
@@ -93,6 +101,7 @@ class ActivityPictureInPicture(
         if (!bound) return
         bound = false
         inPip = false
+        pendingRestore = false
         activity.lifecycle.removeObserver(lifecycleObserver)
         stateJob?.cancel()
         stateJob = null
@@ -138,6 +147,7 @@ class ActivityPictureInPicture(
         if (inPip) {
             if (this.inPip) return
             this.inPip = true
+            pendingRestore = false
             onEvent(PiPEvent.WillStart)
             onEvent(PiPEvent.DidStart)
             updateParams(enter = false)
@@ -146,7 +156,10 @@ class ActivityPictureInPicture(
             this.inPip = false
             // Android 上展开回全屏不会先经过 onStop（仍为 STARTED 且未 finish）；关闭小窗则先走 onStop 或 finish。
             if (!activity.isFinishing && activity.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                pendingRestore = true
                 onEvent(PiPEvent.RestoreRequested)
+            } else {
+                pendingRestore = false
             }
             onEvent(PiPEvent.WillStop)
             onEvent(PiPEvent.DidStop)

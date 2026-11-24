@@ -185,6 +185,94 @@ class DualStageScreenTest {
         compose.requireTag("pane:tertiary")
     }
 
+    @Test
+    fun testPictureInPictureHidesDualLayoutControlsAndSkipsSizeReporting() {
+        val stage = IntentProbe(
+            dualState(listOf("a", "b", "c"), primary = "a", secondary = "b") {
+                copy(
+                    focusLane = LaneID.SECONDARY,
+                    chromeVisible = true,
+                    pictureInPicture = true,
+                    surface = vela.app.stage.StageSurface.Curation,
+                    toast = "should-hide",
+                    portraitStageWidth = 402.0,
+                    portraitStageHeight = 874.0,
+                    threeLanesFit = true,
+                )
+            },
+        )
+        // 模拟竖屏画中画小窗尺寸（width < height）：绝不能按双窗渲染，也不能污染竖屏尺寸与 threeLanesFit。
+        show(stage, sizeWidth = 140.dp, sizeHeight = 240.dp)
+        compose.waitForIdle()
+
+        compose.requireTag("pip-stage")
+        compose.onNodeWithText("attached:secondary:b").assertIsDisplayed()
+        compose.requireNoTag("dual-stage")
+        compose.requireNoTag("pane:primary")
+        compose.requireNoTag("pane:secondary")
+        compose.requireNoTag("heart")
+        compose.requireNoTag("lane-count")
+        compose.requireNoTag("block-current")
+        assertTrue(
+            "画中画期间 onSizeChanged 不得派发 SetLandscape 或 NotePortraitStageSize: ${stage.intents}",
+            stage.intents.none { it is StageIntent.SetLandscape || it is StageIntent.NotePortraitStageSize },
+        )
+        assertEquals(874.0, stage.state.value.portraitStageHeight, 0.001)
+        assertTrue(stage.state.value.threeLanesFit)
+    }
+
+    @Test
+    fun testTopHeartTargetsFocusedSecondaryLane() {
+        val stage = IntentProbe(
+            dualState(listOf("a", "b", "c"), primary = "a", secondary = "b") {
+                copy(
+                    focusLane = LaneID.SECONDARY,
+                    chromeVisible = true,
+                    landscape = true,
+                    secondary = LaneFace(id = LaneID.SECONDARY, username = "b", generation = 7, visible = true),
+                    lane = LaneFace(username = "a", generation = 1, visible = false),
+                )
+            },
+        )
+        show(stage, sizeWidth = 800.dp, sizeHeight = 360.dp)
+        compose.onNodeWithTag("heart").performClick()
+        compose.waitForIdle()
+        val topFav = stage.intents.filterIsInstance<StageIntent.ToggleFavorite>().single()
+        assertEquals("顶栏心形应作用于焦点副路", LaneID.SECONDARY, topFav.target?.laneID)
+        assertEquals("b", topFav.target?.username)
+        assertEquals(7, topFav.target?.generation)
+    }
+
+    @Test
+    fun testFavoritesSheetTargetsFocusedSecondaryLane() {
+        val sheetStage = IntentProbe(
+            dualState(listOf("a", "b", "c"), primary = "a", secondary = "b") {
+                copy(
+                    focusLane = LaneID.SECONDARY,
+                    chromeVisible = true,
+                    landscape = true,
+                    surface = vela.app.stage.StageSurface.Curation,
+                    secondary = LaneFace(id = LaneID.SECONDARY, username = "b", generation = 7, visible = true),
+                    lane = LaneFace(username = "a", generation = 1, visible = false),
+                )
+            },
+        )
+        compose.setContent {
+            Box(Modifier.requiredSize(360.dp, 800.dp)) {
+                FavoritesSheet(state = sheetStage.state.value, dispatch = sheetStage::dispatch, onDismiss = {})
+            }
+        }
+        compose.onNodeWithTag("favorite-current").performClick()
+        compose.onNodeWithTag("block-current").performClick()
+        compose.waitForIdle()
+        val sheetFav = sheetStage.intents.filterIsInstance<StageIntent.ToggleFavorite>().single()
+        assertEquals("收藏面板应收藏焦点副路", LaneID.SECONDARY, sheetFav.target?.laneID)
+        assertEquals("b", sheetFav.target?.username)
+        val sheetBlock = sheetStage.intents.filterIsInstance<StageIntent.BlockCurrent>().single()
+        assertEquals("收藏面板应屏蔽焦点副路", LaneID.SECONDARY, sheetBlock.target?.laneID)
+        assertEquals("b", sheetBlock.target?.username)
+    }
+
     private fun show(
         stage: StageContract,
         attached: MutableList<String>? = null,

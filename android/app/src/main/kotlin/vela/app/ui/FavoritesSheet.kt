@@ -132,15 +132,15 @@ private fun ListPage(
             )
             TextAction(stringResource(R.string.ui_close), onDismiss)
         }
-        val current = state.current
+        val current = state.focusRoom
         ChipButton(
             text = stringResource(if (state.currentIsFavorite) R.string.ui_favorites_kept else R.string.ui_favorite),
             selected = state.currentIsFavorite,
             onClick = {
-                val target = state.primaryTarget() ?: return@ChipButton
+                val target = state.focusTarget() ?: return@ChipButton
                 dispatch(StageIntent.ToggleFavorite(target))
             },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().testTag("favorite-current"),
         )
         Column(
             Modifier
@@ -215,7 +215,7 @@ private fun ListPage(
             TextAction(
                 text = stringResource(R.string.ui_block_current),
                 onClick = {
-                    val target = state.primaryTarget() ?: return@TextAction
+                    val target = state.focusTarget() ?: return@TextAction
                     dispatch(StageIntent.BlockCurrent(target))
                 },
                 modifier = Modifier.testTag("block-current"),

@@ -216,6 +216,17 @@ data class StageUiState(
             return rooms.firstOrNull { it.username.equals(name, ignoreCase = true) }
         }
 
+    /** 焦点路的操作目标。单窗或主路有焦点时返回主路目标；双窗副路有焦点时返回副路目标。 */
+    fun focusTarget(): RoomTarget? {
+        if (laneCount <= 1 || focusLane == LaneID.PRIMARY) {
+            val name = currentUsername ?: return null
+            return RoomTarget.primary(name, lane.generation)
+        }
+        val shown = face(focusLane) ?: return null
+        val name = shown.username ?: return null
+        return RoomTarget(laneID = focusLane, username = name, generation = shown.generation)
+    }
+
     val isInteracting: Boolean
         get() = surface != StageSurface.None
 

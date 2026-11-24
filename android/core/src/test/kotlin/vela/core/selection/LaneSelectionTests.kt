@@ -849,4 +849,41 @@ class LaneSelectionTests {
         assertFalse(active.contains("r0"))
         assertTrue(active.contains("r${RecentSkips.capacity + 4}"))
     }
+
+    @Test
+    fun testSingleWindowIgnoresRecent() {
+        val before = LaneSelection.Snapshot(
+            rooms = listOf("a", "b", "c"),
+            primary = LaneCursor(username = "a"),
+            secondary = null,
+            focus = LaneID.PRIMARY,
+            recent = setOf("b"),
+        )
+        val out = LaneSelection.resolve(
+            before = before,
+            afterRooms = before.rooms,
+            proposedPrimary = "b",
+            intent = LaneSelection.Intent.Move(LaneID.PRIMARY, 1),
+        )
+        assertEquals("b", out.primary.username, "单窗不受 recent 约束")
+        assertNull(out.secondary)
+    }
+
+    @Test
+    fun testStillSingleRoomLeavesSecondaryEmpty() {
+        val before = LaneSelection.Snapshot(
+            rooms = listOf("bob"),
+            primary = LaneCursor(username = "bob"),
+            secondary = LaneCursor(username = null),
+            focus = LaneID.PRIMARY,
+        )
+        val out = LaneSelection.resolve(
+            before = before,
+            afterRooms = listOf("bob"),
+            proposedPrimary = "bob",
+            intent = LaneSelection.Intent.Filter,
+        )
+        assertEquals("bob", out.primary.username)
+        assertNull(out.secondary?.username)
+    }
 }

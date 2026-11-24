@@ -81,11 +81,13 @@ fun StageScreen(
     val state by stage.state.collectAsState()
     val dispatch = stage::dispatch
     val density = LocalDensity.current
+    val inPip = rememberUpdatedState(state.pictureInPicture)
     Box(
         modifier
             .fillMaxSize()
             .background(Theme.ink)
             .onSizeChanged { size ->
+                if (inPip.value) return@onSizeChanged
                 val landscape = size.width > size.height
                 dispatch(StageIntent.SetLandscape(landscape))
                 if (!landscape && size.width > 0 && size.height > 0) {
@@ -116,6 +118,14 @@ private fun StageBody(
     onRequestSyncReveal: ((onGranted: () -> Unit) -> Unit)?,
     player: @Composable (LaneID, Room) -> Unit,
 ) {
+    if (state.pictureInPicture) {
+        val focus = if (state.dualWindow) state.focusLane else LaneID.PRIMARY
+        val room = state.focusRoom ?: state.current
+        Box(Modifier.fillMaxSize().testTag("pip-stage")) {
+            if (room != null) player(focus, room)
+        }
+        return
+    }
     var volumeOpen by remember { mutableStateOf(false) }
     if (state.surface != StageSurface.None && volumeOpen) volumeOpen = false
     val dualPortrait = state.dualWindow && !state.landscape

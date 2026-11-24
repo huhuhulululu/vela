@@ -952,6 +952,13 @@ private fun StageViewModel.syncLaneVisibility() {
         if (!showPrimary) {
             playJob?.cancel()
             playJob = null
+            prefetchJob?.cancel()
+            prefetchJob = null
+            awayJob?.cancel()
+            awayJob = null
+            awayTimer.clear()
+            skipJob?.cancel()
+            skipJob = null
             playbackSink?.stop()
             primaryLane?.stop()
         } else if (playbackGateOpen && !laneFace.manuallyPaused && !lifecycleEpoch.suspended) {
@@ -1150,6 +1157,8 @@ private suspend fun StageViewModel.playSecondary(token: Int, isRetry: Boolean) {
         throw cancelled
     } catch (error: Exception) {
         if (token != secondaryFace?.generation) return
+        secondarySink?.stop()
+        secondaryLane?.stop()
         noteLaneFailed(LaneID.SECONDARY, true, error.message ?: StageRules.PLAYBACK_INTERRUPTED)
     }
 }

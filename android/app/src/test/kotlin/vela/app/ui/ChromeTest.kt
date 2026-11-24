@@ -123,6 +123,10 @@ class ChromeTest {
         compose.onNodeWithTag("enter-pip").performScrollTo().performClick()
         assertEquals(1, stage.pipEnters)
         stage.seed(stage.state.value.copy(pictureInPicture = true))
+        compose.waitForIdle()
+        compose.onNodeWithTag("enter-pip").assertDoesNotExist()
+        stage.seed(stage.state.value.copy(pictureInPicture = false))
+        compose.waitForIdle()
         compose.onNodeWithTag("enter-pip").performScrollTo().performClick()
         assertEquals(2, stage.pipEnters)
     }

@@ -15,27 +15,28 @@
 |---|---|
 | 联合选房 | `updateFeedLanes` 在副本上变更后调 `LaneSelection.resolve`，`secondaryCursor` 非空；主路结果与 FeedStore 不一致时记日志。双路两两不同房，规则对齐计划 S-B1。 |
 | 焦点 | `setFocus` 更新 `focusLane`、停留焦点段 `FocusSegments`、音量推送与 `onLaneFocusChanged`；非焦点路 ExoPlayer 音轨关闭。 |
-| 目标路操作 | 收藏、屏蔽、不感兴趣、重试、暂停经 `RoomTarget` / `matchedLane`，只作用于点到的那一路。 |
+| 目标路操作 | 收藏、屏蔽、不感兴趣、重试、暂停经 `RoomTarget` / `matchedLane`，只作用于点到的那一路；顶栏心形、收藏面板的「收藏/屏蔽当前」经 `StageUiState.focusTarget()` 与 `TogglePause(null)` 均按 `focusLane` 作用于当前焦点路。 |
 | 热降档 | `ThermalMonitor` 订阅 `PowerManager`（API 29+）；`noteThermal` + `LaneQuality`：未发热不封顶；`SERIOUS` 及以上按 `estimatedDisplayHeight` 降档，下限 896 kbps；回到 `FAIR` 及以下连续满 60 秒回升。起播经 `ThermalCapSink` 带上限。 |
 | 副路资源不足 | `PlaybackFailureClassifier.Outcome.RESOURCE_DEGRADE` 仅副路：`degradeLane` 取消在途解析并停播，显示「双窗暂不可用」，不记房间失败、不自动跳过。 |
-| 副路续签与空路停播 | 副路续签走按路校验的 `renewLaneRendition`（核对副路用户名与 generation）；筛选/搜索使副路变空或横屏/画中画隐藏副路时，经 `stopSecondaryPlayback` 取消在途解析并停播。 |
+| 副路续签、异常与空路停播 | 副路续签走按路校验的 `renewLaneRendition`（核对副路用户名与 generation）；解析抛非取消异常时先停旧播放源再标失败；筛选/搜索使副路变空或横屏/画中画隐藏副路时，经 `stopSecondaryPlayback` 取消在途解析并停播。 |
 | 最近划走 | `RecentSkips` + `LaneSelection`：双窗下任一路划走房间记入共享集合（30 分钟有效、上限 200），另一路前进避开，回划本路 `previous` 允许，直达与单窗不受限，列表重载保留。 |
 
 日志 category：`vela.stage`，关键字 `lanes`、`focus`、`thermal limit|recover`、`degrade secondary`、`lane-rooms distinct=`。
 
 ## 界面
 
-- **竖屏双窗**：`StageScreen` 在 `dualWindow && !landscape` 时整块交给 `DualStageScreen`：上下等高窗格，间距 `LaneLayout.gap`（2dp），格高 `(H − (N−1)×gap) / N`。
+- **竖屏双窗**：`StageScreen` 在 `dualWindow && !landscape && !pictureInPicture` 时整块交给 `DualStageScreen`：上下等高窗格，间距 `LaneLayout.gap`（2dp），格高 `(H − (N−1)×gap) / N`。
 - **横屏或单路显示模式**：同一 `StageScreen` 只渲染焦点路的 `LaneRoomPager`，另一路逻辑状态保留但不画双格。
+- **画中画**：`state.pictureInPicture` 为真时只渲染焦点路全屏单视频槽位（`pip-stage`），隐藏双窗布局、顶栏、控制条、提示与弹窗，并跳过 `onSizeChanged` 尺寸上报避免污染竖屏路数判定。
 - 每格：`LaneRoomPager` 独立上下滑；点格或在该格划动触发 `SetFocus`；焦点路香槟色细边（`Theme.champagne`）；副路可带 `PaneBar`（房间信息、心形、更多菜单），动作带 `target(showing:)`。
 - 画面仍由 `LaneSurface` + `DisplayFit` 原比例摆放；禁止 `ContentScale.Crop` / `FillBounds` / `RESIZE_MODE_ZOOM`。
 
 ## 会话层：`LifecycleWiring.kt` 与减路释放
 
-`AppPlaybackSession` 持有主路 `PlaybackLane` 与可选副路。舞台通过回调接线：
+`AppPlaybackSession` 持有主路 `PlaybackLane` 与可选副路，两路观察器独立维护（创建主路不清除副路观察器）。舞台通过回调接线：
 
 - `ensureSecondary` → `ensureSecondary()` 创建副路并 `bindLane`。
-- `releaseSecondaryLane` → 用户关双窗或 `dropSecondary` 时**完整释放**副路 ExoPlayer 与会话引用（`release()`），不是仅 `stop()`。
+- `releaseSecondaryLane` → 用户关双窗、画中画释放副路或 `dropSecondary` 时**完整释放**副路 ExoPlayer 并清空 `stage.secondaryLane` / `stage.secondarySink`，不是仅 `stop()`；`suspendLanes` 同样清空两路舞台引用。
 
 ### 减路 / 关双窗（持久释放）
 
@@ -43,15 +44,15 @@
 
 ### 横屏（临时释放，可恢复）
 
-`SetLandscape(true)` → `syncLaneVisibility`：非焦点路 `visible = false`，取消在途解析并 `PlaybackSink.stop()`，**保留** `secondaryCursor`、房间与 `LaneFace` 状态。回竖屏后可见路按 `PhoneLifecycle.shouldPlay` 再 `requestLane`。
+`SetLandscape(true)` → `syncLaneVisibility`：非焦点路 `visible = false`，取消在途解析及主路预取/离开重试/自动跳过任务并 `PlaybackSink.stop()`，**保留** `secondaryCursor`、房间与 `LaneFace` 状态。回竖屏后可见路按 `PhoneLifecycle.shouldPlay` 再 `requestLane`。
 
 ### 画中画（里程碑 C，已接）
 
-回桌面在画中画继续路径上只放行焦点路：`setPipSolo(true)` 与横屏共用 `syncLaneVisibility`，非焦点路只是停播并隐藏（不释放实例）；播放器实例的释放由进后台序列里的 `ReleaseLane` 经 `AppPlaybackSession.releaseLane` 完成。逻辑路状态全保留，`laneCount` 不变，退出后恢复双格。启动中与显示中锁焦点与路数；3 秒内未进入则全停。细节见 `android/docs/pip.md`。
+回桌面在画中画继续路径上只放行焦点路：`setPipSolo(true)` 与横屏共用 `syncLaneVisibility`，非焦点路停播并取消挂起任务；播放器实例的释放由进后台序列里的 `ReleaseLane` 经 `AppPlaybackSession.releaseLane` 完成并清空舞台引用。画中画期间主路不启动预取。逻辑路状态全保留，`laneCount` 不变，退出后恢复双格。启动中与显示中锁焦点与路数；3 秒内未进入则全停。细节见 `android/docs/pip.md`。
 
 ### 后台（没有画中画继续时全停，回前台按裁决 7 恢复）
 
-没有画中画（不支持、自动进入关且未在画中画、焦点路未在播等 `PiPPolicy` 不给出继续）时进后台：`suspendLanes` 拆掉主副 `PlaybackLane` 实例；`secondaryCursor` 等舞台状态仍在 ViewModel。回前台 `ensureLane` / `ensureSecondary` 重建播放器，满足「有房间、未手动暂停、可见、非失败/降级」再起播。
+没有画中画（不支持、自动进入关且未在画中画、焦点路未在播等 `PiPPolicy` 不给出继续）时进后台：`suspendLanes` 拆掉主副 `PlaybackLane` 实例并清空舞台引用；`secondaryCursor` 等舞台状态仍在 ViewModel。回前台 `ensureLane` / `ensureSecondary` 重建播放器，满足「有房间、未手动暂停、可见、非失败/降级」再起播。
 
 ## 声音
 

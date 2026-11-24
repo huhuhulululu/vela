@@ -388,6 +388,9 @@ class AppPlaybackSession(
         mutableLane.value = null
         secondaryLane = null
         lanesByRole.clear()
+        stage.primaryLane = null
+        stage.secondaryLane = null
+        stage.secondarySink = null
         if (current == null && secondary == null) return
         stage.playerReleased = true
         if (current != null) {
@@ -471,6 +474,8 @@ class AppPlaybackSession(
         observedSecondary = null
         secondaryLane = null
         lanesByRole.remove(PlaybackLaneRole.SECONDARY)
+        stage.secondaryLane = null
+        stage.secondarySink = null
         secondary.release()
         audio.focus = stage.focusLane.role
         audio.lanes = stage.openRoles()
@@ -487,6 +492,9 @@ class AppPlaybackSession(
         mutableLane.value = null
         secondaryLane = null
         lanesByRole.clear()
+        stage.primaryLane = null
+        stage.secondaryLane = null
+        stage.secondarySink = null
         if (current != null || secondary != null) {
             stage.playerReleased = true
             current?.release()
@@ -500,7 +508,7 @@ class AppPlaybackSession(
     }
 
     private fun observe(lane: PlaybackLane) {
-        stopObserving()
+        observed?.onPlaybackFace = null
         observed = lane
         lane.onPlaybackFace = { stage.syncFromPlayback(lane) }
         stage.syncFromPlayback(lane)
