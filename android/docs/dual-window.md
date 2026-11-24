@@ -18,7 +18,7 @@
 | 目标路操作 | 收藏、屏蔽、不感兴趣、重试、暂停经 `RoomTarget` / `matchedLane`，只作用于点到的那一路。 |
 | 热降档 | `ThermalMonitor` 订阅 `PowerManager`（API 29+）；`noteThermal` + `LaneQuality`：未发热不封顶；`SERIOUS` 及以上按 `estimatedDisplayHeight` 降档，下限 896 kbps；回到 `FAIR` 及以下连续满 60 秒回升。起播经 `ThermalCapSink` 带上限。 |
 | 副路资源不足 | `PlaybackFailureClassifier.Outcome.RESOURCE_DEGRADE` 仅副路：`degradeLane` 停播并显示「双窗暂不可用」，不记房间失败、不自动跳过。 |
-| 最近划走 | 尚未移植：`LaneSelection` 与 `Stage+Lanes` 当前无 `recentSkips` 记录与过滤（见 `skip-selection.tsv` 与 `skip.tsv` 待裁决项）。 |
+| 最近划走 | `RecentSkips` + `LaneSelection`：双窗下任一路划走房间记入共享集合（30 分钟有效、上限 200），另一路前进避开，回划本路 `previous` 允许，直达与单窗不受限，列表重载保留。 |
 
 日志 category：`vela.stage`，关键字 `lanes`、`focus`、`thermal limit|recover`、`degrade secondary`、`lane-rooms distinct=`。
 

@@ -175,19 +175,19 @@ FeedCache 的随机性质测试只断言不变量。Kotlin 用同一个种子，
 - [Track selection](https://developer.android.com/media/media3/exoplayer/track-selection)：关音轨、限制视频码率走 `TrackSelectionParameters`。
 - [`DefaultLoadControl`](https://developer.android.com/reference/androidx/media3/exoplayer/DefaultLoadControl) 与 [`TrackSelectionParameters.Builder.setMaxVideoBitrate`](https://developer.android.com/reference/androidx/media3/common/TrackSelectionParameters.Builder#setMaxVideoBitrate(int)) 的 API 参考页存在。缓冲 min/max 6000 ms、`setMaxVideoBitrate` 按计划在后续播放任务里用，不在这四篇指南正文里。
 
-## milestone-B 跳过项（2026-11-24 parity 清账后状态）
+## milestone-B 跳过项（2026-11-24 parity 全部清零）
 
-原有 **121 条** `milestone-B:` 条目（均位于 `parity.py` 的 `GLOBAL_SKIP_FILES`，须留在 `android/parity/skip.tsv`）已清账如下：
+原有 **121 条** `milestone-B:` 条目（位于 `parity.py` 的 `GLOBAL_SKIP_FILES`，保留在 `android/parity/skip.tsv`）已全部清零：
 
 | 归类 | 条数 | 说明 |
-|---|---|---|
-| 真测试（`replaced-by:`） | 57 | `DualDwellParityTest`（19：`DwellFocusTests` 7 + `DualDwellTests` 12）、`DualWindowParityTest`（25：`DualWindowTests` 20 + `DualQualityTests` 5）、`DualAudioParityTest`（13：`AudioTransitionRunnerTests` 10 + `DualAudioFocusTests` 3） |
-| 不移植：三窗 | 51 | `TripleWindowTests`（32）+ `TripleLaneMediaTests`（19），按编排者 2026-11-24 裁决改写理由为 `不移植：三窗（安卓无三窗里程碑，编排者 2026-11-24 裁决）` |
-| 待裁决（保留 `milestone-B:`） | 13 | iOS `AVAudioSession` 专有行为 6 条（`AudioTransitionRunnerTests` 5 + `DualAudioFocusTests` 1）；`recentSkips` 未移植 6 条（`DualWindowTests`）；搜索清空后空副路补位 1 条（`DualWindowTests#testLocalSearchNarrowingStaysDistinct`，与 `skip-selection.tsv` 的 `testFilterRelaxRefillsEmptySecondary` 同源） |
+|---|---:|---|
+| 真测试（`replaced-by:`） | 64 | `DualDwellParityTest`（19：`DwellFocusTests` 7 + `DualDwellTests` 12）、`DualWindowParityTest`（32：`DualWindowTests` 27 + `DualQualityTests` 5）、`DualAudioParityTest`（13：`AudioTransitionRunnerTests` 10 + `DualAudioFocusTests` 3）；同步在 `:core` `LaneSelectionTests` 补齐 18 条 `RecentSkips` 与空副路补位测试 |
+| 不移植：三窗 | 51 | `TripleWindowTests`（32）+ `TripleLaneMediaTests`（19），按编排者 2026-11-24 裁决改写 |
+| 不移植：iOS AVAudioSession 专属 | 6 | `AudioTransitionRunnerTests`（5）+ `DualAudioFocusTests`（1），安卓用音频焦点无对应行为，按编排者 2026-11-24 裁决改写 |
 
 **规则（不变）**
 
-- 里程碑 B **产品行为**验收以 S-B1、S-B2 与 `emu-modes/e2e-b.sh` 为准；上述 13 条待裁决项保留原 `milestone-B:` 行，须编排者裁决，执行者不得自行改名糊弄 `--all`。
+- 里程碑 B **产品行为**验收以 S-B1、S-B2 与 `emu-modes/e2e-b.sh` 为准；`grep -rn 'milestone-B' android/parity` 现已归零。
 - 里程碑 C **产品行为**验收以 S-C1、S-C2、S-C3 与 `emu-modes/e2e-c.sh` 为准（`MilestoneCTest`）；`emu-modes/pip.sh`（`PipEmulatorTest`）为包级补充。这是行为门，不是性能基线。
 - 理由以「不移植：iOS」开头的是真平台绑定（AVAudioSession、UIKit PiP、MetricKit 等），长期保留。
 

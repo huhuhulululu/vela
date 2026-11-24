@@ -288,6 +288,51 @@ class FavoriteFileExchangeTest {
     }
 
     @Test
+    fun testSavedInstanceStateOmitsDeadExportPayloadAndRoundTripsFromDisk() {
+        val expected = FavoriteExchange.encode(listOf("alice"))
+        val uri = Uri.parse("content://vela.test/roundtrip-export.json")
+        val gate = HoldingStream()
+        val written = ByteArrayOutputStream()
+        val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
+        val activity = controller.get()
+        activity.stage.ageConfirmed = true
+        activity.stage.curation = Curation(favorites = listOf("alice"))
+        activity.stage.dispatch(StageIntent.ExportFavorites)
+        ShadowLooper.idleMainLooper()
+        val request = shadowOf(activity).nextStartedActivityForResult.intent
+        shadowOf(activity.contentResolver).registerOutputStream(uri, gate)
+        shadowOf(activity).receiveResult(
+            request,
+            Activity.RESULT_OK,
+            Intent().setData(uri),
+        )
+        try {
+            assertTrue("导出没有开始写", gate.started.await(5, TimeUnit.SECONDS))
+            controller.pause().stop()
+            val bundle = Bundle()
+            controller.saveInstanceState(bundle)
+            assertTrue("已有测试依赖 vela.pendingExport 标志", bundle.getBoolean("vela.pendingExport"))
+            assertFalse("无人读取的导出字节不应再写入 Bundle", bundle.containsKey("vela.pendingExportBytes"))
+            assertFalse("无人读取的导出 Uri 不应再写入 Bundle", bundle.containsKey("vela.pendingExportUri"))
+            controller.destroy()
+            // 必须在 next.create(bundle) 之前替换 uri 映射，否则 onCreate 立即启动的 beginExportWrite 会写到旧 gate。
+            shadowOf(activity.contentResolver).registerOutputStream(uri, written)
+            gate.release.countDown()
+            assertTrue("旧写入线程没有退出", gate.finished.await(5, TimeUnit.SECONDS))
+
+            val next = Robolectric.buildActivity(MainActivity::class.java)
+            next.create(bundle)
+            val restored = next.get()
+            next.start().resume()
+            assertTrue("恢复后的导出没有落盘清理", diskCleared(restored))
+            assertArrayEquals(expected, written.toByteArray())
+            next.destroy()
+        } finally {
+            gate.release.countDown()
+        }
+    }
+
+    @Test
     fun testDocumentIoFailuresDoNotCrash() {
         val missing = Uri.parse("content://vela.test/missing.json")
         val full = Uri.parse("content://vela.test/full.json")
