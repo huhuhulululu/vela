@@ -54,9 +54,9 @@
 
 ## Activity 侧（`ActivityPictureInPicture`）
 
-- **比例**：`PiPAspect.clamp` 把宽高比夹在 `MIN = 1/2.39` 到 `MAX = 2.39`；无效尺寸回落 `FALLBACK = 9:16`。`resolveSize` 优先取焦点路 `PlaybackLane.currentVideoSize()`，没有有效尺寸时同样 9:16。参数在进出画中画、静音刷新与开关变化时重建；播放路绑定时同步订上画面尺寸，焦点路尺寸变化或换焦点时经 `noteVideoSize` 刷新比例（无效尺寸忽略，尺寸没变不重复设置）。
+- **比例**：`PiPAspect.clamp` 把宽高比夹在 `MIN = 1/2.39` 到 `MAX = 2.39`（边界直接用精确分数 `100:239` / `239:100`，转 `Rational` 后再兜底校验不跌破下界）；无效尺寸回落 `FALLBACK = 9:16`。`resolveSize` 优先取焦点路 `PlaybackLane.currentVideoSize()`，没有有效尺寸时复用同路已记录尺寸或回退 9:16。参数在进出画中画、静音刷新、开关变化，以及 `attach()` 订阅的 `stage.state` 发生焦点/播放/暂停/静音变化时重建；焦点路尺寸变化经 `noteVideoSize` 刷新比例（无效尺寸忽略，同路同尺寸去重，换焦点清去重）。
 - **静音**：工具栏动作用 `RemoteAction`，图标 `ic_pip_mute` / `ic_pip_unmute`；`PendingIntent.getBroadcast` 发 `ACTION_TOGGLE_MUTE`（值 `vela.app.pip.TOGGLE_MUTE`），`setPackage` 限本包，`FLAG_UPDATE_CURRENT or FLAG_IMMUTABLE`。接收器在 `attach()` 注册（API 33+ 用 `RECEIVER_NOT_EXPORTED`），收到后派发 `StageIntent.ToggleMute` 并 `refreshMuteAction()` 换图标；`MainActivity.onMuteChanged` 也会刷新。
-- **自动进入**：API 31+ 走 `PictureInPictureParams.setAutoEnterEnabled(autoEnter && focusLooksPlayable())`，并 `setSeamlessResizeEnabled(true)`；API 26–30 在 `onUserLeaveHint` 里当 `canAutoEnter` 且 `focusLooksPlayable()` 时 `enter()`。即系统参数与兜底都要求焦点路像在播，不只看开关。
+- **自动进入**：API 31+ 走 `PictureInPictureParams.setAutoEnterEnabled(autoEnter && focusLooksPlayable())`，并 `setSeamlessResizeEnabled(true)`，随 `stage.state` 中焦点路播放状态与手动暂停变化自动刷新系统参数；API 26–30 在 `onUserLeaveHint` 里当 `canAutoEnter` 且 `focusLooksPlayable()` 时 `enter()`。即系统参数与兜底都要求焦点路像在播，不只看开关。
 - **进入失败**：`enterPictureInPictureMode` 抛 `IllegalStateException` / `IllegalArgumentException` 时发 `PiPEvent.Failed`。
 - `onPictureInPictureModeChanged` 进时发 `WillStart` + `DidStart`，出时发 `WillStop` + `DidStop`。
 

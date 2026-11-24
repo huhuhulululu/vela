@@ -159,6 +159,83 @@ class PictureInPictureVideoSizeTest {
             directory.toFile().deleteRecursively()
         }
     }
+
+    @Test
+    fun testAutoEnterParamRefreshesWithPlaybackPauseAndFocusChanges() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        context.getSharedPreferences(Settings.PREFS_NAME, Context.MODE_PRIVATE).edit().clear().commit()
+        val settings = Settings(context)
+        settings.ageConfirmed = true
+        settings.hintSeen = true
+        settings.muted = true
+        settings.autoEnterPip = true
+        val directory = Files.createTempDirectory("vela-pip-auto-enter")
+        val controller = Robolectric.buildActivity(ComponentActivity::class.java).setup()
+        val activity = controller.get()
+        val stage = StageViewModel(
+            settings = settings,
+            http = object : HTTPClient {
+                override suspend fun send(request: HTTPRequest): HTTPResult =
+                    HTTPResult(status = 200, data = ByteArray(0))
+            },
+            directory = directory,
+            context = activity,
+        )
+        opened.add(stage)
+        stage.updateFeed(installing = FeedSource.popular) { store ->
+            store.replace(
+                vela.core.base.site.CatalogPage(
+                    rooms = listOf(
+                        vela.core.base.model.Room(username = "alice", viewers = 2, show = vela.core.base.model.ShowState.publicShow),
+                        vela.core.base.model.Room(username = "bob", viewers = 2, show = vela.core.base.model.ShowState.publicShow),
+                    ),
+                    total = 2,
+                    nextOffset = 2,
+                ),
+            )
+        }
+        val lane = PlaybackLane(id = LaneID.PRIMARY, hub = LaneHub(), player = FakeLanePlayer())
+        stage.primaryLane = lane
+        val pip = ActivityPictureInPicture(activity, stage, onEvent = {})
+        pip.attach()
+        ShadowLooper.idleMainLooper()
+        try {
+            assertTrue("未起播时 autoEnterEnabled 应为 false", !RecordingPipParamsShadow.recorded.last().isAutoEnterEnabled)
+
+            // 模拟 ExoLanePlayer 在 Playing 之前通过 onTracksChanged 提前报出视频尺寸。
+            lane.onVideoSize(1920, 1080)
+            pip.noteVideoSize(1920.0, 1080.0)
+            ShadowLooper.idleMainLooper()
+            assertTrue("尺寸到达但未 Playing 时仍应为 false", !RecordingPipParamsShadow.recorded.last().isAutoEnterEnabled)
+
+            // 随后起播，尺寸不变（不会再触发 noteVideoSize），系统参数必须刷新为 true 且保留 16:9 比例。
+            stage.notePlaying("alice")
+            ShadowLooper.idleMainLooper()
+            val playing = RecordingPipParamsShadow.recorded.last()
+            assertTrue("起播后自动画中画参数应刷新为 true", playing.isAutoEnterEnabled)
+            assertEquals(1920.0 / 1080.0, playing.aspectRatio!!.toDouble(), 0.01)
+
+            // 手动暂停后自动画中画参数必须刷新回 false。
+            stage.dispatch(vela.app.stage.StageIntent.TogglePause(null))
+            ShadowLooper.idleMainLooper()
+            assertTrue("手动暂停后自动画中画参数应刷新为 false", !RecordingPipParamsShadow.recorded.last().isAutoEnterEnabled)
+
+            // 恢复播放回到 true。
+            stage.dispatch(vela.app.stage.StageIntent.TogglePause(null))
+            ShadowLooper.idleMainLooper()
+            assertTrue("取消暂停后自动画中画参数应刷新回 true", RecordingPipParamsShadow.recorded.last().isAutoEnterEnabled)
+
+            // 双窗切焦点到未起播的副路，自动画中画参数应刷新为 false。
+            stage.dispatch(vela.app.stage.StageIntent.SetDual(true))
+            stage.dispatch(vela.app.stage.StageIntent.SetFocus(LaneID.SECONDARY))
+            ShadowLooper.idleMainLooper()
+            assertTrue("切焦点到未播副路后自动画中画参数应刷新为 false", !RecordingPipParamsShadow.recorded.last().isAutoEnterEnabled)
+        } finally {
+            pip.detach()
+            controller.destroy()
+            directory.toFile().deleteRecursively()
+        }
+    }
 }
 
 /** 系统影子不记 setPictureInPictureParams，这里补一层记录，供断言比例用。 */

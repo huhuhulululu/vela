@@ -18,14 +18,23 @@ object PiPAspect {
     /** 没有有效画面时用竖屏 9:16。 */
     val FALLBACK: Rational = Rational(9, 16)
 
+    private val MIN_RATIONAL: Rational = Rational(100, 239)
+    private val MAX_RATIONAL: Rational = Rational(239, 100)
+
     fun clamp(width: Double, height: Double): Rational {
         if (!width.isFinite() || !height.isFinite() || width <= 0.0 || height <= 0.0) {
             return FALLBACK
         }
         val raw = width / height
         if (!raw.isFinite() || raw <= 0.0) return FALLBACK
-        val clamped = min(MAX, max(MIN, raw))
-        return rationalOf(clamped)
+        if (raw <= MIN) return MIN_RATIONAL
+        if (raw >= MAX) return MAX_RATIONAL
+        val rational = rationalOf(raw)
+        return when {
+            rational.toDouble() < MIN -> MIN_RATIONAL
+            rational.toDouble() > MAX -> MAX_RATIONAL
+            else -> rational
+        }
     }
 
     fun clamp(ratio: Double): Double {
@@ -34,7 +43,7 @@ object PiPAspect {
     }
 
     private fun rationalOf(value: Double): Rational {
-        // 用千分比保持精度，系统再约简。
+        // 用千分比保持精度，系统再约简；上下界由调用方二次校验兜底。
         val numerator = (value * 1000.0).toInt().coerceAtLeast(1)
         return Rational(numerator, 1000)
     }

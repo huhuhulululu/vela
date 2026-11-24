@@ -115,9 +115,11 @@ class PipEmulatorTest {
     @Test(timeout = 120_000)
     fun testAspectClampRejectsExtremeRatios() {
         val wide = PiPAspect.clamp(100.0, 1.0)
-        assertTrue(wide.toDouble() <= PiPAspect.MAX + 0.01)
+        assertTrue(wide.toDouble() <= PiPAspect.MAX)
+        assertTrue(wide.toDouble() >= PiPAspect.MIN)
         val tall = PiPAspect.clamp(1.0, 100.0)
-        assertTrue(tall.toDouble() >= PiPAspect.MIN - 0.01)
+        assertTrue(tall.toDouble() >= PiPAspect.MIN)
+        assertTrue(tall.toDouble() <= PiPAspect.MAX)
     }
 
     @Test(timeout = 120_000)

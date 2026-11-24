@@ -382,13 +382,260 @@ class DualStageTest {
         }
     }
 
-    private fun stage(): StageViewModel = StageViewModel(
+    @Test
+    fun testSetVolumeWhileSecondaryFocusedKeepsPrimaryMutedAndUpdatesSecondary() = harness.onStage {
+        val stage = stage()
+        try {
+            stage.ageConfirmed = true
+            install(stage, "alice", "bob")
+            stage.setDual(true)
+            val events = ArrayList<Triple<String, Double, Boolean>>()
+            stage.attachPlayback(recordingVolumeSink("primary", events))
+            stage.secondarySink = recordingVolumeSink("secondary", events)
+            stage.bindLifecycleHooks(ensurePlayback = {}, onMuteChanged = { next -> stage.applyMute(next, true) })
+            stage.applyMute(nextMuted = false, writeSettings = true)
+            stage.setFocus(LaneID.SECONDARY)
+            events.clear()
+
+            // 双窗未静音且焦点在副路，调一个非零音量不会触发 onMuteChanged；不得把主路解除静音，同时副路要拿到新音量。
+            stage.dispatch(StageIntent.SetVolume(0.35))
+            val primaryLast = events.lastOrNull { it.first == "primary" }
+            val secondaryLast = events.lastOrNull { it.first == "secondary" }
+            assertTrue("主路不得被解除静音: $events", primaryLast == null || primaryLast.third)
+            assertTrue("主路音量应保持 0: $events", primaryLast == null || primaryLast.second == 0.0)
+            assertTrue("焦点副路应收到新音量 0.35 且未静音: $events", secondaryLast != null && !secondaryLast.third && secondaryLast.second == 0.35)
+        } finally {
+            stage.close()
+        }
+    }
+
+    @Test
+    fun testLatePrimaryStartPlaybackWhileSecondaryFocusedKeepsPrimaryMuted() = harness.onStage {
+        val http = streamHttp()
+        val stage = stage(http)
+        try {
+            stage.ageConfirmed = true
+            stage.prefetchEnabled = false
+            install(stage, "alice", "bob")
+            stage.setDual(true)
+            val events = ArrayList<Triple<String, Double, Boolean>>()
+            var primaryPlayed = 0
+            stage.bindPlayback(
+                recordingVolumeSink("primary", events, onPlay = { primaryPlayed += 1 }),
+            )
+            stage.secondarySink = recordingVolumeSink("secondary", events)
+            stage.applyMute(nextMuted = false, writeSettings = true)
+            stage.setFocus(LaneID.SECONDARY)
+            events.clear()
+
+            // 焦点在副路时主路异步起播完成，startPlayback 不得给非焦点主路解除静音。
+            stage.requestPlay()
+            stage.awaitUntil { primaryPlayed > 0 }
+            val primaryEvents = events.filter { it.first == "primary" }
+            assertTrue("主路起播后应有音量同步记录", primaryEvents.isNotEmpty())
+            assertTrue("非焦点主路起播完成仍必须保持静音: $primaryEvents", primaryEvents.all { it.third })
+        } finally {
+            stage.close()
+        }
+    }
+
+    @Test
+    fun testSecondaryRenewalUsesSecondaryRoomAndGeneration() = kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.Main.immediate) {
+        val requested = ArrayList<String>()
+        val http = streamHttp(onRequest = { requested.add(it.url) })
+        val stage = StageViewModel(
+            settings = settings,
+            http = http,
+            directory = directory,
+            clock = clock,
+            dispatcher = kotlinx.coroutines.Dispatchers.Main.immediate,
+        )
+        val secondaryLane = vela.app.lane.PlaybackLane(
+            id = LaneID.SECONDARY,
+            hub = vela.app.playback.LaneHub(),
+            player = vela.app.lane.FakeLanePlayer(),
+        )
+        try {
+            stage.ageConfirmed = true
+            install(stage, "alice", "bob", "claire")
+            stage.setDual(true)
+            stage.bindLaneRouted(secondaryLane)
+            assertEquals("alice", stage.state.value.currentUsername)
+            assertEquals("bob", stage.secondaryCursor?.username)
+
+            // 副路调用 renewRendition 应使用副路房间与 generation，成功续签 bob 而不是拿主路 alice 判过期。
+            val renewed = secondaryLane.renewRendition?.invoke("bob", Double.POSITIVE_INFINITY)
+            assertTrue("副路续签应成功返回新 StreamRendition", renewed != null && !renewed.isUnselected)
+            assertTrue("应请求副路 bob 的流地址: $requested", requested.any { it.contains("bob") })
+
+            // 副路切房到 claire 后，对旧房 bob 的续签应被判过期返回 null。
+            requested.clear()
+            assertTrue(stage.moveLane(LaneID.SECONDARY, 1, userInitiated = true))
+            assertEquals("claire", stage.secondaryCursor?.username)
+            val stale = secondaryLane.renewRendition?.invoke("bob", Double.POSITIVE_INFINITY)
+            assertNull("副路切房后旧房续签应返回 null", stale)
+            assertTrue("过期续签不应再发网络请求: $requested", requested.isEmpty())
+        } finally {
+            secondaryLane.release()
+            stage.close()
+        }
+    }
+
+    @Test
+    fun testSecondaryBecomingEmptyStopsSinkAndCancelsInflightPlay() = harness.onStage {
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val probeStarted = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val http = streamHttp(
+            beforeSend = { request ->
+                if (request.url.contains("bob")) {
+                    probeStarted.complete(Unit)
+                    gate.await()
+                }
+            },
+        )
+        val stage = stage(http)
+        try {
+            stage.ageConfirmed = true
+            install(stage, "alice", "bob")
+            stage.setDual(true)
+            var stops = 0
+            val played = ArrayList<String>()
+            stage.secondarySink = object : PlaybackSink {
+                override val lastError: String? = null
+                override val failed: Boolean = false
+                override fun play(
+                    rendition: StreamRendition,
+                    username: String,
+                    peakBitrate: Double,
+                    allowed: Boolean,
+                    isRetry: Boolean,
+                ) {
+                    played.add(username)
+                }
+                override fun stop() {
+                    stops += 1
+                }
+                override fun setVolume(volume: Double, muted: Boolean) = Unit
+                override fun setAllowed(allowed: Boolean) = Unit
+                override fun refreshFinished(reason: String?, report: Boolean) = Unit
+                override fun setRefreshHandler(handler: ((String, Boolean) -> Unit)?) = Unit
+                override fun setRenewHandler(handler: (suspend (String, Double) -> StreamRendition?)?) = Unit
+            }
+
+            // 启动副路解析（停在网络 gate 上），然后搜索缩窄到只剩主路 alice，副路变空。
+            stage.requestLane(LaneID.SECONDARY)
+            kotlinx.coroutines.withTimeout(5_000) { probeStarted.await() }
+            val jobBefore = stage.secondaryPlayJob
+            assertTrue("应有在途副路解析任务", jobBefore != null && jobBefore.isActive)
+
+            stage.dispatch(StageIntent.SetSearchText("alice"))
+            assertNull("搜索只剩一间时副路应为空", stage.secondaryCursor?.username)
+            assertEquals(LanePlayback.Empty, stage.secondaryFace?.playback)
+            assertTrue("副路变空时必须取消旧解析任务", jobBefore!!.isCancelled)
+            assertTrue("副路变空时必须停止旧播放源", stops >= 1)
+
+            gate.complete(Unit)
+            stage.awaitLoads()
+            assertTrue("变空后不得再对旧房起播: $played", played.isEmpty())
+        } finally {
+            gate.complete(Unit)
+            stage.close()
+        }
+    }
+
+    @Test
+    fun testHidingSecondaryCancelsInflightPlay() = harness.onStage {
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val probeStarted = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val http = streamHttp(
+            beforeSend = { request ->
+                if (request.url.contains("bob")) {
+                    probeStarted.complete(Unit)
+                    gate.await()
+                }
+            },
+        )
+        val stage = stage(http)
+        try {
+            stage.ageConfirmed = true
+            install(stage, "alice", "bob")
+            stage.setDual(true)
+            var stops = 0
+            val played = ArrayList<String>()
+            stage.secondarySink = object : PlaybackSink {
+                override val lastError: String? = null
+                override val failed: Boolean = false
+                override fun play(
+                    rendition: StreamRendition,
+                    username: String,
+                    peakBitrate: Double,
+                    allowed: Boolean,
+                    isRetry: Boolean,
+                ) {
+                    played.add(username)
+                }
+                override fun stop() {
+                    stops += 1
+                }
+                override fun setVolume(volume: Double, muted: Boolean) = Unit
+                override fun setAllowed(allowed: Boolean) = Unit
+                override fun refreshFinished(reason: String?, report: Boolean) = Unit
+                override fun setRefreshHandler(handler: ((String, Boolean) -> Unit)?) = Unit
+                override fun setRenewHandler(handler: (suspend (String, Double) -> StreamRendition?)?) = Unit
+            }
+
+            stage.requestLane(LaneID.SECONDARY)
+            kotlinx.coroutines.withTimeout(5_000) { probeStarted.await() }
+            val jobBefore = stage.secondaryPlayJob
+            assertTrue(jobBefore != null && jobBefore.isActive)
+
+            // 横屏隐藏非焦点副路，应取消在途解析并停播，放行网络后不得再 play。
+            stage.setLandscape(true)
+            assertTrue("隐藏副路时必须取消在途解析任务", jobBefore!!.isCancelled)
+            assertTrue(stops >= 1)
+
+            gate.complete(Unit)
+            stage.awaitLoads()
+            assertTrue("副路隐藏后不得再起播: $played", played.isEmpty())
+        } finally {
+            gate.complete(Unit)
+            stage.close()
+        }
+    }
+
+    private fun stage(http: vela.core.base.net.HTTPClient = FakeCatalogHttp(emptyMap())): StageViewModel = StageViewModel(
         settings = settings,
-        http = FakeCatalogHttp(emptyMap()),
+        http = http,
         directory = directory,
         clock = clock,
         dispatcher = harness.dispatcher,
     )
+
+    private fun streamHttp(
+        onRequest: (vela.core.base.net.HTTPRequest) -> Unit = {},
+        beforeSend: suspend (vela.core.base.net.HTTPRequest) -> Unit = {},
+    ): vela.core.base.net.HTTPClient = object : vela.core.base.net.HTTPClient {
+        override suspend fun send(request: vela.core.base.net.HTTPRequest): vela.core.base.net.HTTPResult {
+            onRequest(request)
+            beforeSend(request)
+            val url = request.url
+            return when {
+                url.contains("chatvideocontext") -> vela.core.base.net.HTTPResult(
+                    status = 200,
+                    data = """{"room_status":"public","hls_source":"https://cdn.example/live/master.m3u8"}""".toByteArray(),
+                )
+                url.contains("master.m3u8") -> vela.core.base.net.HTTPResult(
+                    status = 200,
+                    data = (
+                        "#EXTM3U\n" +
+                            "#EXT-X-STREAM-INF:BANDWIDTH=2000000,RESOLUTION=1280x720\n" +
+                            "chunklist_720.m3u8\n"
+                        ).toByteArray(),
+                )
+                else -> vela.core.base.net.HTTPResult(status = 200, data = """{"rooms":[],"total_count":0}""".toByteArray())
+            }
+        }
+    }
 
     private fun install(stage: StageViewModel, vararg names: String) {
         stage.updateFeed(installing = FeedSource.guess, intent = LaneSelection.Intent.Reload) { store ->
@@ -424,4 +671,30 @@ class DualStageTest {
             override fun setRefreshHandler(handler: ((String, Boolean) -> Unit)?) = Unit
             override fun setRenewHandler(handler: (suspend (String, Double) -> StreamRendition?)?) = Unit
         }
+
+    private fun recordingVolumeSink(
+        label: String,
+        events: MutableList<Triple<String, Double, Boolean>>,
+        onPlay: () -> Unit = {},
+    ): PlaybackSink = object : PlaybackSink {
+        override val lastError: String? = null
+        override val failed: Boolean = false
+        override fun play(
+            rendition: StreamRendition,
+            username: String,
+            peakBitrate: Double,
+            allowed: Boolean,
+            isRetry: Boolean,
+        ) {
+            onPlay()
+        }
+        override fun stop() = Unit
+        override fun setVolume(volume: Double, muted: Boolean) {
+            events.add(Triple(label, volume, muted))
+        }
+        override fun setAllowed(allowed: Boolean) = Unit
+        override fun refreshFinished(reason: String?, report: Boolean) = Unit
+        override fun setRefreshHandler(handler: ((String, Boolean) -> Unit)?) = Unit
+        override fun setRenewHandler(handler: (suspend (String, Double) -> StreamRendition?)?) = Unit
+    }
 }

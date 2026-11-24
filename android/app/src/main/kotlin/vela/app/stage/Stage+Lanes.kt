@@ -2,8 +2,14 @@ package vela.app.stage
 
 import android.util.Log
 import java.time.Instant
+import kotlin.coroutines.ContinuationInterceptor
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import vela.app.infra.Endpoints
 import vela.app.lane.PlaybackLane
 import vela.app.lane.ThermalMonitor
@@ -23,6 +29,8 @@ import vela.core.hls.FailureCode
 import vela.core.hls.LaneQuality
 import vela.core.hls.PhoneThermalState
 import vela.core.hls.PlaybackFailureClassifier
+import vela.core.hls.RefreshTracker
+import vela.core.hls.RenewalFreshness
 import vela.core.ledger.DwellTracker
 import vela.core.ledger.ListOrigin
 import vela.core.lifecycle.PhoneLaneActivity
@@ -69,10 +77,12 @@ internal class FocusSegments {
 
 /**
  * 起播时把码率上限收成这一路的 [LaneQuality] 结果。未降档时上限是正无穷，不改变原来的值。
+ * 主路传入 [onVolume]，使直接对主路调用 [setVolume] 时也统一按焦点路分配声音，避免非焦点主路解除静音。
  */
 internal class ThermalCapSink(
     private val inner: PlaybackSink,
     private val capOf: () -> Double,
+    private val onVolume: ((Double, Boolean) -> Unit)? = null,
 ) : PlaybackSink {
     override val lastError: String?
         get() = inner.lastError
@@ -93,7 +103,16 @@ internal class ThermalCapSink(
 
     override fun stop() = inner.stop()
 
-    override fun setVolume(volume: Double, muted: Boolean) = inner.setVolume(volume, muted)
+    override fun setVolume(volume: Double, muted: Boolean) {
+        val route = onVolume
+        if (route != null) {
+            route(volume, muted)
+        } else {
+            inner.setVolume(volume, muted)
+        }
+    }
+
+    internal fun setVolumeDirect(volume: Double, muted: Boolean) = inner.setVolume(volume, muted)
 
     override fun setAllowed(allowed: Boolean) = inner.setAllowed(allowed)
 
@@ -107,11 +126,15 @@ internal class ThermalCapSink(
 
 internal fun StageViewModel.wrapPrimarySink(sink: PlaybackSink?): PlaybackSink? {
     if (sink == null || sink is ThermalCapSink) return sink
-    return ThermalCapSink(sink) {
-        val cap = laneCap(LaneID.PRIMARY)
-        appliedCap[LaneID.PRIMARY] = cap
-        cap
-    }
+    return ThermalCapSink(
+        inner = sink,
+        capOf = {
+            val cap = laneCap(LaneID.PRIMARY)
+            appliedCap[LaneID.PRIMARY] = cap
+            cap
+        },
+        onVolume = { _, _ -> pushVolumes() },
+    )
 }
 
 internal fun StageViewModel.updateFeedLanes(
@@ -476,8 +499,7 @@ internal fun StageViewModel.degradeLane(id: LaneID) {
     if (id != LaneID.SECONDARY || laneCount <= 1) return
     val face = secondaryFace ?: return
     if (face.username == null) return
-    secondarySink?.stop()
-    secondaryLane?.stop()
+    stopSecondaryPlayback()
     secondaryFace = face.copy(
         playback = LanePlayback.Degraded,
         playbackNote = StageRules.DUAL_UNAVAILABLE,
@@ -512,12 +534,15 @@ internal fun StageViewModel.bindLaneRouted(lane: PlaybackLane, webHost: android.
         noteFocusedLaneVideoSize()
         val sink = LaneSink(lane)
         sink.setRefreshHandler { username, isRetry -> refreshSecondary(username, isRetry) }
-        sink.setRenewHandler { username, cap -> renewRendition(username, cap) }
-        secondarySink = ThermalCapSink(sink) {
-            val cap = laneCap(LaneID.SECONDARY)
-            appliedCap[LaneID.SECONDARY] = cap
-            cap
-        }
+        sink.setRenewHandler { username, cap -> renewLaneRendition(LaneID.SECONDARY, username, cap) }
+        secondarySink = ThermalCapSink(
+            inner = sink,
+            capOf = {
+                val cap = laneCap(LaneID.SECONDARY)
+                appliedCap[LaneID.SECONDARY] = cap
+                cap
+            },
+        )
         return
     }
     if (lane.id == LaneID.TERTIARY) return
@@ -763,9 +788,17 @@ internal fun StageViewModel.freezeDwells() {
 
 internal fun StageViewModel.pushVolumes() {
     val primaryAudible = !muted && (laneCount <= 1 || focusLane == LaneID.PRIMARY)
-    playbackSink?.setVolume(if (primaryAudible) volume else 0.0, !primaryAudible)
+    pushLaneVolume(playbackSink, if (primaryAudible) volume else 0.0, !primaryAudible)
     val secondaryAudible = !muted && focusLane == LaneID.SECONDARY && laneCount > 1
-    secondarySink?.setVolume(if (secondaryAudible) volume else 0.0, !secondaryAudible)
+    pushLaneVolume(secondarySink, if (secondaryAudible) volume else 0.0, !secondaryAudible)
+}
+
+private fun pushLaneVolume(sink: PlaybackSink?, volume: Double, muted: Boolean) {
+    if (sink is ThermalCapSink) {
+        sink.setVolumeDirect(volume, muted)
+    } else {
+        sink?.setVolume(volume, muted)
+    }
 }
 
 internal fun StageViewModel.openRoles(): List<PlaybackLaneRole> =
@@ -907,6 +940,8 @@ private fun StageViewModel.syncLaneVisibility() {
         laneFace = laneFace.copy(visible = showPrimary)
         primaryVisible = showPrimary
         if (!showPrimary) {
+            playJob?.cancel()
+            playJob = null
             playbackSink?.stop()
             primaryLane?.stop()
         } else if (playbackGateOpen && !laneFace.manuallyPaused && !lifecycleEpoch.suspended) {
@@ -921,8 +956,7 @@ private fun StageViewModel.syncLaneVisibility() {
         if (face.visible != showSecondary) {
             secondaryFace = face.copy(visible = showSecondary)
             if (!showSecondary) {
-                secondarySink?.stop()
-                secondaryLane?.stop()
+                stopSecondaryPlayback()
             } else if (
                 playbackGateOpen &&
                 face.manuallyPaused.not() &&
@@ -933,6 +967,14 @@ private fun StageViewModel.syncLaneVisibility() {
             }
         }
     }
+}
+
+private fun StageViewModel.stopSecondaryPlayback() {
+    secondaryPlayJob?.cancel()
+    secondaryPlayJob = null
+    secondarySink?.stop()
+    secondaryLane?.stop()
+    secondaryActivity = PhoneLaneActivity.IDLE
 }
 
 private fun StageViewModel.syncLaneCaps() {
@@ -968,7 +1010,11 @@ private fun StageViewModel.installLaneFailure(lane: PlaybackLane) {
 }
 
 private fun StageViewModel.autoplaySecondary() {
-    val name = secondaryCursor?.username ?: return
+    val name = secondaryCursor?.username
+    if (name == null) {
+        stopSecondaryPlayback()
+        return
+    }
     val face = secondaryFace ?: return
     if (face.manuallyPaused) return
     if (face.playback == LanePlayback.Failed || face.playback == LanePlayback.Degraded) return
@@ -984,6 +1030,18 @@ private fun StageViewModel.replaySecondaryIfMoved() {
 
 private fun StageViewModel.requestSecondary(isRetry: Boolean) {
     secondaryPlayRequests += 1
+    if (secondaryCursor?.username == null) {
+        stopSecondaryPlayback()
+        secondaryFace = secondaryFace?.copy(
+            username = null,
+            playback = LanePlayback.Empty,
+            playbackNote = null,
+            readyUsername = null,
+            playingUsername = null,
+        )
+        publish()
+        return
+    }
     if (!playbackGateOpen) return
     if (!ageConfirmed) {
         publish()
@@ -1022,7 +1080,10 @@ private fun StageViewModel.startUnboundSecondary() {
     publish()
 }
 
-private fun StageViewModel.startBoundSecondary(isRetry: Boolean) {
+private fun StageViewModel.startBoundSecondary(
+    isRetry: Boolean,
+    onFinished: (() -> Unit)? = null,
+) {
     val token = bumpSecondary()
     val previous = secondaryPlayJob
     val job = scope.launch {
@@ -1030,6 +1091,8 @@ private fun StageViewModel.startBoundSecondary(isRetry: Boolean) {
             playSecondary(token, isRetry)
         } catch (cancelled: CancellationException) {
             throw cancelled
+        } finally {
+            onFinished?.invoke()
         }
     }
     secondaryPlayJob = job
@@ -1059,7 +1122,7 @@ private suspend fun StageViewModel.playSecondary(token: Int, isRetry: Boolean) {
     val room = roomNamed(secondaryCursor?.username)
     val sink = secondarySink ?: return
     if (room == null) {
-        sink.stop()
+        stopSecondaryPlayback()
         secondaryFace = secondaryFace?.copy(username = null, playback = LanePlayback.Empty)
         publish()
         return
@@ -1070,6 +1133,7 @@ private suspend fun StageViewModel.playSecondary(token: Int, isRetry: Boolean) {
         appliedCap[LaneID.SECONDARY] = cap
         val target = secondaryPlayable(room.username, cap, token) ?: return
         if (token != secondaryFace?.generation) return
+        if (secondaryFace?.manuallyPaused == true || secondaryFace?.visible == false) return
         sink.play(target.playable, room.username, cap, secondaryAllowed(), isRetry)
         pushVolumes()
     } catch (cancelled: CancellationException) {
@@ -1116,8 +1180,68 @@ private fun StageViewModel.refreshSecondary(username: String, isRetry: Boolean) 
         return
     }
     prepared.remove(username)
-    requestLane(LaneID.SECONDARY, isRetry)
+    val scheduled = secondaryFace?.generation ?: return
+    if (!playbackGateOpen || !ageConfirmed) {
+        sink.refreshFinished(null, false)
+        return
+    }
+    startBoundSecondary(isRetry) {
+        val currentGen = secondaryFace?.generation ?: -1
+        if (!RefreshTracker.ownsOutcome(scheduled, currentGen)) return@startBoundSecondary
+        secondarySink?.refreshFinished(secondaryFace?.playbackNote, true)
+    }
 }
+
+internal suspend fun StageViewModel.renewLaneRendition(
+    id: LaneID,
+    username: String,
+    cap: Double,
+): StreamRendition? {
+    if (id == LaneID.PRIMARY) return renewRendition(username, cap)
+    if (id != LaneID.SECONDARY) return null
+    val dispatcher = scope.coroutineContext[ContinuationInterceptor] ?: Dispatchers.Main.immediate
+    return withContext(dispatcher) {
+        var renewed: StreamRendition? = null
+        for (attempt in 1..2) {
+            val token = secondaryFace?.generation ?: break
+            renewed = renewSecondaryRenditionOnce(username, cap, token)
+            if (renewed != null) break
+            if (attempt == 1 && secondaryRenewalIsCurrent(username, token)) delay(400)
+        }
+        renewed
+    }
+}
+
+private suspend fun StageViewModel.renewSecondaryRenditionOnce(
+    username: String,
+    cap: Double,
+    token: Int,
+): StreamRendition? {
+    if (!secondaryRenewalIsCurrent(username, token)) return null
+    val ticket = try {
+        resolveSourced(username).ticket
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        return null
+    }
+    val address = ticket.url
+    if (!ticket.isPlayable || address == null) return null
+    if (!secondaryRenewalIsCurrent(username, token)) return null
+    val playable = selectRendition(loopbackSharedMaster(address), cap)
+    if (playable.isUnselected || !secondaryRenewalIsCurrent(username, token)) return null
+    prepared.set(playable, cap, username, now())
+    return playable
+}
+
+private suspend fun StageViewModel.secondaryRenewalIsCurrent(username: String, token: Int): Boolean =
+    RenewalFreshness.isCurrent(
+        startedGeneration = token,
+        currentGeneration = secondaryFace?.generation ?: -1,
+        startedRoom = username,
+        currentRoom = secondaryCursor?.username,
+        cancelled = !coroutineContext.isActive,
+    )
 
 private fun StageViewModel.checkSecondarySuggest() {
     if (taste.paused || secondaryDwell.isDiscarded || favoriteSuggest != null) return
