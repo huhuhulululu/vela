@@ -113,6 +113,119 @@ class DualWindowParityTest {
     }
 
     @Test
+    fun testLocalSearchNarrowingStaysDistinct() = harness.onStage {
+        val stage = dual(listOf("alice", "alex", "bob", "alina"))
+        try {
+            assertEquals("alex", stage.secondaryCursor?.username)
+            stage.searchText = "al"
+            stage.applySearch()
+            assertDistinct(stage)
+            assertNotNull(stage.feed.currentUsername)
+            assertNotNull(stage.secondaryCursor?.username)
+
+            stage.searchText = "bob"
+            stage.applySearch()
+            assertEquals("bob", stage.feed.currentUsername)
+            assertNull("只剩一间时焦点路保留它，另一路空着", stage.secondaryCursor?.username)
+
+            stage.searchText = ""
+            stage.applySearch()
+            assertDistinct(stage)
+            assertNotNull("清空搜索放宽回多间时应补回副路", stage.secondaryCursor?.username)
+        } finally {
+            stage.close()
+        }
+    }
+
+    @Test
+    fun testPrimaryForwardSkipsRoomsTheSecondaryJustLeft() = harness.onStage {
+        val stage = dual(listOf("alice", "bob", "carol", "dave", "erin"))
+        try {
+            stage.moveLane(LaneID.SECONDARY, 1, userInitiated = true)
+            stage.moveLane(LaneID.SECONDARY, 1, userInitiated = true)
+            assertEquals("dave", stage.secondaryCursor?.username)
+            stage.move(1, userInitiated = true)
+            assertEquals("erin", stage.feed.currentUsername)
+            assertDistinct(stage)
+        } finally {
+            stage.close()
+        }
+    }
+
+    @Test
+    fun testSecondaryForwardSkipsRoomsThePrimaryJustLeft() = harness.onStage {
+        val stage = dual(listOf("alice", "bob", "carol", "dave", "erin"))
+        try {
+            stage.move(1, userInitiated = true)
+            stage.move(1, userInitiated = true)
+            assertEquals("dave", stage.feed.currentUsername)
+            stage.moveLane(LaneID.SECONDARY, 1, userInitiated = true)
+            assertEquals("erin", stage.secondaryCursor?.username)
+            assertDistinct(stage)
+        } finally {
+            stage.close()
+        }
+    }
+
+    @Test
+    fun testBackSwipeToOwnPreviousRoomIsAllowed() = harness.onStage {
+        val stage = dual(listOf("alice", "bob", "carol", "dave", "erin"))
+        try {
+            stage.move(1, userInitiated = true)
+            assertEquals("carol", stage.feed.currentUsername)
+            stage.move(-1, userInitiated = true)
+            assertEquals("alice", stage.feed.currentUsername)
+            assertDistinct(stage)
+        } finally {
+            stage.close()
+        }
+    }
+
+    @Test
+    fun testRecentSkipExpiresAndDirectRevealIgnoresIt() = harness.onStage {
+        val stage = dual(listOf("alice", "bob", "carol", "dave", "erin"))
+        try {
+            stage.recentSkips.record("carol", clock.instant.minusSeconds(31 * 60))
+            stage.recentSkips.record("dave", clock.instant)
+            stage.move(1, userInitiated = true)
+            assertEquals("carol 已过 30 分钟应恢复可选", "carol", stage.feed.currentUsername)
+            stage.updateFeed(intent = LaneSelection.Intent.Reveal("dave")) { store ->
+                store.select("dave")
+            }
+            assertEquals("直达不受最近划走限制", "dave", stage.feed.currentUsername)
+            assertDistinct(stage)
+        } finally {
+            stage.close()
+        }
+    }
+
+    @Test
+    fun testSingleWindowSwipesAreNotRecorded() = harness.onStage {
+        val stage = makeStage(listOf("alice", "bob", "carol", "dave", "erin"))
+        try {
+            stage.move(1, userInitiated = true)
+            stage.move(1, userInitiated = true)
+            assertEquals(0, stage.recentSkips.count)
+            assertEquals("carol", stage.feed.currentUsername)
+        } finally {
+            stage.close()
+        }
+    }
+
+    @Test
+    fun testRecentSkipsSurviveListReload() = harness.onStage {
+        val five = listOf("alice", "bob", "carol", "dave", "erin")
+        val stage = dual(five)
+        try {
+            stage.moveLane(LaneID.SECONDARY, 1, userInitiated = true)
+            install(stage, five)
+            assertEquals("重载列表不应清空最近划走记录", 1, stage.recentSkips.count)
+        } finally {
+            stage.close()
+        }
+    }
+
+    @Test
     fun testSiteSearchInstallAndExitStayDistinct() = harness.onStage {
         val stage = dual()
         try {

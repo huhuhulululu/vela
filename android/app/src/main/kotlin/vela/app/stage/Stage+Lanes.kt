@@ -127,6 +127,7 @@ internal fun StageViewModel.updateFeedLanes(
         primary = primaryCursor.copy(),
         secondary = secondaryCursor?.copy(),
         focus = if (secondaryCursor == null) LaneID.PRIMARY else focusLane,
+        recent = if (secondaryCursor == null) emptySet() else recentSkips.active(now()),
     )
     body(copy)
     val outcome = LaneSelection.resolveFeedChange(
@@ -711,6 +712,10 @@ internal fun StageViewModel.moveLane(id: LaneID, delta: Int, userInitiated: Bool
         deferSecondaryAutoplay = false
     }
     if (sameUser(secondaryCursor?.username, before)) return false
+    if (laneCount > 1 && before != null) {
+        recentSkips.record(before, now())
+        secondaryCursor = secondaryCursor?.copy(previous = before)
+    }
     secondaryFace = secondaryFace?.copy(
         manuallyPaused = MoveRules.pausedAfterMove(secondaryFace?.manuallyPaused == true, userInitiated),
     )

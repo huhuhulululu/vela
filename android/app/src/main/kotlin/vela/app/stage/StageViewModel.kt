@@ -70,6 +70,7 @@ import vela.core.lifecycle.PhoneLaneActivity
 import vela.core.lifecycle.PhoneResumeIntent
 import vela.core.recommend.RankSignals
 import vela.core.selection.LaneSelection
+import vela.core.selection.RecentSkips
 import vela.core.taste.HotTagCache
 import vela.core.taste.TagRarity
 import vela.core.taste.Taste
@@ -192,6 +193,7 @@ class StageViewModel(
     /** 单窗为 null。开了第二路就始终有游标，即使这一路没有房间。 */
     internal var secondaryCursor: LaneCursor? = null
     internal var primaryCursor = LaneCursor()
+    internal val recentSkips = RecentSkips()
     internal var focusLane: LaneID = LaneID.PRIMARY
     internal var laneCount: Int = 1
     internal var rememberedLaneCount: Int = 1
