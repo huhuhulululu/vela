@@ -463,5 +463,39 @@ final class SyncJoinRealFilesTests: XCTestCase {
         XCTAssertTrue(r.journal.discard())
         XCTAssertEqual(r.journal.status, .none)
     }
+
+    // MARK: 坏文件只读清除后不重启即可重新开启
+
+    /// 坏文件改名隔离失败让底层 `SyncStateFileStore` 置上只读标记后，用户「关闭同步」清除成功须复位只读标记，
+    /// 不重启 App（沿用同一个 `SyncService` 与存储实例）即可重新开启同步。
+    func testReadOnlyCorruptedStateReenablesAfterDisableWithoutRestart() async throws {
+        let r = try rig()
+        try Data("{not json".utf8).write(to: r.stateURL)
+        r.keys.entry = SyncKeychainEntry(key: ServiceFixture.key, dev: 7, blobID: ServiceFixture.keys.blobID)
+        let dir = r.dir
+        r.configureBacking = { store in
+            store.writeMarker = { url in
+                let ok = FileManager.default.createFile(atPath: url.path, contents: Data())
+                // 标记写完立刻把目录置只读，让紧接着的改名隔离失败，从而置上底层只读标记。
+                try? FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: dir.path)
+                return ok
+            }
+        }
+        r.restart()
+        let started = await r.service.start(local: { r.sink.local }, sink: r.sink)
+        XCTAssertEqual(started, .attention(.stateCorrupted))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: r.stateURL.path), "前提：改名隔离失败，坏文件留在原处")
+
+        chmod(dir, 0o700)
+        // 不调用 r.restart()：同一进程内关闭后直接重新开启。
+        XCTAssertEqual(r.service.disable(sink: r.sink), .done)
+        XCTAssertNil(r.keys.entry)
+        r.t.gets = [.notFound(epoch: ServiceFixture.epoch, now: 1_800_000_000_000)]
+        r.t.puts = [.stored(ver: 1, epoch: ServiceFixture.epoch, now: 1_800_000_000_000)]
+        guard case .created = await r.service.create(origin: ServiceFixture.origin, local: r.sink.local) else {
+            return XCTFail("清除损坏状态后不重启应能重新开启")
+        }
+        XCTAssertTrue(r.service.isActive)
+    }
 }
 #endif

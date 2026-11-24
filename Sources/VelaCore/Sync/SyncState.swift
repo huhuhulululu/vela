@@ -193,6 +193,7 @@ public final class SyncStateFileStore: SyncStateStore, @unchecked Sendable {
         defer { lock.unlock() }
         do {
             if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
+            readOnly = false
             return true
         } catch {
             return false

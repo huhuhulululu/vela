@@ -101,4 +101,35 @@ final class SyncCodeTests: XCTestCase {
         XCTAssertEqual(bad.load(), .corrupted)
         XCTAssertFalse(bad.save(SyncState(phase: .active, origin: "https://a.b", blobID: "x", clock: SyncClock(dev: 1))), "改名也失败时只读")
     }
+
+    /// 审查待办：坏文件改名失败置上只读标记后，清除（delete）成功须复位只读标记，不重启即可重新保存；
+    /// delete 失败时只读标记保持，防止覆盖坏文件。
+    func testStateFileDeleteResetsReadOnlyFlag() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("sync-state-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: dir.path)
+            try? FileManager.default.removeItem(at: dir)
+        }
+        let url = dir.appendingPathComponent("sync-state.json")
+        try Data("{corrupt".utf8).write(to: url)
+        let store = SyncStateFileStore(url: url)
+        store.moveItem = { _, _ in throw CocoaError(.fileWriteNoPermission) }
+        let fresh = SyncState(phase: .creating, origin: "https://sync.example.org", blobID: String(repeating: "a", count: 64), clock: SyncClock(dev: 2))
+
+        XCTAssertEqual(store.load(), .corrupted)
+        XCTAssertFalse(store.save(fresh), "改名失败进入只读")
+
+        // 删除失败时保持只读。
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: dir.path)
+        XCTAssertFalse(store.delete())
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: dir.path)
+        XCTAssertFalse(store.save(fresh), "删除未成功，只读标记不得复位")
+
+        // 清除成功后不重建实例即可再次保存。
+        XCTAssertTrue(store.delete())
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+        XCTAssertTrue(store.save(fresh), "清除成功后复位只读标记，不重启即可重新开启")
+        XCTAssertEqual(store.load(), .present(fresh))
+    }
 }
