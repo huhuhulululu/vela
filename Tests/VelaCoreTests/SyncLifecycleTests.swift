@@ -242,4 +242,118 @@ final class SyncLifecycleTests: XCTestCase {
         XCTAssertEqual(report.invalidNames, ["x"])
         XCTAssertEqual(SyncProjection(created.doc).veto, ["g:m": true])
     }
+
+    // MARK: 剪贴板清理控制器（真实执行链路）
+
+    private final class MemoryClipboard: SyncClipboard {
+        var changeCount = 1
+        var text: String?
+        var concealedWrites = 0
+        var clears = 0
+
+        func writeConcealed(_ text: String) -> Int {
+            self.text = text
+            concealedWrites += 1
+            changeCount += 1
+            return changeCount
+        }
+
+        func writeOther(_ text: String) {
+            self.text = text
+            changeCount += 1
+        }
+
+        func clear() {
+            text = nil
+            clears += 1
+            changeCount += 1
+        }
+    }
+
+    private final class MemoryStampStore: SyncClipboardStampStore {
+        var changeCount: Int?
+        var token: String?
+    }
+
+    /// 审计 F：验证「复制同步码 → 关实验开关（移除同步观察者）→ 退出时剪贴板未变则清、已变则不动」的真实执行链路。
+    func testPasteboardControllerClearsOnExitAfterExperimentOffOnlyWhenUnchanged() {
+        let clipboard = MemoryClipboard()
+        let store = MemoryStampStore()
+        var syncObservers: [() -> Void] = []
+        var exitHandlers: [() -> Void] = []
+        var scheduled: [(TimeInterval, () -> Void)] = []
+        var nextToken = 0
+
+        let controller = SyncPasteboardController(
+            clipboard: clipboard,
+            store: store,
+            makeToken: { nextToken += 1; return "tok-\(nextToken)" },
+            scheduleExpiry: { delay, action in scheduled.append((delay, action)) },
+            registerExit: { action in exitHandlers.append(action) }
+        )
+
+        // 模拟 SyncHub.wire() 注册同步观察者，复制同步码后关闭实验开关（清空 syncObservers）。
+        var syncExitRan = false
+        syncObservers.append { syncExitRan = true }
+        controller.copySensitive("vela2:secret-code-1")
+        XCTAssertEqual(clipboard.text, "vela2:secret-code-1")
+        XCTAssertEqual(clipboard.concealedWrites, 1)
+        XCTAssertEqual(exitHandlers.count, 1, "首次复制注册独立退出回调")
+        XCTAssertEqual(scheduled.first?.0, 120)
+
+        // 关闭实验开关：只移除同步观察者，不影响剪贴板退出回调。
+        syncObservers.removeAll()
+        // 触发 App 退出：剪贴板未变，必须清空同步码。
+        for run in syncObservers + exitHandlers { run() }
+        XCTAssertFalse(syncExitRan)
+        XCTAssertNil(clipboard.text, "关闭实验开关后退出仍须清掉未变动的同步码")
+        XCTAssertEqual(clipboard.clears, 1)
+        XCTAssertNil(store.changeCount)
+        XCTAssertNil(store.token)
+
+        // 再次复制同步码（不重复注册退出回调），用户之后复制别的内容，再关闭开关并退出：不得清掉用户新内容。
+        controller.copySensitive("vela2:secret-code-2")
+        XCTAssertEqual(exitHandlers.count, 1, "重复复制不得重复注册退出观察者")
+        clipboard.writeOther("user-other-text")
+        for run in exitHandlers { run() }
+        XCTAssertEqual(clipboard.text, "user-other-text", "用户之后复制了别的内容，退出时不动剪贴板")
+        XCTAssertEqual(clipboard.clears, 1)
+        XCTAssertNil(store.changeCount)
+        XCTAssertNil(store.token)
+    }
+
+    func testPasteboardControllerPerCopyTokenAndLeftoverCleanup() {
+        let clipboard = MemoryClipboard()
+        let store = MemoryStampStore()
+        var timers: [() -> Void] = []
+        var nextToken = 0
+        let controller = SyncPasteboardController(
+            clipboard: clipboard,
+            store: store,
+            makeToken: { nextToken += 1; return "t\(nextToken)" },
+            scheduleExpiry: { _, action in timers.append(action) },
+            registerExit: { _ in }
+        )
+
+        // 连续复制两次：第一次的 120 秒到期不得清掉第二次复制；第二次到期才清。
+        controller.copySensitive("code-1")
+        controller.copySensitive("code-2")
+        timers[0]()
+        XCTAssertEqual(clipboard.text, "code-2", "旧令牌到期不提前清掉后一次复制")
+        timers[1]()
+        XCTAssertNil(clipboard.text)
+
+        // 上次进程崩溃残留：重启后未变则清、已变则不动。
+        let stamp = clipboard.writeConcealed("crashed-code")
+        store.changeCount = stamp
+        store.token = "old"
+        controller.expireLeftover()
+        XCTAssertNil(clipboard.text)
+
+        let stamp2 = clipboard.writeConcealed("crashed-code-2")
+        store.changeCount = stamp2
+        clipboard.writeOther("kept-after-crash")
+        controller.expireLeftover()
+        XCTAssertEqual(clipboard.text, "kept-after-crash")
+    }
 }
