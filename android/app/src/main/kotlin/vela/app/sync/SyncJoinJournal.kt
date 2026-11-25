@@ -79,9 +79,39 @@ class FileJoinJournal(
         }
     }
 
+    /** 原子换回单个文件（同卷移动）；测试可注入中断。 */
+    var renameItem: (Path, Path) -> Boolean = { from, to ->
+        atomicMove(from, to, replaceExisting = true)
+    }
+
+    /** 删除单个文件或目录；测试可注入中断。 */
+    var removeItem: (Path) -> Boolean = { path ->
+        deleteTree(path)
+    }
+
+    /** 读取快照里的设置文件；测试可注入中断。 */
+    var readFile: (Path) -> ByteArray? = { path ->
+        try {
+            Files.readAllBytes(path)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /** 列快照目录；测试可注入失败。 */
+    var listDirectory: (Path) -> List<String>? = { dirPath ->
+        try {
+            Files.list(dirPath).use { stream ->
+                stream.map { it.fileName.toString() }.toList()
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     private fun copyPath(f: Path, inDir: Path): Path = inDir.resolve(f.fileName)
     private fun absentPath(f: Path, inDir: Path): Path = inDir.resolve("absent-" + f.fileName.toString())
-    private fun settingsPath(inDir: Path): Path = inDir.resolve("settings.json")
+    private fun settingsPath(inDir: Path): Path = inDir.resolve(SETTINGS_FILE)
     private fun has(name: String): Boolean = Files.exists(dir.resolve(name))
 
     private fun temporaries(): List<Path> {
@@ -97,12 +127,36 @@ class FileJoinJournal(
         }
     }
 
+    /**
+     * 只看发布目录（写操作闸门每次都会问，不扫目录）。崩溃留下的临时目录从未发布、不会被换回，下次快照或删除时清掉。
+     * 必须同时具备 `complete` 完整性标记与可解码的 `settings.json` 才判 `PENDING`：
+     * - 创建阶段中断留下的半份快照缺 `complete`，即便已有 `settings.json` 也判 `INCOMPLETE`（只删不重放）；
+     * - 曾完整发布、正在丢弃途中的未提交快照在删 `settings.json` 之前保留 `complete` 与 `settings.json`（仍可重放），
+     *   删掉 `settings.json` 之后（设置已刷盘确认）转为 `INCOMPLETE`（只删残留 `complete` 与空目录）。
+     */
     override val status: SyncJoinJournalStatus
         get() {
             if (!Files.exists(dir)) return SyncJoinJournalStatus.NONE
             if (has(COMMITTED_MARKER)) return SyncJoinJournalStatus.COMMITTED
-            return if (has(COMPLETE_MARKER)) SyncJoinJournalStatus.PENDING else SyncJoinJournalStatus.INCOMPLETE
+            return if (has(COMPLETE_MARKER) && hasRestorableSettings()) {
+                SyncJoinJournalStatus.PENDING
+            } else {
+                SyncJoinJournalStatus.INCOMPLETE
+            }
         }
+
+    private fun hasRestorableSettings(): Boolean {
+        val path = settingsPath(dir)
+        if (!Files.exists(path)) return false
+        // 文件存在但临时读不到（权限或 I/O 故障）时宁可保持 PENDING，避免误删尚未换回的快照；
+        // 明确读到且无法解码为合法 JSON 时才判 INCOMPLETE。
+        val bytes = try {
+            Files.readAllBytes(path)
+        } catch (_: Exception) {
+            return true
+        }
+        return decodeSettings(bytes) != null
+    }
 
     override fun snapshot(): Boolean {
         if (!discard()) return false
@@ -148,21 +202,14 @@ class FileJoinJournal(
             val copy = copyPath(f, dir)
             val absent = absentPath(f, dir)
             if (Files.exists(copy)) {
-                if (!atomicMove(copy, f, replaceExisting = true)) return false
+                if (!renameItem(copy, f)) return false
             } else if (Files.exists(absent)) {
-                try {
-                    Files.deleteIfExists(f)
-                    Files.deleteIfExists(absent)
-                } catch (_: Exception) {
-                    return false
-                }
+                if (Files.exists(f) && !removeItem(f)) return false
+                if (!removeItem(absent)) return false
             }
         }
-        val saved = try {
-            decodeSettings(Files.readAllBytes(settingsPath(dir)))
-        } catch (_: Exception) {
-            null
-        } ?: return false
+        val bytes = readFile(settingsPath(dir)) ?: return false
+        val saved = decodeSettings(bytes) ?: return false
         val values = LinkedHashMap<String, Boolean?>(settingKeys.size)
         for (key in settingKeys) {
             values[key] = saved[key]
@@ -172,14 +219,38 @@ class FileJoinJournal(
 
     override fun discard(): Boolean {
         var ok = true
-        val targets = buildList {
-            add(dir)
-            addAll(temporaries())
-        }
-        for (d in targets) {
-            if (Files.exists(d) && !deleteTree(d)) ok = false
+        if (Files.exists(dir) && !removeSnapshotDirectory(dir)) ok = false
+        for (d in temporaries()) {
+            if (Files.exists(d) && !removeItem(d)) ok = false
         }
         return ok
+    }
+
+    /**
+     * 删发布快照目录：列目录失败直接返回 false，绝不退回无序删除。
+     * - 已提交快照：先删其余条目（含 `complete` 与 `settings.json`），最后删 `committed`，任意中断点都不会退回 `PENDING`。
+     * - 未提交快照：先删其余条目，再删 `settings.json`，最后删 `complete`；删 `settings.json` 前中断仍为 `PENDING`（可重放设置），
+     *   删掉 `settings.json` 后（设置刷盘已确认成功）转为 `INCOMPLETE`，重启只删残留 `complete` 与空目录。
+     */
+    private fun removeSnapshotDirectory(d: Path): Boolean {
+        val names = listDirectory(d) ?: return false
+        if (COMMITTED_MARKER in names) {
+            for (name in names.sorted()) {
+                if (name == COMMITTED_MARKER) continue
+                if (!removeItem(d.resolve(name))) return false
+            }
+            if (!removeItem(d.resolve(COMMITTED_MARKER))) return false
+        } else {
+            val tail = listOf(SETTINGS_FILE, COMPLETE_MARKER)
+            for (name in names.sorted()) {
+                if (name in tail) continue
+                if (!removeItem(d.resolve(name))) return false
+            }
+            for (name in tail) {
+                if (name in names && !removeItem(d.resolve(name))) return false
+            }
+        }
+        return removeItem(d)
     }
 
     private fun atomicMove(src: Path, dst: Path, replaceExisting: Boolean): Boolean = try {
@@ -224,6 +295,7 @@ class FileJoinJournal(
     companion object {
         const val COMPLETE_MARKER: String = "complete"
         const val COMMITTED_MARKER: String = "committed"
+        const val SETTINGS_FILE: String = "settings.json"
         private val json = Json { ignoreUnknownKeys = false }
 
         private fun encodeSettings(map: Map<String, Boolean>): ByteArray {
@@ -238,14 +310,16 @@ class FileJoinJournal(
             return sb.toString().toByteArray(Charsets.UTF_8)
         }
 
-        private fun decodeSettings(bytes: ByteArray): Map<String, Boolean>? {
+        private fun decodeSettings(bytes: ByteArray): Map<String, Boolean>? = try {
             val obj = json.parseToJsonElement(String(bytes, Charsets.UTF_8)) as? JsonObject ?: return null
             val out = LinkedHashMap<String, Boolean>(obj.size)
             for ((k, v) in obj) {
                 val b = (v as? JsonPrimitive)?.booleanOrNull ?: return null
                 out[k] = b
             }
-            return out
+            out
+        } catch (_: Exception) {
+            null
         }
 
         private fun escapeJson(s: String): String = buildString(s.length) {
