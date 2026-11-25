@@ -198,6 +198,7 @@ class SyncStateFileStore(val path: Path) : SyncStateStore {
     private val lock = Any()
     private var readOnly = false
     var moveItem: (Path, Path) -> Unit = PreferenceQuarantine.fileMover
+    var removeItem: (Path) -> Unit = { Files.delete(it) }
 
     override fun load(): SyncStateRead {
         synchronized(lock) {
@@ -254,7 +255,8 @@ class SyncStateFileStore(val path: Path) : SyncStateStore {
     override fun delete(): Boolean {
         synchronized(lock) {
             return try {
-                Files.deleteIfExists(path)
+                if (Files.exists(path)) removeItem(path)
+                readOnly = false
                 true
             } catch (_: Exception) {
                 false
