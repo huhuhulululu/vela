@@ -342,55 +342,89 @@ struct SyncCodeCard: View {
     }
 }
 
-/// 复制同步码时标记敏感（第 4.3 节）：iOS 限本机且 120 秒过期（系统执行）；macOS 用同一个 `NSPasteboardItem`
-/// 同时写明文与 `org.nspasteboard.ConcealedType`（剪贴板管理器不会先看到没有敏感标记的版本），
+/// 复制同步码时标记敏感（第 4.3 节）：iOS 限本机且 120 秒过期（系统执行）；macOS 通过 `SyncPasteboardController`
+/// 用同一个 `NSPasteboardItem` 同时写明文与 `org.nspasteboard.ConcealedType`（剪贴板管理器不会先看到没有敏感标记的版本），
 /// 120 秒后、App 退出时、下次启动时，只要剪贴板仍是这次写入（changeCount 未变）就清空。一次性延时，不是常驻定时器。
 enum SyncPasteboard {
     static let expirySeconds: TimeInterval = 120
     #if os(macOS)
-    /// 本次复制的记录：剪贴板 changeCount 与每次复制新生成的令牌。
-    private static let stampKey = "syncPasteboardChangeCount"
-    private static let tokenKey = "syncPasteboardToken"
-    private static let concealed = NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")
+    private final class MacClipboard: SyncClipboard {
+        private static let concealed = NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")
+        var changeCount: Int { NSPasteboard.general.changeCount }
+
+        func writeConcealed(_ text: String) -> Int {
+            let board = NSPasteboard.general
+            board.clearContents()
+            let item = NSPasteboardItem()
+            item.setString(text, forType: .string)
+            item.setString("", forType: Self.concealed)
+            board.writeObjects([item])
+            return board.changeCount
+        }
+
+        func clear() { NSPasteboard.general.clearContents() }
+    }
+
+    private final class DefaultsStampStore: SyncClipboardStampStore {
+        private static let stampKey = "syncPasteboardChangeCount"
+        private static let tokenKey = "syncPasteboardToken"
+
+        var changeCount: Int? {
+            get { UserDefaults.standard.object(forKey: Self.stampKey) as? Int }
+            set {
+                if let newValue { UserDefaults.standard.set(newValue, forKey: Self.stampKey) }
+                else { UserDefaults.standard.removeObject(forKey: Self.stampKey) }
+            }
+        }
+
+        var token: String? {
+            get { UserDefaults.standard.string(forKey: Self.tokenKey) }
+            set {
+                if let newValue { UserDefaults.standard.set(newValue, forKey: Self.tokenKey) }
+                else { UserDefaults.standard.removeObject(forKey: Self.tokenKey) }
+            }
+        }
+    }
+
+    /// 独立持有退出清理观察者，不进 `SyncHub.observers`，关闭实验开关时不注销。
+    private static var exitObserver: NSObjectProtocol?
+
+    static let controller = SyncPasteboardController(
+        clipboard: MacClipboard(),
+        store: DefaultsStampStore(),
+        scheduleExpiry: { delay, action in
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: action)
+        },
+        registerExit: { action in
+            exitObserver = NotificationCenter.default.addObserver(
+                forName: NSApplication.willTerminateNotification,
+                object: nil,
+                queue: .main
+            ) { _ in action() }
+        }
+    )
     #endif
 
     static func copySensitive(_ text: String) {
         #if os(macOS)
-        let board = NSPasteboard.general
-        board.clearContents()
-        let item = NSPasteboardItem()
-        item.setString(text, forType: .string)
-        item.setString("", forType: concealed)
-        board.writeObjects([item])
-        let token = UUID().uuidString
-        UserDefaults.standard.set(board.changeCount, forKey: stampKey)
-        UserDefaults.standard.set(token, forKey: tokenKey)
-        DispatchQueue.main.asyncAfter(deadline: .now() + SyncPasteboard.expirySeconds) { expire(onlyIf: token) }
+        controller.copySensitive(text, expirySeconds: expirySeconds)
         #else
         UIPasteboard.general.setItems([[UTType.plainText.identifier: text]],
                                       options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(SyncPasteboard.expirySeconds)])
         #endif
     }
 
-    /// 到期：只在记录的令牌仍是这次复制的、剪贴板也没被替换时清空；之后又复制过就什么都不做。
-    static func expire(onlyIf token: String) {
-        #if os(macOS)
-        guard UserDefaults.standard.string(forKey: tokenKey) == token else { return }
-        expireNow()
-        #endif
-    }
-
     /// 剪贴板仍是本 App 最近一次写入的同步码就清空（退出、启动、到期时调用）。
     static func expireNow() {
         #if os(macOS)
-        guard let stamp = UserDefaults.standard.object(forKey: stampKey) as? Int else { return }
-        let board = NSPasteboard.general
-        if board.changeCount == stamp { board.clearContents() }
-        UserDefaults.standard.removeObject(forKey: stampKey)
-        UserDefaults.standard.removeObject(forKey: tokenKey)
+        controller.expireNow()
         #endif
     }
 
     /// 启动时：上次进程留下、没来得及清的同步码（崩溃、被杀）。changeCount 在一次登录会话内跨进程有效。
-    static func expireLeftover() { expireNow() }
+    static func expireLeftover() {
+        #if os(macOS)
+        controller.expireLeftover()
+        #endif
+    }
 }

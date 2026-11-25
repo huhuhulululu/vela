@@ -2,7 +2,7 @@
 import Foundation
 import XCTest
 #if SWIFT_PACKAGE
-import VelaCore
+@testable import VelaCore
 @testable import VelaSync
 #endif
 
@@ -102,7 +102,7 @@ final class SyncJoinRealFilesTests: XCTestCase {
             self.dir = dir
             sink = FileSink(dir: dir, settings: settings)
             store = HookedStore(NoopStore())
-            journal = FileJoinJournal(dir: dir, files: [], settingKeys: [], readSettings: { [:] }, writeSettings: { _ in })
+            journal = FileJoinJournal(dir: dir, files: [], settingKeys: [], readSettings: { [:] }, writeSettings: { _ in true })
             service = SyncService(env: SyncService.Environment(stateStore: store, keyStore: keys, makeTransport: { _, _ in ScriptedTransport() }))
             restart()
         }
@@ -116,7 +116,10 @@ final class SyncJoinRealFilesTests: XCTestCase {
             journal = FileJoinJournal(dir: snapshotDir, files: [sink.curationStore.url, sink.tasteStore.url],
                                       settingKeys: ["publicOnly", "infoAlwaysOn"],
                                       readSettings: { settings.values },
-                                      writeSettings: { values in for (k, v) in values { settings.values[k] = v } })
+                                      writeSettings: { values in
+                                          for (k, v) in values { settings.values[k] = v }
+                                          return true
+                                      })
             let transport = t
             service = SyncService(env: SyncService.Environment(
                 stateStore: store, keyStore: keys, makeTransport: { _, _ in transport }, journal: journal,
@@ -462,6 +465,42 @@ final class SyncJoinRealFilesTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: r.snapshotDir.appendingPathComponent(FileJoinJournal.completeMarker).path))
         XCTAssertTrue(r.journal.discard())
         XCTAssertEqual(r.journal.status, .none)
+    }
+
+    // MARK: 坏文件只读清除后不重启即可重新开启
+
+    /// 坏文件改名隔离失败让底层 `SyncStateFileStore` 置上只读标记后，用户「关闭同步」清除成功须复位只读标记，
+    /// 不重启 App（沿用同一个 `SyncService` 与存储实例）即可重新开启同步。
+    func testReadOnlyCorruptedStateReenablesAfterDisableWithoutRestart() async throws {
+        let r = try rig()
+        try Data("{not json".utf8).write(to: r.stateURL)
+        r.keys.entry = SyncKeychainEntry(key: ServiceFixture.key, dev: 7, blobID: ServiceFixture.keys.blobID)
+        r.configureBacking = { store in
+            // 注入改名隔离失败（不依赖运行用户与目录权限位），直接置上底层只读标记。
+            store.inner.moveItem = { _, _ in throw CocoaError(.fileWriteNoPermission) }
+        }
+        r.restart()
+        let started = await r.service.start(local: { r.sink.local }, sink: r.sink)
+        XCTAssertEqual(started, .attention(.stateCorrupted))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: r.stateURL.path), "前提：改名隔离失败，坏文件留在原处")
+
+        let probe = SyncState(phase: .creating, origin: ServiceFixture.origin, blobID: ServiceFixture.keys.blobID, clock: SyncClock(dev: 7))
+        XCTAssertFalse(r.backing.save(probe), "前提：底层只读标记已置上")
+        // 注入删除失败：关闭失败时只读标记不得复位。
+        let realRemove = r.backing.inner.removeItem
+        r.backing.inner.removeItem = { _ in throw CocoaError(.fileWriteNoPermission) }
+        XCTAssertEqual(r.service.disable(sink: r.sink), .storageFailed)
+        r.backing.inner.removeItem = realRemove
+        XCTAssertFalse(r.backing.save(probe), "删除未成功，只读标记不得复位")
+        // 不调用 r.restart()：同一进程内关闭成功后直接重新开启。
+        XCTAssertEqual(r.service.disable(sink: r.sink), .done)
+        XCTAssertNil(r.keys.entry)
+        r.t.gets = [.notFound(epoch: ServiceFixture.epoch, now: 1_800_000_000_000)]
+        r.t.puts = [.stored(ver: 1, epoch: ServiceFixture.epoch, now: 1_800_000_000_000)]
+        guard case .created = await r.service.create(origin: ServiceFixture.origin, local: r.sink.local) else {
+            return XCTFail("清除损坏状态后不重启应能重新开启")
+        }
+        XCTAssertTrue(r.service.isActive)
     }
 }
 #endif
