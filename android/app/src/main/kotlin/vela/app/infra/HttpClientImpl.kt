@@ -27,10 +27,15 @@ import vela.core.base.net.HTTPResult
  * 排队、连接、上传、等响应头共用一个超时；响应头和正文每到一段数据，期限从那一刻起再推后一个超时。
  * 另有总上限 [TOTAL_CAP_FACTOR] 倍超时，从进入 [send] 起算，滴流再慢也到点掐断。
  */
-class HttpClientImpl : HTTPClient {
+class HttpClientImpl internal constructor(
+    /** 测试注入点：按地址开连接。正式路径就是 [URL.openConnection]。 */
+    private val open: (String) -> HttpURLConnection,
+) : HTTPClient {
+    constructor() : this({ url -> URL(url).openConnection() as HttpURLConnection })
+
     override suspend fun send(request: HTTPRequest): HTTPResult {
         val deadline = RequestDeadline.after(resolveTimeoutMillis(request.timeoutSeconds))
-        val connection = URL(request.url).openConnection() as HttpURLConnection
+        val connection = open(request.url)
         val call = LiveCall(connection, deadline)
         val guard = DeadlineGuard(deadline) { call.expire() }
         guard.start()
@@ -178,14 +183,6 @@ class HttpClientImpl : HTTPClient {
             }
         }
 
-        fun remainingMillis(now: Long = System.nanoTime()): Int {
-            val left = deadlineNanos - now
-            if (left <= 0L) throw SocketTimeoutException("deadline")
-            val millis = left / 1_000_000L
-            if (millis < 1L) return 1
-            return millis.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-        }
-
         fun expired(now: Long = System.nanoTime()): Boolean = now >= deadlineNanos
 
         fun checkpoint() {
@@ -262,12 +259,15 @@ class HttpClientImpl : HTTPClient {
             deadline: RequestDeadline,
             call: LiveCall,
         ): HTTPResult {
+            // 传输层一律用完整空闲超时：安卓建连时就把读超时复制进 socket，之后改不动，
+            // 不能把排队后剩下的期限传下去。排队、等响应头与总上限由看门线程按 [deadline] 掐断。
+            val idle = resolveTimeoutMillis(request.timeoutSeconds)
             fun arm() {
                 call.checkpoint()
-                val millis = deadline.remainingMillis()
-                connection.connectTimeout = millis
-                connection.readTimeout = millis
-                applySocketTimeout(connection, millis)
+                deadline.checkpoint()
+                connection.connectTimeout = idle
+                connection.readTimeout = idle
+                applySocketTimeout(connection, idle)
             }
             arm()
             connection.instanceFollowRedirects = true
@@ -286,14 +286,13 @@ class HttpClientImpl : HTTPClient {
             val status = connection.responseCode
             deadline.progress()
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-            val data = stream?.use { readBounded(it, connection, deadline, call) } ?: ByteArray(0)
+            val data = stream?.use { readBounded(it, deadline, call) } ?: ByteArray(0)
             call.checkpoint()
             return HTTPResult(status = status, data = data, headers = readHeaders(connection))
         }
 
         private fun readBounded(
             stream: InputStream,
-            connection: HttpURLConnection,
             deadline: RequestDeadline,
             call: LiveCall,
         ): ByteArray {
@@ -301,9 +300,7 @@ class HttpClientImpl : HTTPClient {
             val buf = ByteArray(8 * 1024)
             while (true) {
                 call.checkpoint()
-                val millis = deadline.remainingMillis()
-                connection.readTimeout = millis
-                applySocketTimeout(connection, millis)
+                deadline.checkpoint()
                 val n = stream.read(buf)
                 if (n < 0) break
                 out.write(buf, 0, n)

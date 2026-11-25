@@ -108,6 +108,82 @@ class StageOpeningRetryTest {
         }
     }
 
+    /** 首页失败的同时切了来源：旧加载不重试，也不覆盖新来源的结果。 */
+    @Test
+    fun testSourceSwitchDuringFailedOpeningDoesNotRetryOrOverwrite() = harness.onStage {
+        var guessHits = 0
+        var allHits = 0
+        lateinit var stage: StageViewModel
+        val http = object : HTTPClient {
+            override suspend fun send(request: HTTPRequest): HTTPResult {
+                if (!request.url.contains("/api/ts/roomlist/room-list/")) return HTTPResult(404, ByteArray(0), emptyMap())
+                allHits += 1
+                if (request.url.contains("limit=40")) {
+                    return HTTPResult(200, catalogJson(listOf("pop1", "pop2")), emptyMap())
+                }
+                guessHits += 1
+                val before = stage.loadGeneration
+                stage.dispatch(StageIntent.SelectSource(FeedSource.popular))
+                repeat(1_000) { if (stage.loadGeneration == before) kotlinx.coroutines.yield() }
+                assertTrue("新来源的加载应已开始", stage.loadGeneration != before)
+                throw SocketTimeoutException("deadline")
+            }
+        }
+        stage = StageViewModel(settings, http, directory, clock, harness.dispatcher)
+        try {
+            stage.awaitLoads()
+            stage.awaitUntil { it.currentUsername == "pop1" && !it.loading }
+            assertEquals("旧来源不应重试", 1, guessHits)
+            // 重试按当前来源拼地址，只数旧来源看不出来：总请求必须恰为「失败的一次 + 新来源一次」。
+            assertEquals("旧加载不应再发任何目录请求", 2, allHits)
+            assertEquals(FeedSource.popular, stage.state.value.source)
+            assertEquals("pop1", stage.state.value.currentUsername)
+            assertNull(stage.state.value.catalogError)
+        } finally {
+            stage.close()
+        }
+    }
+
+    /**
+     * 首页失败的同时进后台：按 LifecycleWiring 的顺序（记恢复意图 → 作废代次 → 停共享任务）。
+     * 不发第二次请求、不置错误；回前台后按恢复意图重新加载出房间。
+     */
+    @Test
+    fun testBackgroundDuringFailedOpeningReloadsOnForegroundWithoutError() = harness.onStage {
+        var hits = 0
+        var intent: vela.core.lifecycle.PhoneResumeIntent? = null
+        lateinit var stage: StageViewModel
+        val http = object : HTTPClient {
+            override suspend fun send(request: HTTPRequest): HTTPResult {
+                if (!request.url.contains("/api/ts/roomlist/room-list/")) return HTTPResult(404, ByteArray(0), emptyMap())
+                hits += 1
+                if (hits == 1) {
+                    intent = stage.captureResumeIntent()
+                    stage.invalidateGenerations()
+                    stage.cancelSharedWork()
+                    throw SocketTimeoutException("deadline")
+                }
+                return HTTPResult(200, catalogJson(listOf("alpha")), emptyMap())
+            }
+        }
+        stage = StageViewModel(settings, http, directory, clock, harness.dispatcher)
+        try {
+            stage.awaitLoads()
+            assertEquals("后台期间不应发第二次请求", 1, hits)
+            assertEquals(vela.core.lifecycle.PhoneResumeIntent.RELOAD, intent)
+            assertNull("进后台不应留下错误页", stage.state.value.catalogError)
+            assertFalse(stage.state.value.loading)
+            stage.resumeGenerations()
+            stage.redoReload()
+            stage.awaitLoads()
+            assertEquals(2, hits)
+            assertEquals("alpha", stage.state.value.currentUsername)
+            assertNull(stage.state.value.catalogError)
+        } finally {
+            stage.close()
+        }
+    }
+
     private sealed interface Step
     private data class Fail(val error: Exception) : Step
     private data class Body(val status: Int, val text: String) : Step

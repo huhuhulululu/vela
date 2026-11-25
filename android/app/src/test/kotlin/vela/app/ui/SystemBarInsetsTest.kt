@@ -86,6 +86,16 @@ class SystemBarInsetsTest {
         }
     }
 
+    /** 弹出键盘（底部 300）时，筛选面板的搜索框与标签框不被键盘挡住。 */
+    @Test
+    fun testFilterFieldsStayAboveTheKeyboard() {
+        val bars = portrait.copy(imeBottom = 300)
+        showWithBars(testStage(pagedState(listOf("a", "b"), index = 0) { copy(surface = StageSurface.Filters) }), bars)
+        assertBottom("search-field", atMost = SCREEN_H - bars.imeBottom)
+        assertBottom("tag-field", atMost = SCREEN_H - bars.imeBottom)
+        assertTop("search-field", atLeast = bars.statusTop)
+    }
+
     @Test
     fun testDualStagePanesClearSystemBars() {
         val stage = testStage(dualState(listOf("a", "b", "c"), primary = "a", secondary = "b"))
@@ -119,6 +129,7 @@ class SystemBarInsetsTest {
         val navBottom: Int = 0,
         val cutoutLeft: Int = 0,
         val navRight: Int = 0,
+        val imeBottom: Int = 0,
     )
 
     private var root: View? = null
@@ -138,6 +149,8 @@ class SystemBarInsetsTest {
             .setInsets(WindowInsetsCompat.Type.statusBars(), Insets.of(0, bars.statusTop, 0, 0))
             .setInsets(WindowInsetsCompat.Type.navigationBars(), Insets.of(0, 0, bars.navRight, bars.navBottom))
             .setInsets(WindowInsetsCompat.Type.displayCutout(), Insets.of(bars.cutoutLeft, 0, 0, 0))
+            .setInsets(WindowInsetsCompat.Type.ime(), Insets.of(0, 0, 0, bars.imeBottom))
+            .setVisible(WindowInsetsCompat.Type.ime(), bars.imeBottom > 0)
             .build()
         compose.runOnIdle { ViewCompat.dispatchApplyWindowInsets(root!!, insets) }
         compose.waitForIdle()

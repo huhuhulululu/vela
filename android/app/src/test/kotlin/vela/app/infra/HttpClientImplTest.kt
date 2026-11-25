@@ -241,6 +241,86 @@ class HttpClientImplTest {
         }
     }
 
+    /**
+     * 安卓的 HttpURLConnection 在建连时把读超时复制进 socket，之后再改 readTimeout 不生效。
+     * 假连接照这个行为：建连那一刻锁定读超时，正文两段之间的间隔超过它就抛读超时。
+     * 排队吃掉大半期限后，传给连接的读超时仍须是完整空闲超时，正文间隔小于它就能收完。
+     */
+    @Test(timeout = 15_000)
+    fun testQueuedRequestStillGetsTheFullIdleReadTimeoutOnTheConnection() {
+        val connection = AndroidLikeConnection(gapsMs = listOf(500, 500, 500, 500))
+        saturateIo {
+            val client = HttpClientImpl { connection }
+            val scope = CoroutineScope(SupervisorJob())
+            val result = AtomicReference<Result<vela.core.base.net.HTTPResult>?>(null)
+            val job = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                result.set(runCatching { client.send(HTTPRequest(url = "http://127.0.0.1:9/queued", timeoutSeconds = 1.0)) })
+            }
+            Thread.sleep(700)
+            releaseSaturatedIo()
+            runBlocking { withTimeout(8_000) { job.join() } }
+            scope.cancel()
+        }
+        assertEquals("建连时传给连接的读超时应是完整空闲超时", 1_000, connection.lockedReadTimeout)
+        assertEquals("建连时传给连接的连接超时应是完整空闲超时", 1_000, connection.lockedConnectTimeout)
+        assertTrue("所有读超时设置都应是完整空闲超时 ${connection.readTimeouts}", connection.readTimeouts.all { it == 1_000 })
+        assertEquals(4 * 16, connection.delivered)
+    }
+
+    /** 模仿安卓：建连时锁定读超时；正文按给定间隔逐段到达，间隔超过锁定值即读超时。 */
+    private class AndroidLikeConnection(private val gapsMs: List<Int>) :
+        HttpURLConnection(URL("http://127.0.0.1:9/")) {
+        val readTimeouts = java.util.Collections.synchronizedList(mutableListOf<Int>())
+        @Volatile var lockedReadTimeout: Int = -1
+        @Volatile var lockedConnectTimeout: Int = -1
+        @Volatile var delivered: Int = 0
+
+        override fun setReadTimeout(timeout: Int) {
+            readTimeouts.add(timeout)
+            super.setReadTimeout(timeout)
+        }
+
+        override fun connect() {
+            if (connected) return
+            lockedReadTimeout = readTimeout
+            lockedConnectTimeout = connectTimeout
+            connected = true
+        }
+
+        override fun getResponseCode(): Int {
+            connect()
+            return 200
+        }
+
+        override fun getHeaderFields(): Map<String, List<String>> = emptyMap()
+
+        override fun getInputStream(): java.io.InputStream {
+            connect()
+            return object : java.io.InputStream() {
+                private var index = 0
+                override fun read(): Int = error("unused")
+                override fun read(b: ByteArray, off: Int, len: Int): Int {
+                    if (index >= gapsMs.size) return -1
+                    val gap = gapsMs[index]
+                    if (gap > lockedReadTimeout) {
+                        Thread.sleep(lockedReadTimeout.toLong())
+                        throw java.net.SocketTimeoutException("Read timed out (locked at connect)")
+                    }
+                    Thread.sleep(gap.toLong())
+                    index += 1
+                    val n = minOf(16, len)
+                    java.util.Arrays.fill(b, off, off + n, 7)
+                    delivered += n
+                    return n
+                }
+            }
+        }
+
+        override fun disconnect() = Unit
+
+        override fun usingProxy(): Boolean = false
+    }
+
     @Test(timeout = 15_000)
     fun testQueuedTimeCountsAgainstTheTotalDeadline() {
         val hits = AtomicInteger()
