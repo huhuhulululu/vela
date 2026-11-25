@@ -16,3 +16,4 @@ Tests/VelaCoreTests/LaneSelectionTests.swift	testSearchInstallExitAndReloadChain
 Tests/VelaCoreTests/LaneSelectionTests.swift	testBlockingPrimaryYieldsPastBothOtherLanes	不移植：三窗（安卓无三窗里程碑，编排者 2026-11-24 裁决）
 Tests/VelaCoreTests/LaneSelectionTests.swift	testRevealNewTargetGoesToPrimaryAndKeepsOthersDistinct	不移植：三窗（安卓无三窗里程碑，编排者 2026-11-24 裁决）
 Tests/VelaCoreTests/LaneSelectionTests.swift	testTwoLaneSnapshotWithoutTertiaryKeepsDualBehavior	不移植：三窗（安卓无三窗里程碑，编排者 2026-11-24 裁决）
+Tests/VelaCoreTests/LaneSettlementTests.swift	testEndReasonLogTextPin	不移植：Apple 专属（钉住 Swift LaneSettlement.EndReason.label 日志文字，Kotlin LaneEndReason 无对应方法）

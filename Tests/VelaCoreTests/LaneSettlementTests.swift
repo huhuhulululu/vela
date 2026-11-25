@@ -174,4 +174,20 @@ final class LaneSettlementTests: XCTestCase {
         XCTAssertEqual(dailyMisses(boundary), 0)
         XCTAssertFalse(atThree.resumesAsNewDwell)
     }
+
+    func testEndReasonLogTextPin() {
+        let cases: [(LaneSettlement.EndReason, String)] = [
+            (.swipe, "swipe"),
+            (.autoSkip, "autoSkip"),
+            (.block, "block"),
+            (.background, "background"),
+            (.layoutChange, "layoutChange"),
+            (.sourceChange, "sourceChange"),
+            (.failed, "failed"),
+            (.notInterested, "notInterested"),
+        ]
+        for (reason, expected) in cases {
+            XCTAssertEqual(reason.label, expected)
+        }
+    }
 }

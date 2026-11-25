@@ -168,7 +168,7 @@ extension StageModel {
     /// 停留结算（进后台）：每路结算到此刻，学习与账本照常记。
     func settleDwell(_ reason: LaneSettlement.EndReason) {
         endView(reason: reason)
-        let text = String(describing: reason)
+        let text = reason.label
         Self.lifecycleLog.info("dwell settled reason=\(text, privacy: .public)")
     }
 
@@ -211,7 +211,7 @@ extension StageModel {
         releaseDegradedHold(lane, .foregroundResume)
         requestPlay(on: lane)
         let name = Self.label(lane.id.role)
-        let doing = String(describing: activity)
+        let doing = activity.label
         Self.lifecycleLog.info("lane resume lane=\(name, privacy: .public) activity=\(doing, privacy: .public)")
     }
 

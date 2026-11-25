@@ -104,6 +104,7 @@ object FavoriteResolver {
         catalog: KnownCatalog,
         cache: FavoriteCache,
         now: Instant,
+        mode: vela.core.sites.SiteMode? = null,
     ): FavoritePlan {
         val known = HashMap<String, KnownCatalog.Entry>()
         for (entry in catalog.usable(now)) {
@@ -115,10 +116,11 @@ object FavoriteResolver {
                 known[key] = entry
             }
         }
+        val scoped = mode?.filterFavorites(favorites) ?: favorites
         val resolved = LinkedHashMap<String, FavoriteStatus>()
         val fromCatalog = LinkedHashMap<String, FavoritePlan.Stamped>()
         val pending = ArrayList<String>()
-        for (name in favorites) {
+        for (name in scoped) {
             val key = Curation.key(name)
             if (resolved[key] != null || pending.any { Curation.key(it) == key }) continue
             val cached = cache.fresh(name, now)
@@ -127,7 +129,7 @@ object FavoriteResolver {
             } else {
                 val entry = known[key]
                 if (entry != null) {
-                    val status = if (entry.room.show.isPlayable) {
+                    val status = if (entry.room.isCatalogPlayable) {
                         FavoriteStatus.Online(entry.room)
                     } else {
                         FavoriteStatus.Offline

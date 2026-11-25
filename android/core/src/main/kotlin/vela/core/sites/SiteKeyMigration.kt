@@ -62,8 +62,16 @@ object SiteKeyMigration {
         return Report(migrated, skipped, failed)
     }
 
-    /** 用 `.pre-sites` 备份覆盖回原文件。没有备份的记入 [Report.failed]。 */
-    fun rollback(curation: Path, taste: Path, ledger: Path): Report {
+    /** 用 `.pre-sites` 备份原子写回原文件；读或写失败都不删现有文件，记入 [Report.failed]。`read` 与 `write` 仅测试注入失败用。 */
+    fun rollback(
+        curation: Path,
+        taste: Path,
+        ledger: Path,
+        read: ((Path) -> ByteArray)? = null,
+        write: ((ByteArray, Path) -> Unit)? = null,
+    ): Report {
+        val reader = read ?: Files::readAllBytes
+        val writer = write ?: ::writeAtomic
         val migrated = ArrayList<Path>(3)
         val failed = ArrayList<Path>(3)
         for (url in listOf(curation, taste, ledger)) {
@@ -73,8 +81,8 @@ object SiteKeyMigration {
                 continue
             }
             try {
-                if (Files.exists(url)) Files.delete(url)
-                Files.copy(backup, url)
+                val data = reader(backup)
+                writer(data, url)
                 migrated.add(url)
             } catch (_: Exception) {
                 failed.add(url)

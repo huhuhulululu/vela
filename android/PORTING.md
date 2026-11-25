@@ -108,7 +108,7 @@ Tests/VelaCoreTests/ShortcutSearchTests.swift	testPlainKeysOnlyWhenNothingElseOw
 - 理由里写 `replaced-by:<Kotlin 测试名>`，例如 `replaced-by:vela.app.playback.LaneDataSourceTest#testTwoSourcesServeConcurrently`。没有单独的替代列。`parity.py` 会核验每个 `replaced-by:` 指向的 Kotlin 测试确实存在、已执行且通过。
 - 全局 `android/parity/skip.tsv` 只放不归属任何组的整文件。有组的测试不要写进来。
 
-组名跟校验参数一致：`l0a` `l0b` `hls` `lifecycle` `feed` `taste` `ledger` `recommend` `curation` `selection` `sync` `audio` `cross`。混在一个 Swift 文件里的测试，各组只对自己的那几条负责（`VelaCoreTests.swift`、`PlaybackFlowFixTests.swift`）。工具内置了这份归属；`--all` 在某一组还没有 `skip-<组>.tsv` / `split-<组>.tsv` 时不要求该组已经移植完，这样脚手架和中间波次的 CI 可以是绿的。某一组的表一旦出现，`--all` 就会把该组全部 Swift 测试拿来对。
+组名跟校验参数一致：`l0a` `l0b` `hls` `lifecycle` `stream` `feed` `taste` `ledger` `recommend` `curation` `selection` `sites` `sync` `audio` `cross`。混在一个 Swift 文件里的测试，各组只对自己的那几条负责（`VelaCoreTests.swift`、`PlaybackFlowFixTests.swift`）。工具内置了这份归属；`--all` 在某一组还没有 `skip-<组>.tsv` / `split-<组>.tsv` 时不要求该组已经移植完，这样脚手架和中间波次的 CI 可以是绿的。某一组的表一旦出现，`--all` 就会把该组全部 Swift 测试拿来对。
 
 命令（在仓库根或 `android/` 下都可以，脚本按自己的位置找仓库）：
 
@@ -120,7 +120,7 @@ python3 -I android/tools/parity.py --all
 
 从 `android/` 目录跑 `python3 -I tools/parity.py --group l0a` 同样可以。
 
-负样本在 `android/tools/test_parity.py`：缺映射、执行数为 0、`deferred:C9` 在组内算过、`--all` 未消化则失败、消化后通过、非 `deferred:C9` 前缀失败，以及 `replaced-by:` 指向缺失/跳过/失败用例时报错。
+负样本在 `android/tools/test_parity.py`：缺映射、执行数为 0、`deferred:C9` 在组内算过、`--all` 未消化则失败、消化后通过、未放行的非 `deferred:C9` 前缀失败（仅放行编排者裁决的 `deferred:sites-app` 与 `deferred:sites-sync`，见文末「sites 暂缓项（欠账）」），以及 `replaced-by:` 指向缺失/跳过/失败用例时报错。
 
 ### 预先要标 `deferred:C9` 的条目
 
@@ -233,3 +233,33 @@ FeedCache 的随机性质测试只断言不变量。Kotlin 用同一个种子，
 - 画中画与后台静默：进入画中画（自动画中画或 Android 12+ `DidStart`）零同步网络请求并取消排队去抖任务；非画中画后台严格按 `sync.md` §11.3 仅在 `gen > pushedGen` 且未硬退避时尽力推一次，后台滞留期间迟到触发不联网。
 - parity 清零与核验补强：29 条 `deferred:S6` 全部清零（补齐 `SyncParityTest` 14 条与 `split-sync.tsv` 映射，仅 `SyncLiveServerTests#testLiveServerEndToEnd` 按实网测试规范登记非 deferred 跳过并指向本地端到端替代测试）；`parity.py` 现已核验所有 `replaced-by:` 指向的 Kotlin 测试确实存在、已执行且通过。
 
+## sites 暂缓项（欠账）
+
+`android/parity/skip*.tsv` 里理由以 `deferred:sites-app` 或 `deferred:sites-sync` 开头的行，是安卓侧确实缺实现、不应写成 Apple 专属跳过的多站点用例（共 23 条）：
+
+- `deferred:sites-app`（19 条）：安卓 `:app` 尚未接入站点模式、Cam4 起播/站点头/严格主列表失败、启动键迁移、直达前缀解析、切站回滚、重试失效流缓存与舞台空态文案接线（含 `LaneHub`/`LaneHttpHeaders` 按源传站点 Referer/Origin）。
+  1. `Tests/VelaRelayTests/RelayMultiSourceTests.swift#testEachSourceSendsItsOwnSiteHeaders`
+  2. `Tests/VelaPhoneTests/SiteWiringTests.swift#testSiteModeDefaultsToChaturbateAndIsRemembered`
+  3. `Tests/VelaPhoneTests/SiteWiringTests.swift#testStartupMigratesStoredKeysOnceAndKeepsData`
+  4. `Tests/VelaPhoneTests/SiteWiringTests.swift#testSameNameOnTwoSitesCanShareTheStageButNeverOneRoomTwice`
+  5. `Tests/VelaPhoneTests/SiteWiringTests.swift#testBlockingCam4RoomLeavesTheChaturbateNamesake`
+  6. `Tests/VelaPhoneTests/SiteWiringTests.swift#testCam4RoomResolvesThroughItsAdapter`
+  7. `Tests/VelaPhoneTests/SiteWiringTests.swift#testMediaHeadersAndStrictMasterFollowTheRoomSite`
+  8. `Tests/VelaPhoneTests/SiteWiringTests.swift#testDelistStateNeedsConfirmedNonPublicStatusPerSite`
+  9. `Tests/VelaPhoneTests/SiteWiringTests.swift#testSiteKeyMigrationWaitsForJoinSnapshotRepair`
+  10. `Tests/VelaPhoneTests/SiteWiringTests.swift#testDeferredMigrationRecordsNoVersion`
+  11. `Tests/VelaPhoneTests/SiteWiringTests.swift#testSyncProjectionKeepsCam4Entries`
+  12. `Tests/VelaPhoneTests/SiteWiringTests.swift#testDirectRoomFollowsPrefixThenSiteMode`
+  13. `Tests/VelaPhoneTests/SiteWiringTests.swift#testCam4FavoritesPageOnlyQueriesCam4AndSkipsChaturbate`
+  14. `Tests/VelaPhoneTests/SiteWiringTests.swift#testCam4BareSearchFocusesExistingRoomAndPreservesMetadata`
+  15. `Tests/VelaPhoneTests/SiteWiringTests.swift#testRetryAfterChallengeSiteSearchUsesModeDirectFallback`
+  16. `Tests/VelaPhoneTests/SiteWiringTests.swift#testEmptyMessageCam4FavoritesAndSearchNotOverridden`
+  17. `Tests/VelaPhoneTests/SiteWiringTests.swift#testChooseSiteFailureRollsBackModeAndDirectory`
+  18. `Tests/VelaPhoneTests/SiteWiringTests.swift#testDirectSearchWithSitePrefixKeepsVisibleAndPreservesMetadata`
+  19. `Tests/VelaPhoneTests/SiteWiringTests.swift#testRetryPlaybackInvalidatesSiteStreamCache`
+- `deferred:sites-sync`（4 条）：安卓 `:core` 的 `SyncKeys`/`SyncProjection`/`SyncMigration` 尚未支持 `c4:` 多站点房间键归一化与投影。
+  20. `Tests/VelaCoreTests/SyncSitesTests.swift#testRoomKeyUsesSiteNormalization`
+  21. `Tests/VelaCoreTests/SyncSitesTests.swift#testCam4FavoritesAndBlocksRoundTripWithoutLoss`
+  22. `Tests/VelaCoreTests/SyncSitesTests.swift#testProjectionKeepsCam4AndSkipsUnknownSites`
+  23. `Tests/VelaCoreTests/SyncSitesTests.swift#testLegacyBareLocalNamesMigrateAsChaturbate`
+- 待对应安卓实现落地后必须补齐 Kotlin 测试并删掉这些暂缓行；收尾时 `grep -rn 'deferred:sites-' android/parity` 必须无输出。

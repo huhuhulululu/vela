@@ -32,6 +32,11 @@
     },
     {
       "username": "bare_min"
+    },
+    {
+      "username": "public_http",
+      "privateRoom": false,
+      "hlsPreviewUrl": "http://insecure.example/public.m3u8"
     }
   ],
   "totalCount": 40

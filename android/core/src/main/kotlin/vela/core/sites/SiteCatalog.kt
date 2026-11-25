@@ -25,12 +25,12 @@ data class MixedCursor(
     val isFinished: Boolean
         get() = offsets.isNotEmpty() && offsets.keys.all { it in ended }
 
-    fun withPage(site: SiteID, page: CatalogPage): MixedCursor {
-        val stillOpen = page.rooms.isNotEmpty() && page.nextOffset < page.total
+    fun withPage(site: SiteID, page: CatalogPage, previous: Int = offsets[site] ?: 0): MixedCursor {
+        val endedNow = page.nextOffset >= page.total || page.nextOffset <= previous
         return copy(
             offsets = offsets + (site to page.nextOffset),
             totals = totals + (site to page.total),
-            ended = if (stillOpen) ended - site else ended + site,
+            ended = if (endedNow) ended + site else ended - site,
         )
     }
 }
@@ -55,20 +55,32 @@ object SiteCatalog {
         registry: SiteRegistry,
     ): SiteFetch = coroutineScope {
         val sites = mode.sites
-        val results = sites.filter { it !in cursor.ended }.map { site ->
-            async {
-                val siteQuery = queryFor(site, mode, query, cursor)
-                val adapter = registry.adapter(site)
-                    ?: return@async site to Result.failure(SiteError.UnknownSite(site.wire))
-                site to try {
-                    Result.success(adapter.fetchDirectory(siteQuery))
-                } catch (error: CancellationException) {
-                    throw error
-                } catch (error: Throwable) {
-                    Result.failure(error)
-                }
+        val unsupported = HashSet<SiteID>()
+        val tasks = ArrayList<kotlinx.coroutines.Deferred<Pair<SiteID, Result<CatalogPage>>>>()
+        for (site in sites) {
+            if (site in cursor.ended) continue
+            val siteQuery = queryFor(site, mode, query, cursor)
+            val adapter = registry.adapter(site)
+            if (mode == SiteMode.mixed && adapter != null && !adapter.supportsDirectory(siteQuery)) {
+                unsupported.add(site)
+                continue
             }
-        }.awaitAll().toMap()
+            tasks.add(
+                async {
+                    if (adapter == null) {
+                        return@async site to Result.failure<CatalogPage>(SiteError.UnknownSite(site.wire))
+                    }
+                    site to try {
+                        Result.success(adapter.fetchDirectory(siteQuery))
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Throwable) {
+                        Result.failure(error)
+                    }
+                },
+            )
+        }
+        val results = tasks.awaitAll().toMap()
 
         val failures = LinkedHashMap<SiteID, Throwable>()
         var firstError: Throwable? = null
@@ -78,20 +90,30 @@ object SiteCatalog {
             if (firstError == null) firstError = error
         }
         val successes = sites.filter { results[it]?.isSuccess == true }
-        if (successes.isEmpty() && firstError != null && !sites.all { it in cursor.ended }) {
+        if (successes.isEmpty() && firstError != null) {
             throw firstError
         }
 
-        var next = cursor
+        var next = if (unsupported.isEmpty()) cursor else cursor.copy(ended = cursor.ended + unsupported)
         val lists = ArrayList<List<Room>>()
         for (site in sites) {
             val page = results[site]?.getOrNull() ?: continue
-            next = next.withPage(site, page)
+            val previous = if (mode == SiteMode.mixed) (cursor.offsets[site] ?: 0) else maxOf(query.offset, 0)
+            next = next.withPage(site, page, previous)
             lists.add(page.rooms)
         }
         val merged = interleave(lists)
-        val total = sites.sumOf { next.totals[it] ?: 0 }
         val nextOffset = sites.sumOf { next.offsets[it] ?: 0 }
+        val total = if (mode == SiteMode.mixed) {
+            val sum = sites.sumOf { site ->
+                val siteTotal = next.totals[site] ?: 0
+                val siteOffset = next.offsets[site] ?: 0
+                if (site in next.ended) maxOf(siteTotal, siteOffset) else siteTotal
+            }
+            if (!next.isFinished && sum <= nextOffset) nextOffset + 1 else sum
+        } else {
+            sites.sumOf { next.totals[it] ?: 0 }
+        }
         SiteFetch(
             page = CatalogPage(rooms = merged, total = total, nextOffset = nextOffset),
             cursor = next,

@@ -55,12 +55,12 @@ struct RoomCanvas: View {
         InfoVisibility.visible(isCurrent: active, alwaysShow: info.alwaysShow, chromeOn: chromeOn)
     }
 
-    private var videoReady: Bool { active && playback.readyUsername == room.username }
+    private var videoReady: Bool { active && playback.readyUsername == room.ref }
 
     /// 只有当前页、这一间正在播、信息块看得见时才做脉冲。停播、信息被隐藏、App 隐藏后停播都要停。
     /// `.id` 用这个条件：条件变假时拆掉旧视图，避免动画值没变、repeatForever 还在跑。
     private var pulseLive: Bool {
-        active && playback.playingUsername == room.username && infoVisible
+        active && playback.playingUsername == room.ref && infoVisible
     }
 
     private var pauseMark: some View {

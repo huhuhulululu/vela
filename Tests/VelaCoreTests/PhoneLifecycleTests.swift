@@ -128,4 +128,17 @@ final class PhoneLifecycleTests: XCTestCase {
         XCTAssertFalse(PhoneLifecycle.attentive(.inactive))
         XCTAssertFalse(PhoneLifecycle.attentive(.background))
     }
+
+    func testLaneActivityLogTextPin() {
+        let cases: [(PhoneLaneActivity, String)] = [
+            (.idle, "idle"),
+            (.firstResolve, "firstResolve"),
+            (.roomSwitch, "roomSwitch"),
+            (.refreshing, "refreshing"),
+            (.playing, "playing"),
+        ]
+        for (activity, expected) in cases {
+            XCTAssertEqual(activity.label, expected)
+        }
+    }
 }

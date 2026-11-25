@@ -29,6 +29,7 @@ GROUPS = (
     "recommend",
     "curation",
     "selection",
+    "sites",
     "sync",
     "audio",
     "cross",
@@ -157,6 +158,15 @@ WHOLE = {
     "Tests/VelaSyncTests/SyncStateBackupTests.swift": "sync",
     "Tests/VelaSyncTests/SyncStatusTextTests.swift": "sync",
     "Tests/VelaSyncTests/SyncTransportLimitsTests.swift": "sync",
+    "Tests/VelaCoreTests/Cam4DirectoryTests.swift": "sites",
+    "Tests/VelaCoreTests/Cam4StreamTests.swift": "sites",
+    "Tests/VelaCoreTests/ChaturbateAdapterTests.swift": "sites",
+    "Tests/VelaCoreTests/RoomKeyTests.swift": "sites",
+    "Tests/VelaCoreTests/SiteCatalogTests.swift": "sites",
+    "Tests/VelaCoreTests/SiteDirectoryTests.swift": "sites",
+    "Tests/VelaCoreTests/SiteStorageTests.swift": "sites",
+    "Tests/VelaCoreTests/SyncSitesTests.swift": "sites",
+    "Tests/VelaPhoneTests/SiteWiringTests.swift": "sites",
 }
 
 PARTIAL = {
@@ -393,8 +403,19 @@ def default_report_dirs(root: Path) -> list[Path]:
     return found
 
 
+ALLOWED_DEFERRED_PREFIXES = ("deferred:sites-app", "deferred:sites-sync")
+
+
 def is_deferred(reason: str) -> bool:
     return reason.strip().startswith("deferred:C9")
+
+
+def is_allowed_deferred(reason: str) -> bool:
+    stripped = reason.strip()
+    return any(
+        stripped == prefix or stripped.startswith(prefix + " ")
+        for prefix in ALLOWED_DEFERRED_PREFIXES
+    )
 
 
 def is_any_deferred(reason: str) -> bool:
@@ -491,7 +512,11 @@ def check_group(
         if any(is_deferred(row.reason) for row in rows):
             continue
         non_c9_deferred = [
-            row for row in rows if is_any_deferred(row.reason) and not is_deferred(row.reason)
+            row
+            for row in rows
+            if is_any_deferred(row.reason)
+            and not is_deferred(row.reason)
+            and not is_allowed_deferred(row.reason)
         ]
         if non_c9_deferred:
             for row in non_c9_deferred:
@@ -575,7 +600,7 @@ def global_skip_problems(skips: list[SkipRow], cases: list[Case]) -> list[str]:
     for row in skips:
         if row.group != "":
             continue
-        if is_any_deferred(row.reason):
+        if is_any_deferred(row.reason) and not is_allowed_deferred(row.reason):
             problems.append(f"未消化的 deferred: {row.test.key} ({row.reason.strip()})")
             continue
         problems.extend(check_replaced_by(row, cases))

@@ -30,13 +30,13 @@ final class SyncProjectionTests: XCTestCase {
 
     func testUnknownSiteKeptButNotProjected() {
         var d = SyncDocument()
-        d.rooms["c4:alice"] = SyncRoom(f: F.reg(5, "+"))
+        d.rooms["xx:alice"] = SyncRoom(f: F.reg(5, "+"))
         d.rooms["cb:alice"] = SyncRoom(b: F.reg(4, "+"))
         let p = SyncProjection(d)
-        XCTAssertEqual(p.favorites.map(\.key), ["c4:alice"])
+        XCTAssertEqual(p.favorites.map(\.key), ["xx:alice"])
         XCTAssertEqual(p.curation.favorites, [])
         XCTAssertEqual(p.curation.blocked, ["alice"])
-        XCTAssertNotNil(SyncMerge.merge(d, .empty).rooms["c4:alice"], "未知前缀照常参与合并")
+        XCTAssertNotNil(SyncMerge.merge(d, .empty).rooms["xx:alice"], "未知前缀照常参与合并")
     }
 
     func testTasteProjectionKeepsEvidenceAndLocalOnly() {

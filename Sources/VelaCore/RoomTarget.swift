@@ -20,7 +20,7 @@ public struct RoomTarget: Equatable, Sendable {
     /// 用户名不分大小写；路或代次不同都算对不上。
     public func matches(laneID: LaneID, username: String, generation: Int) -> Bool {
         self.laneID == laneID
-            && self.username.lowercased() == username.lowercased()
+            && RoomKey.normalizeRef(self.username) == RoomKey.normalizeRef(username)
             && self.generation == generation
     }
 }

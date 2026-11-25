@@ -62,6 +62,16 @@ class WatchLedgerStore(val url: Path) {
             }
         }
 
+    /** 持与 load/save 同一把文件锁执行外部文件操作（如启动迁移），防止与后台保存交错。 */
+    fun <T> withFileLock(body: () -> T): T {
+        lock.lock()
+        try {
+            return body()
+        } finally {
+            lock.unlock()
+        }
+    }
+
     fun save(ledger: WatchLedger): Boolean {
         lock.lock()
         try {

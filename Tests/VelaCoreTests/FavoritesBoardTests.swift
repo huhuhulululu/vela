@@ -134,4 +134,27 @@ final class FavoritesBoardTests: XCTestCase {
         let unknown = FavoritesBoard.make(favorites: ["a"], statuses: [:], catalog: [])
         XCTAssertEqual(unknown.menuSummary(checking: false), "还没有查询状态")
     }
+
+    /// 盲审 6 / 复审 2：无流 Cam4 目录房不算在线；过期缩略图经 usableThumbnail 丢弃而不原样透传。
+    func testCam4CatalogRoomWithoutStreamIsNotOnlineAndExpiredThumbIsDropped() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let expiredThumb = URL(string: "https://snapshots.example/expired.jpg")!
+        let stream = URL(string: "https://preview.example/live/master.m3u8")!
+        let streamless = Room(username: "no_stream", viewers: 15, show: .publicShow, site: .cam4, stream: nil)
+        let expired = Room(
+            username: "old_thumb", viewers: 20, show: .publicShow,
+            thumbnailURL: expiredThumb, site: .cam4, stream: stream,
+            thumbnailExpires: now.addingTimeInterval(10)
+        )
+        let board = FavoritesBoard.make(
+            favorites: ["c4:no_stream", "c4:old_thumb"],
+            statuses: [:],
+            catalog: [streamless, expired],
+            now: now
+        )
+        XCTAssertEqual(board.online.map(\.username), ["c4:old_thumb"])
+        XCTAssertNil(board.online.first?.thumbnailURL, "距过期不足 60 秒的 Cam4 缩略图应丢弃")
+        XCTAssertEqual(board.others.map(\.username), ["c4:no_stream"])
+        XCTAssertEqual(board.others.first?.state, .unknown, "无流 Cam4 房不能回落判在线")
+    }
 }

@@ -204,6 +204,9 @@ class CurationStore(val url: Path) {
         }
     }
 
+    /** 持与 load/save 同一把文件锁执行外部文件操作（如启动迁移），防止与后台保存交错。 */
+    fun <T> withFileLock(body: () -> T): T = lock.withLock(body)
+
     private fun writeAtomic(bytes: ByteArray) {
         val parent = url.parent ?: throw IOException("missing parent")
         Files.createDirectories(parent)

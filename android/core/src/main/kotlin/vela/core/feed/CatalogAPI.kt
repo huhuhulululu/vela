@@ -76,32 +76,52 @@ class CatalogAPI(
      * 连续取最多 [pages] 页并合并。遇到短页、空页或到底即停。
      * 任何一页失败都整体失败，不返回残缺候选池。
      */
-    suspend fun fetchPages(query: CatalogQuery, pages: Int): CatalogPage {
+    suspend fun fetchPages(query: CatalogQuery, pages: Int): CatalogPage =
+        CatalogWindow.collect(query, pages, ::fetch)
+}
+
+/** 还要不要拉目录的下一页。页大小按接口上限截断。 */
+object CatalogWindow {
+    /**
+     * 连续取页的循环（[CatalogAPI.fetchPages] 与 `SiteDirectory.fetchPages` 共用）：
+     * 本地过滤顺延扫描触顶时，过滤后房间数可能小于页大小甚至为空，只要游标仍按整页推进且未到底，仍继续取下一页。
+     */
+    suspend fun collect(
+        query: CatalogQuery,
+        pages: Int,
+        fetch: suspend (CatalogQuery) -> CatalogPage,
+    ): CatalogPage {
         val size = query.limit.coerceAtLeast(1).coerceAtMost(CatalogQuery.maxPageSize)
+        var lastOffset = maxOf(query.offset, 0)
         var last = fetch(query)
         var merged = last
         var fetched = 1
         while (
-            CatalogWindow.shouldContinue(
+            shouldContinue(
                 fetched = fetched,
                 pages = pages,
                 lastCount = last.rooms.size,
                 pageSize = size,
                 nextOffset = last.nextOffset,
                 total = last.total,
+                advanced = last.nextOffset - lastOffset,
             )
         ) {
-            last = fetch(query.withOffset(last.nextOffset))
-            if (last.rooms.isEmpty()) break
+            lastOffset = last.nextOffset
+            last = fetch(query.withOffset(lastOffset))
+            val advanced = last.nextOffset - lastOffset
+            if (last.rooms.isEmpty()) {
+                if (advanced > 0) merged = PageMerge.appended(merged, last)
+                if (advanced <= 0 || last.nextOffset >= last.total) break
+                fetched += 1
+                continue
+            }
             merged = PageMerge.appended(merged, last)
             fetched += 1
         }
         return merged
     }
-}
 
-/** 还要不要拉目录的下一页。页大小按接口上限截断。 */
-object CatalogWindow {
     fun shouldContinue(
         fetched: Int,
         pages: Int,
@@ -109,9 +129,12 @@ object CatalogWindow {
         pageSize: Int,
         nextOffset: Int,
         total: Int,
+        advanced: Int? = null,
     ): Boolean {
         val size = pageSize.coerceAtLeast(1).coerceAtMost(CatalogQuery.maxPageSize)
-        return fetched < pages && lastCount >= size && nextOffset < total
+        if (advanced != null && advanced <= 0) return false
+        val progress = maxOf(lastCount, advanced ?: 0)
+        return fetched < pages && progress >= size && nextOffset < total
     }
 }
 

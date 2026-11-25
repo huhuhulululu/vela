@@ -180,8 +180,10 @@ extension SyncDocument {
         let value: SyncJSON.Value
         do {
             value = try SyncJSON.parse(bytes)
+        } catch let error as SyncJSON.ParseError {
+            return .invalid("json:\(error.label)")
         } catch {
-            return .invalid("json:\(error)")
+            return .invalid("json:unknown")
         }
         guard case .object(let top) = value else { return .invalid("top-not-object") }
         guard let schemaValue = top.first(where: { $0.key == "schema" })?.value else { return .invalid("missing-schema") }

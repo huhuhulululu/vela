@@ -118,3 +118,11 @@
   3. 存在 `Application Support/Vela/diagnostics.json`（目录排除 iCloud 备份）；不联网、不上传、不同步。界面只有口味面板底部默认收起的「诊断」，展开时才读文件；「复制为文本」只复制摘要，「分享」经系统分享表附原始 JSON，发不发由用户决定。
   4. MetricKit 不按前后台拆 CPU 时间：摘要给总 CPU 时间与前台、后台运行时长；崩溃、卡顿、CPU 与磁盘写入异常取当天诊断 payload 的条数，异常退出取指标里各类异常退出计数之和。
 - 代价：Release 主二进制增加约 87 KB（`docs/PERF.md`「真机诊断」）；系统大约每天才投递一次，新装后至少要等一天才有数据；iOS 没有单独的设置页，入口放在口味面板底部。
+
+
+## ADR-010 macOS Release 用 -Osize（2026-11-19）
+
+- 背景：站点抽象与 Cam4 接线后，macOS 的 PERF_PROBE Release 为 4184 KB，探针读数 4.1，超出体积门 3.7 + 0.3 MB；用户要求体积门不放宽、不牺牲播放热路径 CPU。
+- 决定：只对 `Vela` 目标的 Release 配置设 `SWIFT_OPTIMIZATION_LEVEL = -Osize`；Debug、Perf、`VelaPhone` 与工程级配置不动。
+- 依据（`docs/PERF.md`「macOS 体积门与 Release -Osize」）：可执行文件 2,593,616 → 2,350,784 字节，`.app` 3944 KB（读数 3.9，比 main 还小 4 KB）。G-mac 三轮中位数 CPU 1.93% → 1.70%（复测 1.65%），footprint 不变，起播中位数 1.83 秒，idle 为 0。不改全局设置的办法（冷路径 `@_optimize(size)`、轻量 JSON 解析、码表压缩、禁止内联）合计最多省 16 KB，不够过门，已撤回。
+- 代价：以后 macOS Release 的热路径也按体积优化，CPU 是否回退要靠每次 G-mac 判；Debug 与 Release 的优化级别差异更大。若某次 G-mac 显示 CPU 回退超过 5%，再考虑对热路径函数单独 `@_optimize(speed)`。

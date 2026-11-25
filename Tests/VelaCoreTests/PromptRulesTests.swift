@@ -74,4 +74,36 @@ final class PromptRulesTests: XCTestCase {
         XCTAssertEqual(SheetLayout.challengeHeight(windowHeight: 1200), 640)
         XCTAssertEqual(SheetLayout.challengeHeight(windowHeight: 200), 300, "再矮也留出能用的网页区")
     }
+
+    /// 盲审 8：Cam4 不支持筛选的文案不能盖过收藏来源和全站搜索态，且收藏数按当前模式口径。
+    func testEmptyMessageCam4UnsupportedFilterRespectsFavoritesAndSearch() {
+        XCTAssertEqual(
+            EmptyListCopy.message(
+                catalogError: nil, query: RoomQuery(), catalog: [], source: .guess, favoriteCount: 0,
+                siteMode: .cam4, hasUnsupportedSiteFilter: true, searching: false
+            ),
+            "Cam4 不支持按地区、标签或新开播筛选"
+        )
+        XCTAssertEqual(
+            EmptyListCopy.message(
+                catalogError: nil, query: RoomQuery(), catalog: [], source: .fresh, favoriteCount: 0,
+                siteMode: .cam4, hasUnsupportedSiteFilter: false, searching: false
+            ),
+            "Cam4 不支持按地区、标签或新开播筛选"
+        )
+        XCTAssertEqual(
+            EmptyListCopy.message(
+                catalogError: nil, query: RoomQuery(), catalog: [], source: .favorites, favoriteCount: 0,
+                siteMode: .cam4, hasUnsupportedSiteFilter: true, searching: false
+            ),
+            EmptyListCopy.noFavoritesYet
+        )
+        XCTAssertEqual(
+            EmptyListCopy.message(
+                catalogError: nil, query: RoomQuery(), catalog: [], source: .fresh, favoriteCount: 0,
+                siteMode: .cam4, hasUnsupportedSiteFilter: true, searching: true
+            ),
+            "目录里现在没有房间，可以稍后重试"
+        )
+    }
 }

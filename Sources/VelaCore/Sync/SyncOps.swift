@@ -139,7 +139,9 @@ public enum SyncOps {
     }
 
     /// 显示原文与键不同，或该条目已有 `n` 时，写 `n = h` + 原文（原文不合格式时用键）。
-    static func writeDisplay(_ key: String, original: String, room: inout SyncRoom, h: HLC) {
+    static func writeDisplay(_ key: String, original raw: String, room: inout SyncRoom, h: HLC) {
+        // 带站点前缀的本机名字（`c4:bob`）先去掉前缀，裸名原样（cb 行为不变）。
+        let original = SyncKeys.displayOriginal(localName: raw)
         let trimmed = original.trimmingCharacters(in: .whitespacesAndNewlines)
         let differs = Array(trimmed.utf8) != Array(SyncKeys.username(ofRoomKey: key).utf8)
         guard differs || room.n != nil else { return }

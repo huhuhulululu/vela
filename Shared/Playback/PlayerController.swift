@@ -95,6 +95,8 @@ final class PlayerController: ObservableObject {
     #endif
 
     var hasItem: Bool { player.currentItem != nil }
+    /// 当前房间站点的请求头；同一房间的换档、续期、重试沿用。
+    private var mediaHeaders = PlaylistRelay.defaultHeaders
     /// 正在等外面重新解析当前房间（恢复或失败重试）。生命周期快照用。
     var refreshPending: Bool { refresh.pending }
 
@@ -107,8 +109,13 @@ final class PlayerController: ObservableObject {
 
     /// `allowed`：此刻的播放门控结果，新播放项据此决定立刻播还是只备好等恢复。
     /// `isRetry`：由失败重试带来的重新起播，不重置「已重试」标记。
-    func play(rendition: StreamRendition, username: String, peakBitrate: Double, allowed: Bool, isRetry: Bool = false) {
+    /// `headers`：该房间站点取列表与分片要带的头（中继与 AVURLAsset 共用），默认是 cb 的头。
+    func play(
+        rendition: StreamRendition, username: String, peakBitrate: Double, allowed: Bool, isRetry: Bool = false,
+        headers: [String: String] = PlaylistRelay.defaultHeaders
+    ) {
         self.allowed = allowed
+        mediaHeaders = headers
         // 重试预算按房间算：换了房间（或不是重试起播）就重置，不继承上一个房间的 true。
         if !isRetry || lastPlay?.username != username { retried = false }
         start(rendition: rendition, username: username, peakBitrate: peakBitrate)
@@ -149,7 +156,9 @@ final class PlayerController: ObservableObject {
         // 新项先按「还不知道能不能不选音轨」登记静音标志；读到可听组后由 syncAudioSuppression 更新。
         let suppressed = MuteAudioPolicy.shouldSuppressAudioFetch(muted: wantsMuted, allowsEmptySelection: nil)
         // 中继没就绪时不把低延迟主列表直接交给 AVPlayer（会卡住甚至不起播）：停下并报错，界面给出重试。
-        guard let source = PlaylistRelay.shared.localURL(for: rendition, maxBandwidth: peakBitrate, audioSuppressed: suppressed, renew: renew) else {
+        guard let source = PlaylistRelay.shared.localURL(
+            for: rendition, maxBandwidth: peakBitrate, audioSuppressed: suppressed, renew: renew, headers: mediaHeaders
+        ) else {
             stop()
             // 中继被挂起（iOS 后台）不是故障：静默停下，回前台由生命周期重新起播。macOS 恒允许，不会走到这里。
             guard PlaylistRelay.shared.allowStart else { return }
@@ -610,11 +619,7 @@ final class PlayerController: ObservableObject {
 
     private func makeItem(url: URL) -> AVPlayerItem {
         let asset = AVURLAsset(url: url, options: [
-            "AVURLAssetHTTPHeaderFieldsKey": [
-                "Referer": "https://chaturbate.com/",
-                "Origin": "https://chaturbate.com",
-                "User-Agent": UserAgent.safari
-            ]
+            "AVURLAssetHTTPHeaderFieldsKey": mediaHeaders.merging(["User-Agent": UserAgent.safari]) { _, agent in agent }
         ])
         let item = AVPlayerItem(asset: asset)
         // The relay already selected one rung. A peak cap makes AVPlayer stall when that rung

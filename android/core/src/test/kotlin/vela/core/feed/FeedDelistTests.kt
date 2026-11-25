@@ -115,4 +115,39 @@ class FeedDelistTests {
             ticket(ShowState.publicShow, success = true, url = URI("https://x.test/a.m3u8")).delistedShow,
         )
     }
+
+    private fun mixed(): FeedStore {
+        val store = FeedStore(query = RoomQuery(publicOnly = true))
+        val rooms = listOf(
+            room("a"),
+            room("alice"),
+            Room(username = "alice", show = ShowState.publicShow, site = vela.core.sites.SiteID.cam4),
+            room("c"),
+        )
+        store.replace(CatalogPage(rooms = rooms, total = 4, nextOffset = 4))
+        return store
+    }
+
+    @Test
+    fun testDelistCam4RoomLeavesChaturbateNamesake() {
+        val store = mixed()
+        assertTrue(store.canDelist("c4:alice"))
+        assertTrue(store.delist("c4:alice", ShowState.privateShow))
+        assertEquals(listOf("a", "alice", "c"), store.rooms.map { it.ref })
+    }
+
+    @Test
+    fun testDelistChaturbateRoomLeavesCam4Namesake() {
+        val store = mixed()
+        assertTrue(store.delist("ALICE", ShowState.offline))
+        assertEquals(listOf("a", "c4:alice", "c"), store.rooms.map { it.ref })
+    }
+
+    @Test
+    fun testProtectingUsesSiteKeys() {
+        val store = mixed()
+        assertFalse(store.delist("c4:alice", ShowState.privateShow, protecting = setOf("C4:Alice")))
+        assertTrue(store.delist("alice", ShowState.privateShow, protecting = setOf("c4:alice")))
+        assertEquals(listOf("a", "c4:alice", "c"), store.rooms.map { it.ref })
+    }
 }

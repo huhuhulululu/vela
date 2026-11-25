@@ -14,7 +14,7 @@ final class SyncLifecycleTests: XCTestCase {
     func sampleDoc() -> SyncDocument {
         var d = SyncDocument()
         d.rooms["cb:alice"] = SyncRoom(f: F.reg(5, "+"), n: F.reg(5, "Alice"))
-        d.rooms["c4:bob"] = SyncRoom(f: F.reg(6, "+"))
+        d.rooms["xx:bob"] = SyncRoom(f: F.reg(6, "+"))  // 本端不认识的站点（c4 已是合法站点，第 23 节第 15 条）
         d.veto["t:asian"] = F.reg(4, "+")
         d.settings["publicOnly"] = F.reg(3, "0")
         return d

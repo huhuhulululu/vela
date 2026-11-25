@@ -211,6 +211,76 @@ class SiteKeyMigrationTests {
     }
 
     @Test
+    fun testRollbackFailureKeepsExistingFile() {
+        val directory = tempDir()
+        try {
+            val curation = directory.resolve("feed-curation.json")
+            val backup = SiteKeyMigration.backupPath(curation)
+            val original = """{"favorites":["Alice"],"blocked":[]}""".encodeToByteArray()
+            Files.write(curation, original)
+            SiteKeyMigration.run(curation, directory.resolve("no-taste.json"), directory.resolve("no-ledger.json"))
+            val migrated = Files.readAllBytes(curation)
+
+            var readTarget: Path? = null
+            var writeCalled = false
+            val readFailed = SiteKeyMigration.rollback(
+                curation = curation,
+                taste = directory.resolve("no-taste.json"),
+                ledger = directory.resolve("no-ledger.json"),
+                read = { path ->
+                    readTarget = path
+                    throw IOException("fileReadNoPermission")
+                },
+                write = { _, _ -> writeCalled = true },
+            )
+            assertEquals(backup, readTarget)
+            assertFalse(writeCalled, "读备份失败时不应继续写入")
+            assertTrue(curation in readFailed.failed)
+            assertTrue(Files.exists(curation), "回滚失败后原文件不能被先删掉")
+            assertTrue(migrated.contentEquals(Files.readAllBytes(curation)))
+
+            val writeFailed = SiteKeyMigration.rollback(
+                curation = curation,
+                taste = directory.resolve("no-taste.json"),
+                ledger = directory.resolve("no-ledger.json"),
+                write = { _, _ -> throw IOException("fileWriteNoPermission") },
+            )
+            assertTrue(curation in writeFailed.failed)
+            assertTrue(Files.exists(curation), "回滚写失败后原文件不能被先删掉")
+            assertTrue(migrated.contentEquals(Files.readAllBytes(curation)))
+        } finally {
+            directory.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun testFlushAndWithFileLockSerializeDeferredSaveAndMigration() {
+        val directory = tempDir()
+        try {
+            val curationURL = directory.resolve("feed-curation.json")
+            Files.writeString(curationURL, """{"favorites":["old_user"],"blocked":[]}""")
+            val store = vela.core.curation.CurationStore(curationURL)
+            val saver = vela.core.base.io.DeferredSaver<Curation>(delay = 0.2) { store.save(it) }
+            saver.schedule(Curation(favorites = listOf("new_user", "c4:cam_star"), blocked = emptyList()))
+            saver.flush()
+            val report = store.withFileLock {
+                SiteKeyMigration.run(
+                    curation = store.url,
+                    taste = directory.resolve("no-taste.json"),
+                    ledger = directory.resolve("no-ledger.json"),
+                )
+            }
+            assertTrue(report.failed.isEmpty())
+            val loaded = store.load()
+            assertTrue(loaded.isFavorite("new_user"), "延迟保存的最新收藏不能被迁移丢弃")
+            assertTrue(loaded.isFavorite("c4:cam_star"))
+            assertFalse(loaded.isFavorite("old_user"))
+        } finally {
+            directory.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
     fun testMixedOldAndNewKeys() {
         val directory = tempDir()
         try {

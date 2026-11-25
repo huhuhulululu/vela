@@ -20,6 +20,17 @@ public enum PhoneLaneActivity: Equatable, Sendable {
     case roomSwitch
     case refreshing
     case playing
+
+    /// 日志里的活动标签。
+    public var label: String {
+        switch self {
+        case .idle: return "idle"
+        case .firstResolve: return "firstResolve"
+        case .roomSwitch: return "roomSwitch"
+        case .refreshing: return "refreshing"
+        case .playing: return "playing"
+        }
+    }
 }
 
 /// 回前台时拿来判断该不该重新起播的一路快照。

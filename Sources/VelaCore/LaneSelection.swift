@@ -9,15 +9,15 @@ enum LanePaging {
         let origin = min(max(index, 0), count - 1)
         guard delta != 0 else { return origin }
         var next = min(max(origin + delta, 0), count - 1)
-        let banned = Set(skipping.map { $0.lowercased() })
+        let banned = Set(skipping.map(RoomKey.normalizeRef))
         guard !banned.isEmpty else { return next }
         let direction = delta > 0 ? 1 : -1
-        while banned.contains(names[next].lowercased()) {
+        while banned.contains(RoomKey.normalizeRef(names[next])) {
             let candidate = next + direction
             guard candidate >= 0, candidate < count else { break }
             next = candidate
         }
-        if banned.contains(names[next].lowercased()), !banned.contains(names[origin].lowercased()) {
+        if banned.contains(RoomKey.normalizeRef(names[next])), !banned.contains(RoomKey.normalizeRef(names[origin])) {
             return origin
         }
         return next
@@ -42,7 +42,7 @@ public struct RecentSkips: Equatable, Sendable {
     public var count: Int { entries.count }
 
     public mutating func record(_ name: String, at now: Date) {
-        let key = name.lowercased()
+        let key = RoomKey.normalizeRef(name)
         entries.removeAll { $0.name == key }
         entries.append(Entry(name: key, at: now))
         if entries.count > Self.capacity { entries.removeFirst(entries.count - Self.capacity) }
@@ -339,12 +339,12 @@ public enum LaneSelection {
         let origin = cursor.username.flatMap { index(of: $0, in: rooms) } ?? 0
         var landed = LanePaging.landingIndex(from: origin, delta: delta, names: rooms, skipping: skipping)
         if !recent.isEmpty {
-            var shunned = recent
-            if let previous = cursor.previous?.lowercased() { shunned.remove(previous) }
-            let banned = Set(skipping.map { $0.lowercased() }).union(shunned)
+            var shunned = Set(recent.map(RoomKey.normalizeRef))
+            if let previous = cursor.previous.map(RoomKey.normalizeRef) { shunned.remove(previous) }
+            let banned = Set(skipping.map(RoomKey.normalizeRef)).union(shunned)
             let strict = LanePaging.landingIndex(from: origin, delta: delta, names: rooms, skipping: banned)
             // 过滤后原地不动（或只剩被避开的房间，如本路当前房间也在最近里）才放宽（列表短或已到头）。
-            if strict != origin, !banned.contains(rooms[strict].lowercased()) { landed = strict }
+            if strict != origin, !banned.contains(RoomKey.normalizeRef(rooms[strict])) { landed = strict }
         }
         cursor.username = rooms[landed]
         return cursor
@@ -363,7 +363,7 @@ public enum LaneSelection {
         let focus = board.focus
         guard board[focus] == nil else { return }
         let taken = board.taken(except: focus)
-        if let free = after.first(where: { !taken.contains($0.lowercased()) }) {
+        if let free = after.first(where: { !taken.contains(RoomKey.normalizeRef($0)) }) {
             board[focus] = free
             return
         }
@@ -378,7 +378,7 @@ public enum LaneSelection {
     ) -> String? {
         guard let at = index(of: missing, in: before) else { return nil }
         func allowed(_ name: String) -> Bool {
-            !same(name, missing) && !taken.contains(name.lowercased()) && after.contains { same($0, name) }
+            !same(name, missing) && !taken.contains(RoomKey.normalizeRef(name)) && after.contains { same($0, name) }
         }
         let later = before[(at + 1)...].first(where: allowed).flatMap { canonical($0, in: after) }
         let earlier = before[..<at].last(where: allowed).flatMap { canonical($0, in: after) }
@@ -387,9 +387,9 @@ public enum LaneSelection {
 
     private static func neighbor(of name: String, in rooms: [String], direction: Int, excluding: Set<String>) -> String? {
         guard let at = index(of: name, in: rooms) else { return nil }
-        let banned = Set(excluding.map { $0.lowercased() })
+        let banned = Set(excluding.map(RoomKey.normalizeRef))
         func allowed(_ candidate: String) -> Bool {
-            !banned.contains(candidate.lowercased()) && !same(candidate, name)
+            !banned.contains(RoomKey.normalizeRef(candidate)) && !same(candidate, name)
         }
         let later = rooms[(at + 1)...].first(where: allowed)
         let earlier = rooms[..<at].last(where: allowed)
@@ -431,11 +431,11 @@ public enum LaneSelection {
 
         /// 除 `lane` 以外各路此刻占着的房间（小写）。
         func taken(except lane: LaneID) -> Set<String> {
-            Set(order.filter { $0 != lane }.compactMap { rooms[$0]?.lowercased() })
+            Set(order.filter { $0 != lane }.compactMap { rooms[$0].map(RoomKey.normalizeRef) })
         }
 
         func isTaken(_ name: String, except lane: LaneID) -> Bool {
-            taken(except: lane).contains(name.lowercased())
+            taken(except: lane).contains(RoomKey.normalizeRef(name))
         }
 
         func outcome(_ before: Snapshot, placed: Reason) -> Outcome {
@@ -495,7 +495,7 @@ public enum LaneSelection {
         case (nil, nil):
             return true
         case let (left?, right?):
-            return left.lowercased() == right.lowercased()
+            return RoomKey.normalizeRef(left) == RoomKey.normalizeRef(right)
         default:
             return false
         }

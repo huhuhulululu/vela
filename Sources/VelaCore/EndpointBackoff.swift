@@ -10,6 +10,8 @@ public enum SiteEndpoint: String, CaseIterable, Sendable {
     case chatContext
     /// `GET /api/biocontext/<用户名>/`
     case bioContext
+    /// `GET https://www.cam4.com/directoryCams`
+    case cam4Directory
 }
 
 /// 响应正文的形态判断。

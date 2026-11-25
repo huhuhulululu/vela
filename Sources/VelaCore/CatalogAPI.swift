@@ -145,33 +145,53 @@ public struct CatalogAPI: Sendable {
     /// 连续取最多 `pages` 页并合并（每页不超过接口上限）：遇到短页或到底即停，去重后返回。
     /// 任何一页失败都整体失败，不返回残缺候选池。冷启动不走这里等满页，只取首页后在后台续页。
     public func fetchPages(_ query: CatalogQuery, pages: Int) async throws -> CatalogPage {
-        let size = min(max(query.limit, 1), CatalogQuery.maxPageSize)
-        var next = query
-        var last = try await fetch(next)
-        var merged = last
-        var fetched = 1
-        while CatalogWindow.shouldContinue(
-            fetched: fetched, pages: pages, lastCount: last.rooms.count,
-            pageSize: size, nextOffset: last.nextOffset, total: last.total
-        ) {
-            next.offset = last.nextOffset
-            last = try await fetch(next)
-            if last.rooms.isEmpty { break }
-            merged = PageMerge.appended(merged, last)
-            fetched += 1
-        }
-        return merged
+        try await CatalogWindow.collect(query, pages: pages, fetch: fetch)
     }
 }
 
 /// 还要不要拉目录的下一页。与 `CatalogAPI.fetchPages` 的循环条件相同：
 /// 没取满 `pages`、上一页是满页、游标没到底。页大小按接口上限截断。
 public enum CatalogWindow {
+    /// 连续取页的循环（`CatalogAPI.fetchPages` 与 `SiteDirectory.fetchPages` 共用）：遇到短页、空页或到底即停，去重合并。
+    /// 本地过滤顺延扫描触顶时，过滤后房间数可能小于页大小甚至为空，只要游标仍按整页推进且未到底，仍继续取下一页（上限仍受 `pages` 约束）。
+    public static func collect(
+        _ query: CatalogQuery, pages: Int, fetch: (CatalogQuery) async throws -> CatalogPage
+    ) async throws -> CatalogPage {
+        let size = min(max(query.limit, 1), CatalogQuery.maxPageSize)
+        var next = query
+        var lastOffset = max(next.offset, 0)
+        var last = try await fetch(next)
+        var merged = last
+        var fetched = 1
+        while shouldContinue(
+            fetched: fetched, pages: pages, lastCount: last.rooms.count,
+            pageSize: size, nextOffset: last.nextOffset, total: last.total,
+            advanced: last.nextOffset - lastOffset
+        ) {
+            next.offset = last.nextOffset
+            lastOffset = next.offset
+            last = try await fetch(next)
+            let advanced = last.nextOffset - lastOffset
+            if last.rooms.isEmpty {
+                if advanced > 0 { merged = PageMerge.appended(merged, last) }
+                if advanced <= 0 || last.nextOffset >= last.total { break }
+                fetched += 1
+                continue
+            }
+            merged = PageMerge.appended(merged, last)
+            fetched += 1
+        }
+        return merged
+    }
+
     public static func shouldContinue(
-        fetched: Int, pages: Int, lastCount: Int, pageSize: Int, nextOffset: Int, total: Int
+        fetched: Int, pages: Int, lastCount: Int, pageSize: Int, nextOffset: Int, total: Int,
+        advanced: Int? = nil
     ) -> Bool {
         let size = min(max(pageSize, 1), CatalogQuery.maxPageSize)
-        return fetched < pages && lastCount >= size && nextOffset < total
+        if let advanced, advanced <= 0 { return false }
+        let progress = max(lastCount, advanced ?? 0)
+        return fetched < pages && progress >= size && nextOffset < total
     }
 }
 
@@ -193,11 +213,11 @@ public enum PageMerge {
     public static func keepingCurrent(
         existing: [Room], incoming: [Room], current: String?, order: ([Room]) -> [Room]
     ) -> PageMergeResult {
-        var seen = Set(existing.map { $0.username.lowercased() })
-        let fresh = incoming.filter { seen.insert($0.username.lowercased()).inserted }
+        var seen = Set(existing.map(\.identity))
+        let fresh = incoming.filter { seen.insert($0.identity).inserted }
         guard !fresh.isEmpty else { return PageMergeResult(rooms: existing, added: 0) }
         let combined = existing + fresh
-        guard let current, let at = combined.firstIndex(where: { $0.username == current }) else {
+        guard let current, let at = combined.firstIndex(where: { $0.ref == current }) else {
             return PageMergeResult(rooms: order(combined), added: fresh.count)
         }
         let head = Array(combined[...at])

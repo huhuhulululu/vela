@@ -4,23 +4,23 @@ import os
 @MainActor
 extension StageModel {
     var currentIsFavorite: Bool {
-        focusRoom.map { curation.isFavorite($0.username) } ?? false
+        focusRoom.map { curation.isFavorite($0.ref) } ?? false
     }
 
     /// 收藏或取消收藏当前房间。收藏时再给它的标签与性别一次「关注」级加权。
     func toggleFavorite(_ target: RoomTarget?) {
         guard let lane = matchedLane(target), let room = room(of: lane) else { return }
-        log.info("favorite-toggle \(self.curation.isFavorite(room.username) ? "off" : "on", privacy: .public)")
-        if curation.isFavorite(room.username) {
-            guard let next = syncedCuration(.unfavorite(room.username), local: curation.unfavoriting(room.username)) else { return }
+        log.info("favorite-toggle \(self.curation.isFavorite(room.ref) ? "off" : "on", privacy: .public)")
+        if curation.isFavorite(room.ref) {
+            guard let next = syncedCuration(.unfavorite(room.ref), local: curation.unfavoriting(room.ref)) else { return }
             commit(
                 next,
                 "已取消收藏 \(room.displayName)",
                 toastSeconds: Theme.unfavoriteToastSeconds,
-                undoFavorite: room.username
+                undoFavorite: room.ref
             )
         } else {
-            guard let next = syncedCuration(.favorite(room.username), local: curation.favoriting(room.username)) else { return }
+            guard let next = syncedCuration(.favorite(room.ref), local: curation.favoriting(room.ref)) else { return }
             taste = taste.following(room: room, now: Date(), rarity: tagRarity)
             tasteSaver.schedule(taste)
             commit(next, nil)
@@ -30,7 +30,7 @@ extension StageModel {
     /// 屏蔽当前房间：从所有来源里去掉，并立刻切到下一个。
     func blockCurrent(_ target: RoomTarget?) {
         guard let lane = matchedLane(target), let room = room(of: lane) else { return }
-        guard let next = syncedCuration(.block(room.username), local: curation.blocking(room.username)) else { return }
+        guard let next = syncedCuration(.block(room.ref), local: curation.blocking(room.ref)) else { return }
         lane.manuallyPaused = false
         commit(next, "已屏蔽 \(room.displayName)，可在收藏与屏蔽列表里取消")
     }
@@ -56,13 +56,13 @@ extension StageModel {
         curation = next
         curationSaver.schedule(next)
         if next.favorites != previous.favorites { refreshReasons() }
-        let before = feed.current?.username
+        let before = feed.current?.ref
         // 屏蔽当前房间导致的换房不记正向信号：停留作废，免得给它的标签加分。双窗时两路各查各的。
         for lane in lanes {
             if let username = name(of: lane), next.isBlocked(username) { lane.dwell.discard() }
         }
         updateFeed { $0.setFilters(blocked: next.blockedSet, only: self.allowedNames(for: next)) }
-        if feed.current?.username != before {
+        if feed.current?.ref != before {
             // 名单变化换了（或清空了、或恢复了）当前房间：同步播放，playCurrent 会让旧的跳过任务与请求失效。
             requestPlay()
             Task { await loadMoreIfNeeded() }

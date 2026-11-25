@@ -498,6 +498,50 @@ class ParityCliTest(unittest.TestCase):
                 self.assertIn("deferred", err)
                 self.assertIn(TEST_A, err)
 
+    def test_sites_group_recognizes_all_site_files_and_rejects_missing_mapping(self):
+        site_files = [
+            "Tests/VelaCoreTests/Cam4DirectoryTests.swift",
+            "Tests/VelaCoreTests/Cam4StreamTests.swift",
+            "Tests/VelaCoreTests/ChaturbateAdapterTests.swift",
+            "Tests/VelaCoreTests/RoomKeyTests.swift",
+            "Tests/VelaCoreTests/SiteCatalogTests.swift",
+            "Tests/VelaCoreTests/SiteDirectoryTests.swift",
+            "Tests/VelaCoreTests/SiteStorageTests.swift",
+            "Tests/VelaCoreTests/SyncSitesTests.swift",
+            "Tests/VelaPhoneTests/SiteWiringTests.swift",
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            reports = root / "reports"
+            reports.mkdir()
+            for rel in site_files:
+                write(
+                    root / rel,
+                    "final class Sample {\n    func testPlaceholder() {}\n}\n",
+                )
+            code, _out, err = run_parity(
+                [
+                    "--group",
+                    "sites",
+                    "--repo",
+                    str(root),
+                    "--parity-dir",
+                    str(root / "android" / "parity"),
+                    "--reports",
+                    str(reports),
+                ]
+            )
+        self.assertEqual(code, 1, err)
+        self.assertNotIn("未知组", err)
+        for rel in site_files:
+            self.assertIn(f"缺映射: {rel}#testPlaceholder（组 sites）", err)
+
+    def test_real_repository_sites_group_passes(self):
+        code, out, err = run_parity(["--group", "sites", "--repo", str(ROOT)])
+        self.assertEqual(code, 0, err)
+        self.assertIn("problems=0", out)
+        self.assertIn("executed=72", out)
+
     def test_real_repository_all_passes(self):
         code, out, err = run_parity(["--all", "--repo", str(ROOT)])
         self.assertEqual(code, 0, err)

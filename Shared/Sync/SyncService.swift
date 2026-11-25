@@ -67,6 +67,9 @@ final class SyncService: @unchecked Sendable {
 
     /// 界面层接线时换上真实的文件快照（需要 SettingsStore）。
     func configureJournal(_ journal: SyncJoinJournal) { env.journal = journal }
+
+    /// 加入快照此刻的状态（站点键迁移据此推迟，见 `StageModel.shouldMigrateSiteKeys`）。
+    var joinJournalStatus: SyncJoinJournalStatus { env.journal.status }
     private(set) var coordinator: SyncCoordinator?
     private(set) var keys: SyncKeyMaterial?
     private var origin: String?
