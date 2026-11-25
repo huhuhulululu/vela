@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
@@ -31,6 +32,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -45,24 +47,26 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 import vela.app.R
 import vela.app.lane.DisplayCheck
+import vela.app.stage.LaneFace
 import vela.app.stage.LanePlayback
 import vela.app.stage.StageContract
 import vela.app.stage.StageIntent
 import vela.app.stage.StageSurface
 import vela.app.stage.StageUiState
+import vela.app.sync.SyncHub
 import vela.app.ui.agegate.AgeGateScreen
 import vela.app.ui.theme.ChampagneButton
 import vela.app.ui.theme.Theme
+import vela.core.base.lane.LaneID
 import vela.core.base.model.BroadcastClock
 import vela.core.base.model.Room
 import vela.core.base.model.ViewerCount
 import vela.core.feed.InfoVisibility
-import androidx.compose.runtime.collectAsState
 
 /**
- * 单窗。垂直方向只摆 [StageUiState.pagerRooms]（当前页和上下各一页），
- * [player] 只在当前页调用，邻页只有深色渐变垫底，不挂播放器。
- * 画面比例由播放器那一层的 [vela.app.lane.LaneSurface] 按原始比例摆，这里不裁切、不拉伸。
+ * 舞台主界面。竖屏多路时交给 [DualStageScreen]；横屏或多路关闭时只显示焦点路单窗。
+ * 垂直分页只摆当前页和上下各一页，播放器只挂在当前页。
+ * 画面比例由 [vela.app.lane.LaneSurface] 按原始比例摆，这里不裁切、不拉伸。
  */
 @Composable
 fun StageScreen(
@@ -70,18 +74,36 @@ fun StageScreen(
     modifier: Modifier = Modifier,
     challengeUrl: String? = null,
     onImportFavorites: (() -> Unit)? = null,
-    player: @Composable (room: Room) -> Unit = {},
+    syncHub: SyncHub? = null,
+    onRequestSyncReveal: ((onGranted: () -> Unit) -> Unit)? = null,
+    player: @Composable (LaneID, Room) -> Unit = { _, _ -> },
 ) {
     val state by stage.state.collectAsState()
     val dispatch = stage::dispatch
-    Box(modifier.fillMaxSize().background(Theme.ink)) {
+    val density = LocalDensity.current
+    val inPip = rememberUpdatedState(state.pictureInPicture)
+    Box(
+        modifier
+            .fillMaxSize()
+            .background(Theme.ink)
+            .onSizeChanged { size ->
+                if (inPip.value) return@onSizeChanged
+                val landscape = size.width > size.height
+                dispatch(StageIntent.SetLandscape(landscape))
+                if (!landscape && size.width > 0 && size.height > 0) {
+                    val width = with(density) { size.width.toDp().value.toDouble() }
+                    val height = with(density) { size.height.toDp().value.toDouble() }
+                    dispatch(StageIntent.NotePortraitStageSize(width, height))
+                }
+            },
+    ) {
         if (!state.ageConfirmed) {
             AgeGateScreen(
                 onEnter = { dispatch(StageIntent.ConfirmAge) },
                 onQuit = { dispatch(StageIntent.Quit) },
             )
         } else {
-            StageBody(state, dispatch, challengeUrl, onImportFavorites, player)
+            StageBody(state, dispatch, challengeUrl, onImportFavorites, syncHub, onRequestSyncReveal, player)
         }
     }
 }
@@ -92,33 +114,62 @@ private fun StageBody(
     dispatch: (StageIntent) -> Unit,
     challengeUrl: String?,
     onImportFavorites: (() -> Unit)?,
-    player: @Composable (Room) -> Unit,
+    syncHub: SyncHub?,
+    onRequestSyncReveal: ((onGranted: () -> Unit) -> Unit)?,
+    player: @Composable (LaneID, Room) -> Unit,
 ) {
+    if (state.pictureInPicture) {
+        val focus = if (state.dualWindow) state.focusLane else LaneID.PRIMARY
+        val room = state.focusRoom ?: state.current
+        Box(Modifier.fillMaxSize().testTag("pip-stage")) {
+            if (room != null) player(focus, room)
+        }
+        return
+    }
     var volumeOpen by remember { mutableStateOf(false) }
     if (state.surface != StageSurface.None && volumeOpen) volumeOpen = false
+    val dualPortrait = state.dualWindow && !state.landscape
     Box(Modifier.fillMaxSize()) {
         if (state.rooms.isEmpty()) {
             StatusPane(state, dispatch, Modifier.fillMaxSize())
+        } else if (dualPortrait) {
+            DualStageScreen(state = state, dispatch = dispatch, player = player)
         } else {
-            RoomPager(
+            val focus = if (state.dualWindow) state.focusLane else LaneID.PRIMARY
+            val face = state.face(focus) ?: state.lane
+            LaneRoomPager(
                 state = state,
+                laneId = focus,
+                face = face,
                 dispatch = dispatch,
-                onStep = { dispatch(StageIntent.Step(it)) },
+                onStep = { dispatch(StageIntent.Step(it, focus)) },
                 onTap = { dispatch(StageIntent.NoteActivity) },
-                player = player,
+                player = { room -> player(focus, room) },
+                pagerTag = "pager",
             )
-            if (state.chromeShown && state.current != null) {
+            if (state.chromeShown && state.focusRoom != null) {
                 ActionRail(state, dispatch, Modifier.align(Alignment.CenterEnd).padding(end = 8.dp))
             }
         }
         Column(Modifier.align(Alignment.TopCenter).fillMaxWidth()) {
             if (state.chromeShown) {
-                ChromeBar(
-                    state = state,
-                    dispatch = dispatch,
-                    volumeOpen = volumeOpen,
-                    onVolumeOpen = { volumeOpen = it },
-                )
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    ChromeBar(
+                        state = state,
+                        dispatch = dispatch,
+                        volumeOpen = volumeOpen,
+                        onVolumeOpen = { volumeOpen = it },
+                        modifier = Modifier.weight(1f),
+                    )
+                    LaneCountPicker(
+                        state = state,
+                        dispatch = dispatch,
+                        modifier = Modifier.padding(top = 4.dp, end = 4.dp),
+                    )
+                }
             }
             val keyword = state.siteSearch
             if (keyword != null) {
@@ -148,7 +199,13 @@ private fun StageBody(
                 onDismiss = { dispatch(StageIntent.DismissSurfaces) },
                 onImport = onImportFavorites,
             )
-            StageSurface.Taste -> TasteSheet(state, dispatch, onDismiss = { dispatch(StageIntent.DismissSurfaces) })
+            StageSurface.Taste -> TasteSheet(
+                state = state,
+                dispatch = dispatch,
+                onDismiss = { dispatch(StageIntent.DismissSurfaces) },
+                syncHub = syncHub,
+                onRequestSyncReveal = onRequestSyncReveal,
+            )
             StageSurface.Challenge -> ChallengeSheet(
                 onDone = { dispatch(StageIntent.RetryAfterChallenge) },
                 onClose = { dispatch(StageIntent.DismissChallenge) },
@@ -160,28 +217,32 @@ private fun StageBody(
 }
 
 @Composable
-private fun RoomPager(
+internal fun LaneRoomPager(
     state: StageUiState,
+    laneId: LaneID,
+    face: LaneFace,
     dispatch: (StageIntent) -> Unit,
     onStep: (Int) -> Unit,
     onTap: () -> Unit,
     player: @Composable (Room) -> Unit,
+    modifier: Modifier = Modifier,
+    pagerTag: String = "pager:${laneId.label}",
 ) {
     val step = rememberUpdatedState(onStep)
     val tap = rememberUpdatedState(onTap)
-    var dragY by remember { mutableFloatStateOf(0f) }
-    var heightPx by remember { mutableIntStateOf(0) }
-    val pages = state.pagerRooms()
-    val current = state.currentUsername
-    val index = state.index
+    var dragY by remember(laneId) { mutableFloatStateOf(0f) }
+    var heightPx by remember(laneId) { mutableIntStateOf(0) }
+    val pages = state.lanePagerRooms(laneId)
+    val current = face.username
+    val index = state.indexOfLane(laneId)
     val pagerLabel = stringResource(R.string.ui_hint_swipe)
     Box(
-        Modifier
+        modifier
             .fillMaxSize()
             .onSizeChanged { heightPx = it.height }
             .semantics { contentDescription = pagerLabel }
-            .testTag("pager")
-            .pointerInput(Unit) {
+            .testTag(pagerTag)
+            .pointerInput(laneId) {
                 val threshold = 48.dp.toPx()
                 val slop = viewConfiguration.touchSlop
                 awaitEachGesture {
@@ -219,15 +280,17 @@ private fun RoomPager(
         pages.forEach { room ->
             val at = state.rooms.indexOfFirst { it.username == room.username }
             val slot = when {
-                room.username == current -> 0
+                room.username.equals(current, ignoreCase = true) -> 0
                 at >= 0 && at < index -> -1
                 else -> 1
             }
-            key(room.username) {
+            key(laneId, room.username) {
                 RoomPage(
                     room = room,
                     state = state,
-                    active = room.username == current,
+                    face = face,
+                    laneId = laneId,
+                    active = room.username.equals(current, ignoreCase = true),
                     dispatch = dispatch,
                     player = player,
                     modifier = Modifier
@@ -243,38 +306,41 @@ private fun RoomPager(
 private fun RoomPage(
     room: Room,
     state: StageUiState,
+    face: LaneFace,
+    laneId: LaneID,
     active: Boolean,
     dispatch: (StageIntent) -> Unit,
     player: @Composable (Room) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val videoReady = active && state.lane.readyUsername == room.username
+    val videoReady = active && face.readyUsername.equals(room.username, ignoreCase = true)
     val infoVisible = InfoVisibility.visible(
         isCurrent = active,
         alwaysShow = state.infoAlwaysOn,
         chromeOn = state.chromeShown,
     )
+    val paneChrome = state.dualWindow && !state.landscape
     Box(modifier.testTag("room:${room.username}").background(brush())) {
         if (active) {
             Box(Modifier.fillMaxSize().testTag("player-slot")) {
                 player(room)
             }
         }
-        if (infoVisible) {
+        if (infoVisible && !paneChrome) {
             Caption(
                 room = room,
                 reason = state.reasonFor(room),
-                live = active && state.lane.playingUsername == room.username && infoVisible,
+                live = active && face.playingUsername.equals(room.username, ignoreCase = true) && infoVisible,
                 modifier = Modifier.align(Alignment.BottomStart).testTag("caption:${room.username}"),
             )
         }
-        if (active && state.lane.manuallyPaused) {
+        if (active && face.manuallyPaused) {
             PauseMark(Modifier.align(Alignment.Center))
         } else if (active) {
-            val note = failureNote(state, videoReady)
+            val note = failureNote(face, videoReady)
             if (note != null) {
-                FailureMark(note, state, dispatch, Modifier.align(Alignment.Center))
-            } else if (!videoReady && state.playbackAllowed) {
+                FailureMark(note, laneId, face, dispatch, Modifier.align(Alignment.Center))
+            } else if (!videoReady && state.lanePlaybackAllowed(laneId)) {
                 Box(
                     Modifier
                         .align(Alignment.TopCenter)
@@ -295,18 +361,20 @@ private fun brush(): Brush = Brush.verticalGradient(
 )
 
 @Composable
-private fun failureNote(state: StageUiState, videoReady: Boolean): String? {
-    val lane = state.lane
-    if (lane.manuallyPaused) return null
-    if (lane.playback == LanePlayback.Failed) {
-        return lane.playbackNote ?: stringResource(R.string.stage_playback_interrupted)
+private fun failureNote(face: LaneFace, videoReady: Boolean): String? {
+    if (face.manuallyPaused) return null
+    if (face.playback == LanePlayback.Degraded) {
+        return face.playbackNote ?: vela.app.stage.StageRules.DUAL_UNAVAILABLE
     }
-    if (!videoReady && lane.playbackNote != null) return lane.playbackNote
+    if (face.playback == LanePlayback.Failed) {
+        return face.playbackNote ?: stringResource(R.string.stage_playback_interrupted)
+    }
+    if (!videoReady && face.playbackNote != null) return face.playbackNote
     return null
 }
 
 @Composable
-private fun Caption(room: Room, reason: String?, live: Boolean, modifier: Modifier = Modifier) {
+internal fun Caption(room: Room, reason: String?, live: Boolean, modifier: Modifier = Modifier) {
     Column(modifier.padding(horizontal = 22.dp, vertical = 28.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(
@@ -382,10 +450,12 @@ private fun PauseMark(modifier: Modifier = Modifier) {
 @Composable
 private fun FailureMark(
     note: String,
-    state: StageUiState,
+    laneId: LaneID,
+    face: LaneFace,
     dispatch: (StageIntent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val target = RoomTargetFor(laneId, face)
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         BasicText(
             note,
@@ -394,29 +464,37 @@ private fun FailureMark(
                 .background(Color.Black.copy(alpha = 0.62f), RoundedCornerShape(18.dp))
                 .padding(horizontal = 16.dp, vertical = 10.dp),
         )
-        ChampagneButton(
-            text = stringResource(R.string.ui_retry),
-            onClick = { dispatch(StageIntent.RetryPlayback(state.primaryTarget())) },
-            modifier = Modifier.testTag("retry-playback"),
-        )
+        if (face.playback != LanePlayback.Degraded) {
+            ChampagneButton(
+                text = stringResource(R.string.ui_retry),
+                onClick = { dispatch(StageIntent.RetryPlayback(target)) },
+                modifier = Modifier.testTag("retry-playback"),
+            )
+        }
     }
+}
+
+private fun RoomTargetFor(laneId: LaneID, face: LaneFace): vela.core.base.lane.RoomTarget? {
+    val name = face.username ?: return null
+    return vela.core.base.lane.RoomTarget(laneId, name, face.generation)
 }
 
 @Composable
 private fun ActionRail(state: StageUiState, dispatch: (StageIntent) -> Unit, modifier: Modifier = Modifier) {
-    val paused = state.lane.manuallyPaused
+    val focus = if (state.dualWindow) state.focusLane else LaneID.PRIMARY
+    val paused = (state.face(focus) ?: state.lane).manuallyPaused
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp), horizontalAlignment = Alignment.End) {
         RailButton(
             text = stringResource(if (paused) R.string.ui_resume else R.string.ui_pause),
             tag = "pause-room",
         ) {
-            dispatch(StageIntent.TogglePause(state.primaryTarget()))
+            dispatch(StageIntent.TogglePause(state.focusTarget()))
         }
         RailButton(stringResource(R.string.ui_not_interested), "not-interested") {
-            dispatch(StageIntent.MarkNotInterested(state.primaryTarget()))
+            dispatch(StageIntent.MarkNotInterested(state.focusTarget()))
         }
         RailButton(stringResource(R.string.ui_block), "block-room") {
-            dispatch(StageIntent.BlockCurrent(state.primaryTarget()))
+            dispatch(StageIntent.BlockCurrent(state.focusTarget()))
         }
     }
 }

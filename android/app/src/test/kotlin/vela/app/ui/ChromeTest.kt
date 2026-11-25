@@ -112,6 +112,26 @@ class ChromeTest {
     }
 
     @Test
+    fun testPipButtonsEnterAndToggleAutoEnter() {
+        val stage = testStage(pagedState(listOf("a"), index = 0))
+        show(stage)
+        assertTrue(stage.state.value.autoEnterPip)
+        compose.onNodeWithTag("toggle-auto-pip").performScrollTo().performClick()
+        assertFalse(stage.state.value.autoEnterPip)
+        compose.onNodeWithTag("toggle-auto-pip").performScrollTo().performClick()
+        assertTrue(stage.state.value.autoEnterPip)
+        compose.onNodeWithTag("enter-pip").performScrollTo().performClick()
+        assertEquals(1, stage.pipEnters)
+        stage.seed(stage.state.value.copy(pictureInPicture = true))
+        compose.waitForIdle()
+        compose.onNodeWithTag("enter-pip").assertDoesNotExist()
+        stage.seed(stage.state.value.copy(pictureInPicture = false))
+        compose.waitForIdle()
+        compose.onNodeWithTag("enter-pip").performScrollTo().performClick()
+        assertEquals(2, stage.pipEnters)
+    }
+
+    @Test
     fun testTasteButtonOpensTheSheet() {
         val stage = testStage(pagedState(listOf("a"), index = 0))
         show(stage)

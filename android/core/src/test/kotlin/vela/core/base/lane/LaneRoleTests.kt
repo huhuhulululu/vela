@@ -6,7 +6,10 @@ import kotlin.test.assertEquals
 class LaneRoleTests {
     @Test
     fun testRolesAndEndReasons() {
-        assertEquals(listOf(PlaybackLaneRole.PRIMARY, PlaybackLaneRole.SECONDARY), PlaybackLaneRole.entries)
+        assertEquals(
+            listOf(PlaybackLaneRole.PRIMARY, PlaybackLaneRole.SECONDARY, PlaybackLaneRole.TERTIARY),
+            PlaybackLaneRole.entries,
+        )
         assertEquals(
             listOf(
                 LaneEndReason.SWIPE,

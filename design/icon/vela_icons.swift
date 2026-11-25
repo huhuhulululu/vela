@@ -1,5 +1,7 @@
 // Vela 应用图标（A2 帆）：一条命令生成 macOS AppIcon 全部 10 个像素尺寸。
 // 用法：swift design/icon/vela_icons.swift App/Assets.xcassets/AppIcon.appiconset
+// 安卓：swift design/icon/vela_icons.swift --android android/app/src/main/res
+//       按自适应前景 108dp 与传统 48dp 的各密度直接绘制，不从 1024 缩小。
 // 输出 icon_16.png / 32 / 64 / 128 / 256 / 512 / 1024（Contents.json 中 16@2x 与 32、32@2x 与 64 等复用同一像素文件）。
 // 生成方式：128 及以上按目标尺寸用完整绘制直接渲染（不从 1024 缩小，细线保持锐利），512 及以上带颗粒纹理；
 //          64 用完整绘制（见 sizes 注释）；32 与 16 是逐像素单独绘制的简化版。
@@ -309,7 +311,39 @@ func savePNG(_ img: CGImage, _ path: String) {
     CGImageDestinationAddImage(d, img, nil); CGImageDestinationFinalize(d)
 }
 
-let out = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "."
+let args = CommandLine.arguments
+if args.count > 2 && args[1] == "--android" {
+    let root = args[2]
+    // 前景是 108dp，传统启动图标是 48dp。同一套 drawA2，按像素尺寸画，不缩小 1024。
+    let foreground: [(String, Int)] = [
+        ("mipmap-mdpi", 108), ("mipmap-hdpi", 162), ("mipmap-xhdpi", 216),
+        ("mipmap-xxhdpi", 324), ("mipmap-xxxhdpi", 432),
+    ]
+    let legacy: [(String, Int)] = [
+        ("mipmap-mdpi", 48), ("mipmap-hdpi", 72), ("mipmap-xhdpi", 96),
+        ("mipmap-xxhdpi", 144), ("mipmap-xxxhdpi", 192),
+    ]
+    for (dir, side) in foreground {
+        let path = "\(root)/\(dir)"
+        try? FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
+        let cv = Canvas(side, logical: 1024)
+        drawA2(cv)
+        savePNG(cv.image(), "\(path)/ic_launcher_foreground.png")
+    }
+    for (dir, side) in legacy {
+        let path = "\(root)/\(dir)"
+        try? FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
+        let cv = Canvas(side, logical: 1024)
+        drawA2(cv)
+        let image = cv.image()
+        savePNG(image, "\(path)/ic_launcher.png")
+        savePNG(image, "\(path)/ic_launcher_round.png")
+    }
+    print("done-android")
+    exit(0)
+}
+
+let out = args.count > 1 ? args[1] : "."
 try? FileManager.default.createDirectory(atPath: out, withIntermediateDirectories: true)
 for s in [1024, 512, 256, 128, 64] { let cv = Canvas(s, logical: 1024); drawA2(cv); savePNG(cv.image(), "\(out)/icon_\(s).png") }
 for s in [32, 16] { let cv = Canvas(s, logical: CGFloat(s)); drawA2Small(cv); savePNG(cv.image(), "\(out)/icon_\(s).png") }

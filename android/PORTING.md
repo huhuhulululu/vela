@@ -105,7 +105,7 @@ Tests/VelaCoreTests/ShortcutSearchTests.swift	testPlainKeysOnlyWhenNothingElseOw
 ```
 
 - 理由以 `deferred:C9` 开头：这条先不算缺映射。`--group` 通过；`--all` 还要组 `cross` 用 `skip-cross.tsv` 的非 deferred 理由，或 `split-cross.tsv` 里一条真正跑过的映射，把它消化掉。
-- 理由里写 `replaced-by:<Kotlin 测试名>`，例如 `replaced-by:vela.app.playback.LaneDataSourceTest#testTwoSourcesServeConcurrently`。没有单独的替代列。
+- 理由里写 `replaced-by:<Kotlin 测试名>`，例如 `replaced-by:vela.app.playback.LaneDataSourceTest#testTwoSourcesServeConcurrently`。没有单独的替代列。`parity.py` 会核验每个 `replaced-by:` 指向的 Kotlin 测试确实存在、已执行且通过。
 - 全局 `android/parity/skip.tsv` 只放不归属任何组的整文件。有组的测试不要写进来。
 
 组名跟校验参数一致：`l0a` `l0b` `hls` `lifecycle` `stream` `feed` `taste` `ledger` `recommend` `curation` `selection` `sites` `sync` `audio` `cross`。混在一个 Swift 文件里的测试，各组只对自己的那几条负责（`VelaCoreTests.swift`、`PlaybackFlowFixTests.swift`）。工具内置了这份归属；`--all` 在某一组还没有 `skip-<组>.tsv` / `split-<组>.tsv` 时不要求该组已经移植完，这样脚手架和中间波次的 CI 可以是绿的。某一组的表一旦出现，`--all` 就会把该组全部 Swift 测试拿来对。
@@ -120,7 +120,7 @@ python3 -I android/tools/parity.py --all
 
 从 `android/` 目录跑 `python3 -I tools/parity.py --group l0a` 同样可以。
 
-负样本在 `android/tools/test_parity.py`：缺映射、执行数为 0、`deferred:C9` 在组内算过、`--all` 未消化则失败、消化后通过。
+负样本在 `android/tools/test_parity.py`：缺映射、执行数为 0、`deferred:C9` 在组内算过、`--all` 未消化则失败、消化后通过、未放行的非 `deferred:C9` 前缀失败（仅放行编排者裁决的 `deferred:sites-app` 与 `deferred:sites-sync`，见文末「sites 暂缓项（欠账）」），以及 `replaced-by:` 指向缺失/跳过/失败用例时报错。
 
 ### 预先要标 `deferred:C9` 的条目
 
@@ -160,7 +160,7 @@ FeedCache 的随机性质测试只断言不变量。Kotlin 用同一个种子，
 
 ## §8 公开方案核对（2026-11-18）
 
-00 负责表里前两项。页面都打开过。画中画那一项留给 PiP1。
+00 负责表里前两项。页面都打开过。画中画已由里程碑 C 接入（见 `android/docs/pip.md`、`docs/ARCHITECTURE.md` 11.5）；产品行为验收见 `emu-modes/e2e-c.sh` 与 `MilestoneCTest`，是行为门，不是性能基线（`docs/PERF.md` 里程碑 C 一节）。
 
 借什么、不借什么仍按计划表，下面只记当天页面上实际看到的：
 
@@ -175,17 +175,63 @@ FeedCache 的随机性质测试只断言不变量。Kotlin 用同一个种子，
 - [Track selection](https://developer.android.com/media/media3/exoplayer/track-selection)：关音轨、限制视频码率走 `TrackSelectionParameters`。
 - [`DefaultLoadControl`](https://developer.android.com/reference/androidx/media3/exoplayer/DefaultLoadControl) 与 [`TrackSelectionParameters.Builder.setMaxVideoBitrate`](https://developer.android.com/reference/androidx/media3/common/TrackSelectionParameters.Builder#setMaxVideoBitrate(int)) 的 API 参考页存在。缓冲 min/max 6000 ms、`setMaxVideoBitrate` 按计划在后续播放任务里用，不在这四篇指南正文里。
 
-## milestone-B 跳过项
+## milestone-B 跳过项（2026-11-24 parity 全部清零）
 
-`android/parity/skip*.tsv` 里理由以 `milestone-B:` 开头的行，是共用 Core 逻辑、安卓里程碑 B（双窗）要移植的 Swift 用例（双窗与三窗选房、最近划走共享、多路画质、停留焦点秒、音频切换顺序等）。它们只为保持 `--all` 不失败而暂时登记为跳过，不等于不移植。
+原有 **121 条** `milestone-B:` 条目（位于 `parity.py` 的 `GLOBAL_SKIP_FILES`，保留在 `android/parity/skip.tsv`）已全部清零：
 
-- 里程碑 B 内必须把这些用例移植成 Kotlin 测试，并删除对应的 skip 行；里程碑 B 收尾时 `grep -rn 'milestone-B' android/parity` 必须无输出。
-- 理由以「不移植：iOS」开头的行才是真正依赖 iOS 平台 API（AVAudioSession、UIKit 生命周期、MetricKit、画中画等）的用例，长期保留。
-- 新增 skip 行时按这条区分，不要把共用逻辑写成 iOS 专属。
+| 归类 | 条数 | 说明 |
+|---|---:|---|
+| 真测试（`replaced-by:`） | 64 | `DualDwellParityTest`（19：`DwellFocusTests` 7 + `DualDwellTests` 12）、`DualWindowParityTest`（32：`DualWindowTests` 27 + `DualQualityTests` 5）、`DualAudioParityTest`（13：`AudioTransitionRunnerTests` 10 + `DualAudioFocusTests` 3）；同步在 `:core` `LaneSelectionTests` 补齐 18 条 `RecentSkips` 与空副路补位测试 |
+| 不移植：三窗 | 51 | `TripleWindowTests`（32）+ `TripleLaneMediaTests`（19），按编排者 2026-11-24 裁决改写 |
+| 不移植：iOS AVAudioSession 专属 | 6 | `AudioTransitionRunnerTests`（5）+ `DualAudioFocusTests`（1），安卓用音频焦点无对应行为，按编排者 2026-11-24 裁决改写 |
+
+**规则（不变）**
+
+- 里程碑 B **产品行为**验收以 S-B1、S-B2 与 `emu-modes/e2e-b.sh` 为准；`grep -rn 'milestone-B' android/parity` 现已归零。
+- 里程碑 C **产品行为**验收以 S-C1、S-C2、S-C3 与 `emu-modes/e2e-c.sh` 为准（`MilestoneCTest`）；`emu-modes/pip.sh`（`PipEmulatorTest`）为包级补充。这是行为门，不是性能基线。
+- 理由以「不移植：iOS」开头的是真平台绑定（AVAudioSession、UIKit PiP、MetricKit 等），长期保留。
+
+### 仪器测试：优先用正式钩子，少反射
+
+已提供的 `@VisibleForTesting` / 测试只读属性：
+
+- `AppPlaybackSession.secondaryLaneForTest`
+- `StageViewModel.injectThermalForTest`、`isQualityLimitedForTest`、`laneCapForTest`、`degradeLaneForTest`
+- `PlaybackLane.audioEnabledCountForTest`、`playerVolumeForTest`
+
+`androidTest/.../e2e/b/` 与 `e2e/a/MilestoneATest.kt` 均已走上列公开测试接口（不再反射 `PlaybackLane` 私有 `player` 字段）。剩余待办：`PlaybackFaceObserveTest` 反射 `AppPlaybackSession.observe` 可改为 package-visible 测试入口或 Robolectric 替身。
+
+`VisibleForTesting` 为 CLASS retention，仪器进程不能单靠反射查注解；单测 `E2eBTestHooksTest` 用 `getMethod` 钉住 JVM 签名即可。
+
+### 里程碑 B / C 文档
+
+双窗舞台、界面、减路与临时释放语义见 `android/docs/dual-window.md`；画中画接线、状态机、3 秒回退与端到端门见 `android/docs/pip.md`。架构总览见 `docs/ARCHITECTURE.md` 第 11 节；行为门见 `docs/PERF.md` 里程碑 B / C 小节。
 
 ## 本次 release 体积
 
 2026-11-18，本机 `check-apk.sh` 对 `app-release.apk`：`apk_bytes=667213`（651.6 KB），低于 5120 KB。`--max-kb 1` 因超过 1024 字节失败。权限只有 `INTERNET`、`ACCESS_NETWORK_STATE`、`vela.app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`。`allowBackup=false`。R8 mapping 里没有 `vela.app.hooks`。`:app:assemblePerf` 也能打出包。
+
+## 跨设备同步接线（S6）
+
+安卓端跨设备同步核心（S4）位于 `android/core/src/main/kotlin/vela/core/sync/`，App 层接线位于 `android/app/src/main/kotlin/vela/app/sync/`，设置页入口在 `TasteSheet.kt` 底部（可选参数 `syncHub`）。详细接线、探针分级、Keystore 三类失败处理、备份排除规则与待编排者收尾的越界文件清单见 `android/docs/sync.md`。
+
+- 不新增任何权限（`check-apk.sh` 权限白名单不变），不引入新第三方依赖（传输层直接用平台 `HttpURLConnection`）。
+- 备份排除同时覆盖 API 31+（`res/xml/data_extraction_rules.xml`）与 API 26–30（`res/xml/full_backup_content.xml`），显式排除 `vela_sync.xml`、`Vela/sync-state.json`、`Vela/sync-state.json.corrupt` 与 `Vela/sync-join-snapshot`。
+- 真机/模拟器仪器测试在 `android/app/src/androidTest/kotlin/vela/app/sync/SyncDeviceInstrumentTest.kt`（验证真实 `AndroidKeyStore` 包裹、设备 P-256 探针、`android.icu` 与敏感剪贴板标记）。
+
+### 跨设备同步宿主接线与审计修复（A-SYNC-2）
+
+- 已完成真实宿主接线：`MainActivity` 启动创建并 `attach()` `SyncHub`（未配置服务端地址或不支持时不创建），`LifecycleWiring` 转发进后台与回前台，`StageScreen` → `TasteSheet` 透传 `SyncHub` 与零权限锁屏验证回调（`KeyguardManager.createConfirmDeviceCredentialIntent`，`SyncPanel` 未传验证器时 fail closed），舞台收藏、屏蔽、口味、停留结算与两个同步设置全部接入提交锁与 `SyncHub.perform`。
+- 同步修复三项审计缺陷：释放 `gate` 后串行派发文档变更通知（消除 Hub 回调重入死锁）、传播 `SharedPreferences.Editor.commit()` 失败以使回滚写盘失败进入「需要修复」、为阻塞 `HttpURLConnection` 增加单次请求总期限与协程取消即时断连。
+
+### 跨设备同步终轮审查修复（A-SYNC-5）
+
+- 屏障锁内刷新内存舞台：`StageSyncBridge.reloadAfterBarrier()` 在 `verifiedBarrierSink` 落盘收藏、口味、设置全部成功后、释放恢复/关闭锁之前按磁盘内容刷新 `StageViewModel`，消除重启/关闭后首次编辑、划房或再次加入用旧内存覆盖同步数据的问题。
+- 创建半成品态收敛：`startEnable` / `startCreateFromJoin` 在写入 `CREATING` + Keystore 后写 `ACTIVE` 失败（或回删失败）时切入 `SyncUiPhase.Attention` 暴露修复入口；`SyncService.disable` 对未迁移 `CREATING` 直接清密钥与状态（不跑空文档屏障）；重启自动经 `ResumeCreating` / `DiscardCreating` 收敛。
+- 进程级作用域与跨重建恢复：`MainActivity` 改用 `SyncHub.obtainOrCreate(...)`，长事务作用域与 `savedCode` / `revealedCode` / `pendingRevealAuth` 均随进程保留并经 `RebindableSyncBridge` 重绑到新 `StageViewModel`，深色模式/语言等配置变化重建不取消开启/加入/清除在途事务，也不丢失凭据验证结果。
+- 409 重试复检与设置满额回退：`SyncJoin.commitLocked` 在 409 重试循环内复检 `fits`、`sizeLimit` 与 `clockSkew`，超限明确报「同步数据已满」；`StageViewModel.syncSetting` 处理 `SyncOpOutcome.Full`，回退内存与偏好（不污染未设置键）并弹出已满提示。
+- 画中画与后台静默：进入画中画（自动画中画或 Android 12+ `DidStart`）零同步网络请求并取消排队去抖任务；非画中画后台严格按 `sync.md` §11.3 仅在 `gen > pushedGen` 且未硬退避时尽力推一次，后台滞留期间迟到触发不联网。
+- parity 清零与核验补强：29 条 `deferred:S6` 全部清零（补齐 `SyncParityTest` 14 条与 `split-sync.tsv` 映射，仅 `SyncLiveServerTests#testLiveServerEndToEnd` 按实网测试规范登记非 deferred 跳过并指向本地端到端替代测试）；`parity.py` 现已核验所有 `replaced-by:` 指向的 Kotlin 测试确实存在、已执行且通过。
 
 ## sites 暂缓项（欠账）
 

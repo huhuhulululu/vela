@@ -23,8 +23,10 @@ import vela.core.curation.LastBroadcastFetcher
 import vela.core.ledger.SuggestEnd
 import vela.core.ledger.SuggestRules
 import vela.core.ledger.WatchLedger
+import vela.app.sync.syncedCuration
 import vela.core.base.model.timeIntervalSince1970
 import vela.core.selection.LaneSelection
+import vela.core.sync.SyncLocalOp
 
 internal data class FavoriteResolution(
     val statuses: Map<String, FavoriteStatus>,
@@ -36,33 +38,37 @@ internal fun StageViewModel.toggleFavorite(target: RoomTarget?) {
     if (!accepts(target)) return
     val room = feed.current ?: return
     if (curation.isFavorite(room.username)) {
+        val next = syncedCuration(SyncLocalOp.Unfavorite(room.username)) { curation.unfavoriting(room.username) } ?: return
         commitCuration(
-            curation.unfavoriting(room.username),
+            next,
             text.unfavorite(room.displayName),
             toastSeconds = StageRules.UNFAVORITE_TOAST_SECONDS,
             undoFavorite = room.username,
         )
     } else {
+        val next = syncedCuration(SyncLocalOp.Favorite(room.username)) { curation.favoriting(room.username) } ?: return
         taste = taste.following(room, now(), tagRarity)
         tasteSaver.schedule(taste)
-        commitCuration(curation.favoriting(room.username), null)
+        commitCuration(next, null)
     }
 }
 
 internal fun StageViewModel.blockCurrent(target: RoomTarget?) {
     if (!accepts(target)) return
     val room = feed.current ?: return
+    val next = syncedCuration(SyncLocalOp.Block(room.username)) { curation.blocking(room.username) } ?: return
     laneFace = laneFace.copy(manuallyPaused = false)
-    commitCuration(curation.blocking(room.username), text.blocked(room.displayName))
+    commitCuration(next, text.blocked(room.displayName))
 }
 
 internal fun StageViewModel.undoToast() {
     val name = toastUndoName ?: return
     if (!curation.canRestoreFavorite(name)) return
+    val next = syncedCuration(SyncLocalOp.RestoreFavorite(name)) { curation.restoringFavorite(name) } ?: return
     cancelToastTimer()
     toast = null
     toastUndoName = null
-    commitCuration(curation.restoringFavorite(name), null)
+    commitCuration(next, null)
 }
 
 internal fun StageViewModel.addFavorite(raw: String) {
@@ -77,8 +83,9 @@ internal fun StageViewModel.addFavorite(raw: String) {
         publish()
         return
     }
+    val next = syncedCuration(SyncLocalOp.Favorite(name)) { curation.favoriting(name) } ?: return
     favoriteDraftError = null
-    commitCuration(curation.favoriting(name), null)
+    commitCuration(next, null)
     if (source != FeedSource.favorites) track { checkFavorites() }
 }
 
@@ -87,13 +94,19 @@ internal fun StageViewModel.playFavorite(name: String) {
     val room = favoriteStatus.status(name)?.room
         ?: feed.catalog.firstOrNull { Curation.key(it.username) == key && it.show.isPlayable }
         ?: return
+    val beforePrimary = feed.currentUsername
     cancelSiteSearch()
     surface = StageSurface.None
     updateFeed(intent = LaneSelection.Intent.Reveal(room.username)) { store ->
         store.reveal(room)
     }
     if (siteSearch == null && feed.query.text != searchText) searchText = feed.query.text
-    requestPlay()
+    val focusedSecondary = laneCount > 1 &&
+        focusLane == vela.core.base.lane.LaneID.SECONDARY &&
+        secondaryCursor?.username?.equals(room.username, ignoreCase = true) == true
+    if (!focusedSecondary || !beforePrimary.equals(feed.currentUsername, ignoreCase = true)) {
+        requestPlay()
+    }
 }
 
 internal fun StageViewModel.exportFavorites() {
@@ -111,8 +124,9 @@ internal fun StageViewModel.importFavorites(bytes: ByteArray) {
         return
     }
     val merged = curation.importing(imported.names)
+    val next = syncedCuration(SyncLocalOp.Importing(imported.names)) { merged.curation } ?: return
     val skipped = if (imported.rejected > 0) text.importSkipped(imported.rejected) else ""
-    commitCuration(merged.curation, text.imported(merged.added, skipped))
+    commitCuration(next, text.imported(merged.added, skipped))
     if (source != FeedSource.favorites) track { checkFavorites() }
 }
 
@@ -277,13 +291,17 @@ internal suspend fun StageViewModel.fetchFavoritesPage(): CatalogPage {
 
 internal fun StageViewModel.acceptFavoriteSuggest() {
     val prompt = favoriteSuggest ?: return
-    val room = feed.current ?: return
+    val room = roomOn(focusLane) ?: return
     if (WatchLedger.key(room.username) != prompt.username) return
+    if (curation.isFavorite(room.username)) {
+        endFavoriteSuggest(SuggestEnd.accepted)
+        return
+    }
+    val next = syncedCuration(SyncLocalOp.Favorite(room.username)) { curation.favoriting(room.username) } ?: return
     endFavoriteSuggest(SuggestEnd.accepted)
-    if (curation.isFavorite(room.username)) return
     taste = taste.following(room, now(), tagRarity)
     tasteSaver.schedule(taste)
-    commitCuration(curation.favoriting(room.username), null)
+    commitCuration(next, null)
 }
 
 internal fun StageViewModel.closeFavoriteSuggest() {
@@ -292,7 +310,7 @@ internal fun StageViewModel.closeFavoriteSuggest() {
 
 internal fun StageViewModel.dismissFavoriteSuggestIfMismatch() {
     val prompt = favoriteSuggest
-    val current = feed.currentUsername
+    val current = roomOn(focusLane)?.username
     if (prompt == null || current == null || WatchLedger.key(current) != prompt.username) {
         favoriteSuggest = null
         favoriteSuggestJob?.cancel()

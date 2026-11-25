@@ -90,4 +90,14 @@ class SettingsTest {
         prefs.edit().putString(Settings.KEY_SOURCE, "favorites").commit()
         assertEquals(FeedSource.favorites, Settings(context).source)
     }
+
+    @Test
+    fun testDualWindowPersistsAcrossInstances() {
+        val first = Settings(context)
+        assertFalse("默认应关闭双窗", first.dualWindow)
+        first.dualWindow = true
+        assertTrue("新实例应读回已开启的双窗设置", Settings(context).dualWindow)
+        Settings(context).dualWindow = false
+        assertFalse("关闭后新实例应读回关闭状态", Settings(context).dualWindow)
+    }
 }

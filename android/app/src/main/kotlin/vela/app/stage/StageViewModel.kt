@@ -2,6 +2,7 @@ package vela.app.stage
 
 import android.content.Context
 import android.util.Log
+import androidx.annotation.VisibleForTesting
 import java.nio.file.Path
 import java.time.Clock
 import java.time.Instant
@@ -21,9 +22,19 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import vela.app.R
 import vela.app.infra.Settings
+import vela.app.lane.PlaybackLane
+import vela.app.lane.ThermalMonitor
+import vela.app.sync.SyncHub
+import vela.app.sync.rejectWhileSyncJoining
+import vela.app.sync.syncSetting
+import vela.app.sync.syncedCuration
 import vela.core.base.io.DeferredSaver
+import vela.core.sync.SyncLocalOp
+import vela.core.sync.SyncScheduler
 import vela.core.base.lane.LaneCursor
+import vela.core.base.lane.LaneEndReason
 import vela.core.base.lane.LaneID
+import vela.core.base.lane.PlaybackLaneRole
 import vela.core.base.lane.RoomTarget
 import vela.core.base.model.FeedSource
 import vela.core.base.model.Gender
@@ -48,6 +59,8 @@ import vela.core.feed.PagingState
 import vela.core.feed.SearchEpoch
 import vela.core.feed.StartupGate
 import vela.core.hls.DegradedHold
+import vela.core.hls.LaneQuality
+import vela.core.hls.PhoneThermalState
 import vela.core.hls.PlaybackNoteRule
 import vela.core.hls.PreparedCache
 import vela.core.hls.SkipTracker
@@ -62,6 +75,8 @@ import vela.core.lifecycle.LifecycleEpoch
 import vela.core.lifecycle.PhoneLaneActivity
 import vela.core.lifecycle.PhoneResumeIntent
 import vela.core.recommend.RankSignals
+import vela.core.selection.LaneSelection
+import vela.core.selection.RecentSkips
 import vela.core.taste.HotTagCache
 import vela.core.taste.TagRarity
 import vela.core.taste.Taste
@@ -70,10 +85,10 @@ import vela.core.taste.suggestedTags
 import vela.core.base.model.Room
 
 /**
- * 单窗舞台。目录、收藏、口味、列表，以及接上播放器之后的起播链、侧车和质询都在这里。
+ * 舞台。目录、收藏、口味、列表，以及接上播放器之后的起播链、侧车和质询都在这里。
  *
  * 列表改动一律走 [updateFeed]：先改副本，再交给 [vela.core.selection.LaneSelection.resolve]。
- * 单窗不设副路。房间换了用 [vela.core.selection.LaneSettlement] 结算停留。
+ * 单窗不设副路。开了第二路之后焦点、热降档和停留都按路结算。
  */
 class StageViewModel(
     val settings: Settings,
@@ -158,6 +173,9 @@ class StageViewModel(
     /** 接上 [bindPlayback] 之后才向站点要地址。目录测试不接，请求数保持原样。 */
     internal var playbackBound: Boolean = false
     internal var playbackSink: PlaybackSink? = null
+        set(value) {
+            field = wrapPrimarySink(value)
+        }
     internal var playJob: Job? = null
     internal var prefetchJob: Job? = null
     internal var skipJob: Job? = null
@@ -178,9 +196,57 @@ class StageViewModel(
     /** 导出字节只发一次。界面取走后就没有了，不留在状态里。 */
     internal val favoriteExports = Channel<ByteArray>(Channel.CONFLATED)
 
-    /** 单窗恒为 null。双窗再装上副路游标。 */
+    /** 单窗为 null。开了第二路就始终有游标，即使这一路没有房间。 */
     internal var secondaryCursor: LaneCursor? = null
     internal var primaryCursor = LaneCursor()
+    internal val recentSkips = RecentSkips()
+    internal var focusLane: LaneID = LaneID.PRIMARY
+    internal var laneCount: Int = 1
+    internal var rememberedLaneCount: Int = 1
+    internal var threeLanesFit: Boolean = true
+    internal var portraitStageWidth: Double = 0.0
+    internal var portraitStageHeight: Double = 0.0
+    internal var landscape: Boolean = false
+    internal var laneCountLocked: Boolean = false
+    internal var focusLocked: Boolean = false
+    /** 画中画只留焦点路：临时释放其余路的播放资源，逻辑路状态保留。 */
+    internal var pipSolo: Boolean = false
+    internal var autoEnterPip: Boolean = settings.autoEnterPip
+    internal var pictureInPicture: Boolean = false
+    /** 画中画按钮：由 MainActivity / LifecycleWiring 接上。 */
+    internal var onEnterPictureInPicture: (() -> Unit)? = null
+    internal var onTogglePictureInPicture: (() -> Unit)? = null
+    internal var onSetAutoEnterPip: ((Boolean) -> Unit)? = null
+    internal var syncHub: SyncHub? = null
+    internal var thermal: PhoneThermalState = PhoneThermalState.NOMINAL
+    internal val laneQuality: LaneQuality = LaneQuality()
+    internal var screenScale: Double = 1.0
+    internal val displayHeights: HashMap<LaneID, Double> = HashMap()
+    internal val appliedCap: HashMap<LaneID, Double> = HashMap()
+    internal var secondaryFace: LaneFace? = null
+    internal var tertiaryFace: LaneFace? = null
+    internal val secondaryDwell: DwellTracker = DwellTracker()
+    internal var secondarySource: FeedSource = FeedSource.guess
+    internal val primaryFocusLog: FocusSegments = FocusSegments()
+    internal val secondaryFocusLog: FocusSegments = FocusSegments()
+    internal var settlementRole: PlaybackLaneRole = PlaybackLaneRole.PRIMARY
+    internal var settlementFocused: Boolean = true
+    internal var settlementSourceOverride: FeedSource? = null
+    internal var secondarySink: PlaybackSink? = null
+    internal var secondaryPlayJob: Job? = null
+    internal var secondaryPlayRequests: Int = 0
+    internal var secondaryActivity: PhoneLaneActivity = PhoneLaneActivity.IDLE
+    internal var deferSecondaryAutoplay: Boolean = false
+    internal var primaryLane: PlaybackLane? = null
+    internal var secondaryLane: PlaybackLane? = null
+    internal var ensureSecondary: (() -> Unit)? = null
+    internal var releaseSecondaryLane: (() -> Unit)? = null
+    internal var onLaneFocusChanged: ((LaneID) -> Unit)? = null
+    /** 焦点路画面尺寸。绑定播放路时同步订，不靠界面重组。 */
+    internal var onFocusVideoSize: ((Double, Double) -> Unit)? = null
+    internal var onLanesChanged: (() -> Unit)? = null
+    internal var thermalMonitor: ThermalMonitor? = null
+    internal var thermalJob: Job? = null
 
     internal val startupGate = StartupGate()
     internal var loadGeneration: Int = 0
@@ -284,9 +350,13 @@ class StageViewModel(
 
     fun close() {
         playbackGateOpen = false
+        stopThermalMonitor()
         cancelPlaybackWork()
         cancelSharedWork()
-        if (!playerReleased) playbackSink?.stop()
+        if (!playerReleased) {
+            playbackSink?.stop()
+            secondarySink?.stop()
+        }
         sidecarHolder?.close()
         sidecarHolder = null
         favoriteRunner.close()
@@ -315,6 +385,7 @@ class StageViewModel(
     fun bindLifecycleHooks(ensurePlayback: () -> Unit, onMuteChanged: (Boolean) -> Unit) {
         this.ensurePlayback = ensurePlayback
         this.onMuteChanged = onMuteChanged
+        startThermalMonitor()
     }
 
     override fun dispatch(intent: StageIntent) {
@@ -346,29 +417,51 @@ class StageViewModel(
             StageIntent.ToggleMute -> toggleMute()
             is StageIntent.SetVolume -> setVolume(intent.value)
             StageIntent.ToggleInfo -> {
+                if (rejectWhileSyncJoining()) return
                 infoAlwaysOn = !infoAlwaysOn
                 settings.infoAlwaysOn = infoAlwaysOn
+                syncSetting(Settings.KEY_INFO_ALWAYS, infoAlwaysOn)
                 publish()
             }
-            is StageIntent.Step -> if (intent.lane == LaneID.PRIMARY) {
-                if (intent.delta != 0) skips.noteManual(intent.delta)
-                move(intent.delta, userInitiated = true)
+            is StageIntent.Step -> when {
+                intent.lane == LaneID.PRIMARY -> {
+                    if (intent.delta != 0) skips.noteManual(intent.delta)
+                    move(intent.delta, userInitiated = true)
+                }
+                laneCount > 1 && intent.delta != 0 -> moveLane(intent.lane, intent.delta, userInitiated = true)
+                else -> Unit
             }
             is StageIntent.TogglePause -> togglePause(intent.target)
             is StageIntent.ToggleFavorite -> toggleFavorite(intent.target)
             is StageIntent.BlockCurrent -> blockCurrent(intent.target)
             is StageIntent.MarkNotInterested -> markNotInterested(intent.target)
             is StageIntent.RetryPlayback -> {
-                if (accepts(intent.target)) {
-                    degradedHold.release(DegradedHold.Release.RETRY)
-                    skips.reset()
-                    feed.currentUsername?.let { prepared.remove(it) }
+                val target = intent.target
+                val degradedSecondary = target?.laneID == LaneID.SECONDARY &&
+                    secondaryFace?.playback == LanePlayback.Degraded
+                if (accepts(target) && !degradedSecondary) {
+                    if (target?.laneID == LaneID.SECONDARY) {
+                        prepared.remove(target.username)
+                    } else {
+                        degradedHold.release(DegradedHold.Release.RETRY)
+                        skips.reset()
+                        (target?.username ?: feed.currentUsername)?.let { prepared.remove(it) }
+                    }
                 }
-                retryPlayback(intent.target)
+                retryPlayback(target)
             }
-            is StageIntent.RemoveFavorite -> commitCuration(curation.unfavoriting(intent.name), null)
-            is StageIntent.RestoreFavorite -> commitCuration(curation.restoringFavorite(intent.name), null)
-            is StageIntent.Unblock -> commitCuration(curation.unblocking(intent.name), null)
+            is StageIntent.RemoveFavorite -> {
+                val next = syncedCuration(SyncLocalOp.Unfavorite(intent.name)) { curation.unfavoriting(intent.name) } ?: return
+                commitCuration(next, null)
+            }
+            is StageIntent.RestoreFavorite -> {
+                val next = syncedCuration(SyncLocalOp.RestoreFavorite(intent.name)) { curation.restoringFavorite(intent.name) } ?: return
+                commitCuration(next, null)
+            }
+            is StageIntent.Unblock -> {
+                val next = syncedCuration(SyncLocalOp.Unblock(intent.name)) { curation.unblocking(intent.name) } ?: return
+                commitCuration(next, null)
+            }
             is StageIntent.AddFavorite -> addFavorite(intent.name)
             is StageIntent.PlayFavorite -> playFavorite(intent.name)
             StageIntent.RefreshFavorites -> track { refreshFavorites() }
@@ -421,7 +514,50 @@ class StageViewModel(
             is StageIntent.SetLearningPaused -> setLearningPaused(intent.paused)
             StageIntent.ResetTaste -> resetTasteProfile()
             StageIntent.ClearPreferences -> clearAllPreferences()
+            is StageIntent.SetDual -> setDual(intent.on, intent.remember)
+            is StageIntent.SetLaneCount -> setLaneCount(intent.count, intent.remember)
+            is StageIntent.SetFocus -> setFocus(intent.lane)
+            is StageIntent.SetLandscape -> setLandscape(intent.on)
+            is StageIntent.NotePortraitStageSize -> notePortraitStageSize(intent.width, intent.height)
+            is StageIntent.SetAutoEnterPip -> {
+                autoEnterPip = intent.enabled
+                settings.autoEnterPip = intent.enabled
+                onSetAutoEnterPip?.invoke(intent.enabled)
+                publish()
+            }
+            StageIntent.EnterPictureInPicture -> onEnterPictureInPicture?.invoke()
+            StageIntent.TogglePictureInPicture -> onTogglePictureInPicture?.invoke()
         }
+    }
+
+    /** 画中画状态变化时同步路数锁；解锁时按舞台尺寸补判路数。 */
+    fun syncLaneCountLock(locked: Boolean) {
+        if (locked == laneCountLocked) return
+        laneCountLocked = locked
+        if (!locked) {
+            notePortraitStageSize(portraitStageWidth, portraitStageHeight)
+        }
+        publish()
+    }
+
+    /**
+     * 画中画进入时只留焦点路，退出后按原路数恢复。单窗不动。
+     * 可见性与 [syncLaneVisibility] 共用 [pipSolo] 口径。
+     */
+    fun setPipSolo(on: Boolean) {
+        if (on == pipSolo) return
+        pipSolo = on
+        syncLaneVisibilityPublic()
+        publish()
+    }
+
+    fun publishPipFlags() {
+        publish()
+    }
+
+    /** 给画中画与 LifecycleWiring 用：复用 Stage+Lanes 的可见性规则。 */
+    internal fun syncLaneVisibilityPublic() {
+        syncLaneVisibilityForPip()
     }
 
     override fun noteReady(username: String?) {
@@ -499,15 +635,39 @@ class StageViewModel(
         blocked = curation.blockedSet,
     )
 
-    internal fun target(): RoomTarget? {
-        val name = feed.currentUsername ?: return null
-        return RoomTarget.primary(name, laneFace.generation)
+    internal fun target(): RoomTarget? = target(LaneID.PRIMARY)
+
+    internal fun target(id: LaneID): RoomTarget? {
+        if (id != LaneID.PRIMARY && laneCount <= 1) return null
+        val face = when (id) {
+            LaneID.PRIMARY -> laneFace
+            LaneID.SECONDARY -> if (laneCount >= 2) secondaryFace else null
+            LaneID.TERTIARY -> if (laneCount >= 3) tertiaryFace else null
+        } ?: return null
+        val name = if (id == LaneID.PRIMARY) feed.currentUsername else face.username
+        if (name == null) return null
+        return if (id == LaneID.PRIMARY) {
+            RoomTarget.primary(name, laneFace.generation)
+        } else {
+            RoomTarget(id, name, face.generation)
+        }
     }
 
     internal fun accepts(target: RoomTarget?): Boolean {
-        if (target == null || target.laneID != LaneID.PRIMARY) return false
-        val name = feed.currentUsername ?: return false
-        return target.matches(LaneID.PRIMARY, name, laneFace.generation)
+        if (target == null) return false
+        if (laneCount <= 1 || target.laneID == LaneID.PRIMARY) {
+            if (target.laneID != LaneID.PRIMARY) return false
+            val name = feed.currentUsername ?: return false
+            return target.matches(LaneID.PRIMARY, name, laneFace.generation)
+        }
+        if (target.laneID !in LaneID.active(laneCount)) return false
+        val face = when (target.laneID) {
+            LaneID.SECONDARY -> secondaryFace
+            LaneID.TERTIARY -> tertiaryFace
+            LaneID.PRIMARY -> laneFace
+        } ?: return false
+        val name = face.username ?: return false
+        return target.matches(target.laneID, name, face.generation)
     }
 
     internal fun track(block: suspend () -> Unit): Job {
@@ -526,8 +686,25 @@ class StageViewModel(
     }
 
     internal fun publish() {
+        if (laneCount >= 2 && secondaryCursor != null) {
+            val secondaryName = secondaryCursor?.username
+            val face = secondaryFace ?: LaneFace(
+                id = LaneID.SECONDARY,
+                playback = if (secondaryName == null) LanePlayback.Empty else LanePlayback.Idle,
+            )
+            val playback = when {
+                secondaryName == null -> LanePlayback.Empty
+                face.playback == LanePlayback.Empty -> LanePlayback.Idle
+                else -> face.playback
+            }
+            secondaryFace = face.copy(id = LaneID.SECONDARY, username = secondaryName, playback = playback)
+        }
         val name = feed.currentUsername
-        val playback = if (name == null) LanePlayback.Empty else laneFace.playback
+        val playback = when {
+            name == null -> LanePlayback.Empty
+            laneFace.playback == LanePlayback.Empty -> LanePlayback.Idle
+            else -> laneFace.playback
+        }
         laneFace = laneFace.copy(id = LaneID.PRIMARY, username = name, playback = playback)
         val summary = taste.summary(now(), zone)
         mutable.value = StageUiState(
@@ -576,12 +753,27 @@ class StageViewModel(
             startupNotices = startupNotices,
             catalogClaimed = startupGate.catalogRequested,
             challengeResume = challengeResume,
+            secondary = if (laneCount >= 2) secondaryFace else null,
+            tertiary = if (laneCount >= 3) tertiaryFace else null,
+            focusLane = focusLane,
+            laneCount = laneCount,
+            rememberedLaneCount = rememberedLaneCount,
+            threeLanesFit = threeLanesFit,
+            portraitStageWidth = portraitStageWidth,
+            portraitStageHeight = portraitStageHeight,
+            landscape = landscape,
+            laneCountLocked = laneCountLocked,
+            focusLocked = focusLocked,
+            thermal = thermal,
+            autoEnterPip = autoEnterPip,
+            pictureInPicture = pictureInPicture,
         )
     }
 
-    /** 没接播放器时只推进界面。接上之后才解析地址并交给这一路。闸门关着时直接丢掉。 */
+    /** 没接播放器时只推进界面。接上之后才解析地址并交给这一路。闸门关着、主路隐藏或代次拒绝时直接丢掉。 */
     internal fun requestPlay(isRetry: Boolean = false) {
-        if (!playbackGateOpen) return
+        if (!playbackGateOpen || !laneFace.visible || !primaryVisible) return
+        if (lifecycleEpoch.begin(PlaybackLaneRole.PRIMARY) == null) return
         ensurePlayback?.invoke()
         if (!playbackBound) {
             startUnboundPlayback()
@@ -603,9 +795,13 @@ class StageViewModel(
         startBoundPlayback(isRetry)
     }
 
+    internal var onCancelSharedWork: (() -> Unit)? = null
+
     internal fun cancelPlaybackWork() {
         playJob?.cancel()
         playJob = null
+        secondaryPlayJob?.cancel()
+        secondaryPlayJob = null
         prefetchJob?.cancel()
         prefetchJob = null
         skipJob?.cancel()
@@ -614,9 +810,10 @@ class StageViewModel(
         awayJob = null
     }
 
-    /** 目录、搜索、收藏、关联。播放任务也一起停。代次作废后调用。 */
+    /** 目录、搜索、收藏、关联、缩略图。播放任务也一起停。代次作废后调用。 */
     internal fun cancelSharedWork() {
         cancelPlaybackWork()
+        onCancelSharedWork?.invoke()
         catalogRestJob?.cancel()
         catalogRestJob = null
         targetedJob?.cancel()
@@ -659,6 +856,8 @@ class StageViewModel(
         lifecycleEpoch.suspend()
         loadGeneration += 1
         laneFace = laneFace.copy(generation = laneFace.generation + 1)
+        val secondary = secondaryFace
+        if (secondary != null) secondaryFace = secondary.copy(generation = secondary.generation + 1)
         publish()
     }
 
@@ -670,7 +869,7 @@ class StageViewModel(
     internal fun applyMute(nextMuted: Boolean, writeSettings: Boolean) {
         muted = nextMuted
         if (writeSettings) settings.muted = nextMuted
-        playbackSink?.setVolume(volume, muted)
+        pushVolumes()
         publish()
     }
 
@@ -710,6 +909,7 @@ class StageViewModel(
         source = settings.source
         loadedSource = source
         dwellSource = source
+        secondarySource = source
         feed = FeedStore(
             query = RoomQuery(
                 publicOnly = publicOnly,
@@ -717,6 +917,7 @@ class StageViewModel(
                 hidden = if (source == FeedSource.guess) taste.vetoedKeys else emptySet(),
             ),
         )
+        rememberDualFromSettings()
     }
 
     private fun kickoffCatalogIfConfirmed() {
@@ -770,12 +971,17 @@ class StageViewModel(
         }
         muted = nextMuted
         settings.muted = muted
-        if (bridge != null) playbackSink?.setVolume(volume, muted)
+        if (bridge != null) pushVolumes()
         publish()
     }
 
     private fun togglePause(target: RoomTarget?) {
         if (target != null && !accepts(target)) return
+        val lane = target?.laneID ?: if (laneCount > 1) focusLane else LaneID.PRIMARY
+        if (lane == LaneID.SECONDARY && laneCount > 1) {
+            togglePauseLane(target)
+            return
+        }
         val paused = !laneFace.manuallyPaused
         laneFace = laneFace.copy(manuallyPaused = paused)
         val allowed = !paused && ageConfirmed && feed.current != null && surface != StageSurface.Challenge
@@ -821,6 +1027,9 @@ class StageViewModel(
         chromeVisible = true
         publish()
         if (next == StageSurface.Taste || next == StageSurface.Filters) track { loadHotTagsIfStale() }
+        if (next == StageSurface.Curation || next == StageSurface.Taste) {
+            syncHub?.trigger(SyncScheduler.Trigger.PANEL)
+        }
         if (next == StageSurface.Curation) {
             track { refreshFavoritesIfStale() }
             track { refreshLastBroadcastsIfStale() }
@@ -837,6 +1046,63 @@ class StageViewModel(
 
     private fun vela.core.taste.TasteRow.toRow(): TasteRowState =
         TasteRowState(key = key, name = name, mean = mean, hits = hits, vetoed = vetoed)
+
+    internal fun updateFeed(
+        installing: FeedSource? = null,
+        intent: LaneSelection.Intent = LaneSelection.Intent.Filter,
+        body: (FeedStore) -> Unit,
+    ) = updateFeedLanes(installing, intent, body)
+
+    internal fun recordSettlement(
+        settled: DwellTracker.Settled,
+        endReason: LaneEndReason,
+        userInitiated: Boolean,
+    ) = recordSettlementLanes(settled, endReason, userInitiated)
+
+    internal fun updateDwellActive() = updateDwellActiveLanes()
+
+    internal fun scheduleRelated() = scheduleRelatedLanes()
+
+    internal fun blockCurrent(target: RoomTarget?) = blockCurrentLanes(target)
+
+    internal fun toggleFavorite(target: RoomTarget?) = toggleFavoriteLanes(target)
+
+    internal fun markNotInterested(target: RoomTarget?) = markNotInterestedLanes(target)
+
+    internal fun retryPlayback(target: RoomTarget?) = retryPlaybackLanes(target)
+
+    fun bindLane(lane: PlaybackLane, webHost: android.widget.FrameLayout? = null) {
+        bindLaneRouted(lane, webHost)
+    }
+
+    internal fun requestPlay(lane: LaneID, isRetry: Boolean = false) = requestLane(lane, isRetry)
+
+    /**
+     * 仪器 / JVM 测试注入热状态。行为与 [noteThermal] 相同，不放宽线程或恢复规则。
+     */
+    @VisibleForTesting
+    fun injectThermalForTest(
+        state: PhoneThermalState,
+        now: Instant = now(),
+        scheduleRecovery: Boolean = false,
+    ) {
+        noteThermal(state, now, scheduleRecovery)
+    }
+
+    /** 当前是否因热状态限档。只读。 */
+    @get:VisibleForTesting
+    val isQualityLimitedForTest: Boolean
+        get() = laneQuality.isLimited
+
+    /** 这一路此刻的码率上限（bps）。只读。 */
+    @VisibleForTesting
+    fun laneCapForTest(id: LaneID): Double = laneCap(id)
+
+    /** 仪器测试注入副路资源降级。行为与 [degradeLane] 相同。 */
+    @VisibleForTesting
+    fun degradeLaneForTest(id: LaneID) {
+        degradeLane(id)
+    }
 
     companion object {
         private const val TAG = "vela.stage"
@@ -900,7 +1166,7 @@ internal class StageText(context: Context?) {
 
     fun connectFailed(): String = get(R.string.playchain_connect_failed, "连不上这路画面")
 
-    fun relayDown(): String = get(R.string.playchain_relay_down, "本地中继没能启动，暂时无法播放")
+    fun relayDown(): String = get(R.string.playchain_relay_down, "画面源没能接上，暂时无法播放")
 
     fun failure(failure: vela.core.stream.StreamFailure?): String = when (failure) {
         vela.core.stream.StreamFailure.geo -> get(R.string.playchain_failure_geo, "当前地区不可观看")

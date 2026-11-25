@@ -1,6 +1,10 @@
 package vela.app
 
+import android.app.KeyguardManager
+import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.Intent
+import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
 import android.view.ViewGroup
@@ -8,8 +12,13 @@ import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
@@ -20,25 +29,31 @@ import java.io.InputStream
 import java.nio.file.Paths
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import vela.app.infra.AtomicFile
+import vela.app.infra.Endpoints
 import vela.app.infra.HttpClientImpl
 import vela.app.infra.Settings
+import vela.app.infra.ThumbnailCache
 import vela.app.lane.LaneSurface
+import vela.app.pip.ActivityPictureInPicture
+import vela.app.pip.PiPCoordinator
 import vela.app.stage.AppPlaybackSession
 import vela.app.stage.LifecycleWiring
 import vela.app.stage.StageIntent
 import vela.app.stage.StageViewModel
 import vela.app.stage.challengeEntryUrl
+import vela.app.sync.SyncHub
 import vela.app.ui.StageScreen
+import vela.core.base.lane.LaneID
 import vela.core.base.model.Prefs
 import vela.core.lifecycle.PhoneScenePhase
 
 /**
- * 单窗入口。前后台交给 [LifecycleWiring]：没有画中画时回桌面按
- * [vela.core.lifecycle.PhoneLifecycle] 全停，回前台按冻结裁决 7 恢复。
- * 画中画（B2 之后的 PiP1）再改这个文件。
+ * 应用入口。竖屏可开双窗（接口留三路）；前后台交给 [LifecycleWiring]。
+ * 画中画：比例夹紧、RemoteAction 静音、LifecycleEpoch 只放行焦点路、3 秒未进入则全停。
  *
  * debug / perf 会多编 src/hooks。若存在 [vela.app.hooks.Hooks.install]，启动时调用。
  * 同一套 hooks 里的 [vela.app.hooks.StageHost] 可以让单路仪器测试只拿空宿主，
@@ -54,13 +69,23 @@ class MainActivity : ComponentActivity() {
     lateinit var session: AppPlaybackSession
         private set
 
+    var pictureInPicture: ActivityPictureInPicture? = null
+        private set
+
+    var syncHub: SyncHub? = null
+        private set
+
     private var composeView: ComposeView? = null
     private var composed: Boolean = false
+    private val thumbnailJob = kotlinx.coroutines.SupervisorJob()
+    private val thumbnailScope = kotlinx.coroutines.CoroutineScope(thumbnailJob + Dispatchers.IO)
+    private var thumbnails: ThumbnailCache? = null
     private var nextExportId: Long = 1L
     private var pendingExport: ByteArray? = null
     private var pendingExportId: Long = 0L
     private var pendingExportUri: String? = null
     private var pendingUriId: Long = 0L
+    private var pendingSyncReveal: (() -> Unit)? = null
 
     private val createFavorites = registerForActivityResult(
         ActivityResultContracts.CreateDocument("application/json"),
@@ -70,6 +95,53 @@ class MainActivity : ComponentActivity() {
 
     private val openFavorites = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) importFavoritesFrom(uri)
+    }
+
+    private val confirmSyncReveal = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        onSyncRevealResult(result.resultCode)
+    }
+
+    internal fun onSyncRevealResult(resultCode: Int) {
+        val grant = pendingSyncReveal
+        pendingSyncReveal = null
+        if (grant != null) {
+            syncHub?.cancelRevealAuth()
+            if (resultCode == RESULT_OK) grant.invoke()
+        } else {
+            syncHub?.completeRevealAuth(resultCode == RESULT_OK)
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    internal fun requestSyncCodeReveal(
+        intentFactory: (() -> Intent?)? = null,
+        onGranted: () -> Unit,
+    ) {
+        val km = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
+        if (km?.isDeviceSecure != true) {
+            syncHub?.showNotice("这台设备没有设置锁屏密码，无法查看同步码。")
+            return
+        }
+        val intent = if (intentFactory != null) {
+            intentFactory()
+        } else {
+            km.createConfirmDeviceCredentialIntent("查看同步码", "验证锁屏密码以查看完整同步码")
+        }
+        if (intent == null) {
+            syncHub?.showNotice("当前无法验证设备身份，无法查看同步码。")
+            return
+        }
+        pendingSyncReveal = onGranted
+        syncHub?.beginRevealAuth()
+        try {
+            confirmSyncReveal.launch(intent)
+        } catch (_: ActivityNotFoundException) {
+            pendingSyncReveal = null
+            syncHub?.cancelRevealAuth()
+            syncHub?.showNotice("当前无法验证设备身份，无法查看同步码。")
+        }
     }
 
     internal fun launchFavoriteImport() {
@@ -152,10 +224,49 @@ class MainActivity : ComponentActivity() {
         this.stage = stage
         this.session = session
         this.wiring = wiring
+        val syncHub = SyncHub.obtainOrCreate(
+            context = applicationContext,
+            stage = stage,
+            syncDir = directory,
+            isHostChangingConfigurations = { isChangingConfigurations },
+        )
+        this.syncHub = syncHub
+        stage.syncHub = syncHub
+        if (syncHub != null) {
+            wiring.attachSync(syncHub)
+            syncHub.attach()
+        }
+        val coordinator = PiPCoordinator(
+            stage = stage,
+            wiring = wiring,
+            audio = { session.audioController() },
+        )
+        val pipHost = ActivityPictureInPicture(
+            activity = this,
+            stage = stage,
+            onEvent = { event -> wiring.onPictureInPictureEvent(event) },
+        )
+        if (pipHost.supported) {
+            pipHost.attach()
+            coordinator.pip = pipHost
+            pictureInPicture = pipHost
+            stage.onFocusVideoSize = { width, height ->
+                pictureInPicture?.noteVideoSize(width, height)
+            }
+        }
+        wiring.attachPictureInPicture(coordinator)
+        thumbnails = ThumbnailCache(
+            client = EpochGatedThumbnailClient(HttpClientImpl(), stage),
+            scope = thumbnailScope,
+        )
+        stage.onCancelSharedWork = { thumbnailJob.cancelChildren() }
         stage.onQuit = { finish() }
         stage.bindLifecycleHooks(
             ensurePlayback = { session.ensureLane() },
-            onMuteChanged = { muted -> session.onMuteChanged(muted) },
+            onMuteChanged = { muted ->
+                session.onMuteChanged(muted)
+                pictureInPicture?.refreshMuteAction()
+            },
         )
         lifecycleScope.launch {
             for (bytes in stage.favoriteExports) {
@@ -179,12 +290,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
-        val bytes = pendingExport ?: return
+        if (pendingExport == null) return
         outState.putBoolean(EXPORT_PENDING, true)
-        if (bytes.size <= EXPORT_INLINE_LIMIT) outState.putByteArray(EXPORT_BYTES, bytes)
-        if (pendingUriId == pendingExportId) {
-            pendingExportUri?.let { outState.putString(EXPORT_URI, it) }
-        }
     }
 
     override fun onStart() {
@@ -211,7 +318,21 @@ class MainActivity : ComponentActivity() {
         wiring.moveTo(PhoneScenePhase.BACKGROUND)
     }
 
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        pictureInPicture?.onUserLeaveHint()
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode)
+        pictureInPicture?.onPictureInPictureModeChanged(isInPictureInPictureMode)
+    }
+
     override fun onDestroy() {
+        pendingSyncReveal = null
+        thumbnailJob.cancel()
+        pictureInPicture?.detach()
+        pictureInPicture = null
         if (this::wiring.isInitialized) {
             wiring.moveTo(PhoneScenePhase.BACKGROUND)
             session.releaseLeftovers()
@@ -228,16 +349,37 @@ class MainActivity : ComponentActivity() {
         }
         val stage = this.stage
         val session = this.session
+        val hub = this.syncHub
+        val cache = this.thumbnails ?: ThumbnailCache(
+            client = EpochGatedThumbnailClient(HttpClientImpl(), stage),
+            scope = thumbnailScope,
+        ).also { thumbnails = it }
         view.setContent {
-            val lane by session.lane.collectAsState()
+            val state by stage.state.collectAsState()
+            val primary by session.lane.collectAsState()
+            // 副路挂在舞台上；读 state 触发重组时一起拿到最新的 secondaryLane。
+            val secondary = stage.secondaryLane
+            val laneCount = state.laneCount
+            val allowThumbnailFetch = !state.pictureInPicture && !stage.lifecycleEpoch.suspended
             StageScreen(
                 stage = stage,
                 challengeUrl = challengeEntryUrl(),
                 onImportFavorites = { launchFavoriteImport() },
-            ) { _ ->
-                val current = lane
+                syncHub = hub,
+                onRequestSyncReveal = { onGranted -> requestSyncCodeReveal(onGranted = onGranted) },
+            ) { laneId, _ ->
+                val current = when (laneId) {
+                    LaneID.PRIMARY -> primary
+                    LaneID.SECONDARY -> if (laneCount >= 2) secondary else null
+                    LaneID.TERTIARY -> null
+                }
                 if (current != null) {
-                    LaneSurface(lane = current, thumbnail = null, modifier = Modifier.fillMaxSize())
+                    val thumbnail = laneThumbnail(
+                        username = state.face(laneId)?.username,
+                        cache = cache,
+                        allowFetch = allowThumbnailFetch,
+                    )
+                    LaneSurface(lane = current, thumbnail = thumbnail, modifier = Modifier.fillMaxSize())
                 }
             }
         }
@@ -370,6 +512,38 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@Composable
+internal fun laneThumbnail(
+    username: String?,
+    cache: ThumbnailCache,
+    allowFetch: Boolean = true,
+): Bitmap? {
+    val url = if (username.isNullOrBlank()) null else Endpoints.thumbnail(username)
+    var bitmap by remember(url) { mutableStateOf(cache.peek(url)) }
+    LaunchedEffect(url, allowFetch) {
+        if (url != null && allowFetch) {
+            val fetched = cache.imageOrFetch(url)
+            if (fetched != null) bitmap = fetched
+        }
+    }
+    return bitmap
+}
+
+/** 缩略图属于共享任务：画中画或后台挂起期间直接拒绝发网，避免绕过 cancelSharedWork。 */
+internal class EpochGatedThumbnailClient(
+    private val inner: vela.core.base.net.HTTPClient,
+    private val stage: StageViewModel,
+) : vela.core.base.net.HTTPClient {
+    override suspend fun send(request: vela.core.base.net.HTTPRequest): vela.core.base.net.HTTPResult {
+        val token = stage.lifecycleEpoch.begin()
+            ?: throw CancellationException("thumbnail gated")
+        if (!stage.lifecycleEpoch.allows(vela.core.lifecycle.LifecycleEpoch.Gate.BEFORE_REQUEST, token)) {
+            throw CancellationException("thumbnail gated")
+        }
+        return inner.send(request)
+    }
+}
+
 internal fun installDebugHooks(context: Context) {
     try {
         val cls = Class.forName("vela.app.hooks.Hooks")
@@ -394,9 +568,6 @@ internal fun readLimited(input: InputStream, limit: Int): ByteArray {
 }
 
 private const val EXPORT_PENDING = "vela.pendingExport"
-private const val EXPORT_BYTES = "vela.pendingExportBytes"
-private const val EXPORT_URI = "vela.pendingExportUri"
-private const val EXPORT_INLINE_LIMIT = 400_000
 
 /** release 没有 StageHost，真实启动一律起舞台。hooks 自己出错也放行，避免把正式路径停掉。 */
 internal fun debugAllowsStageBoot(): Boolean {

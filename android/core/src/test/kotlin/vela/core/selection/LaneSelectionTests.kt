@@ -1,7 +1,10 @@
 package vela.core.selection
 
+import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -608,5 +611,279 @@ class LaneSelectionTests {
         assertTrue(!target.matches(LaneID.PRIMARY, "bob", 4), "不是这一路就放弃")
         assertTrue(!target.matches(LaneID.SECONDARY, "ann", 4), "房间换了就放弃")
         assertEquals(LaneID.PRIMARY, RoomTarget.primary(username = "a", generation = 1).laneID)
+    }
+
+    @Test
+    fun testFilterRelaxRefillsEmptySecondary() {
+        val before = LaneSelection.Snapshot(
+            rooms = listOf("bob"),
+            primary = LaneCursor(username = "bob", direction = 1),
+            secondary = LaneCursor(username = null, direction = 1),
+            focus = LaneID.PRIMARY,
+        )
+        val out = LaneSelection.resolve(
+            before = before,
+            afterRooms = listOf("alice", "alex", "bob", "alina"),
+            proposedPrimary = "bob",
+            intent = LaneSelection.Intent.Filter,
+        )
+        assertEquals("bob", out.primary.username)
+        assertEquals("alina", out.secondary?.username, "沿副路方向（向后）取主路之后的一间")
+    }
+
+    @Test
+    fun testMergeRefillsEmptySecondaryEvenWhenPrimaryIsLast() {
+        val before = LaneSelection.Snapshot(
+            rooms = listOf("bob"),
+            primary = LaneCursor(username = "bob", direction = 1),
+            secondary = LaneCursor(username = null, direction = 1),
+            focus = LaneID.PRIMARY,
+        )
+        val out = LaneSelection.resolve(
+            before = before,
+            afterRooms = listOf("alice", "bob"),
+            proposedPrimary = "bob",
+            intent = LaneSelection.Intent.Merge,
+        )
+        assertEquals("alice", out.secondary?.username, "后面没有就取前面一间")
+    }
+
+    @Test
+    fun testRefillNeverDuplicatesPrimary() {
+        val before = LaneSelection.Snapshot(
+            rooms = listOf("a"),
+            primary = LaneCursor(username = "a", direction = 1),
+            secondary = LaneCursor(username = null, direction = 1),
+            focus = LaneID.PRIMARY,
+        )
+        val out = LaneSelection.resolve(
+            before = before,
+            afterRooms = listOf("a", "b", "c"),
+            proposedPrimary = "a",
+            intent = LaneSelection.Intent.Merge,
+        )
+        assertTrue(out.primary.username != out.secondary?.username)
+        assertEquals("b", out.secondary?.username)
+    }
+
+    @Test
+    fun testSecondaryBeforePrimaryMovingBackwardKeepsPrimaryWhenBlocked() {
+        val before = LaneSelection.Snapshot(
+            rooms = listOf("a", "b", "c", "d"),
+            primary = LaneCursor(username = "b", direction = 1),
+            secondary = LaneCursor(username = "a", direction = -1),
+            focus = LaneID.PRIMARY,
+        )
+        val out = LaneSelection.resolve(
+            before = before,
+            afterRooms = listOf("b", "c", "d"),
+            proposedPrimary = "b",
+            intent = LaneSelection.Intent.Filter,
+        )
+        assertEquals("b", out.primary.username)
+        assertEquals("c", out.secondary?.username)
+    }
+
+    @Test
+    fun testSecondaryAfterPrimaryMovingForwardKeepsPrimaryWhenBlocked() {
+        val before = LaneSelection.Snapshot(
+            rooms = listOf("a", "b", "c", "d"),
+            primary = LaneCursor(username = "c", direction = 1),
+            secondary = LaneCursor(username = "b", direction = 1),
+            focus = LaneID.PRIMARY,
+        )
+        val out = LaneSelection.resolve(
+            before = before,
+            afterRooms = listOf("a", "c", "d"),
+            proposedPrimary = "c",
+            intent = LaneSelection.Intent.Filter,
+        )
+        assertEquals("c", out.primary.username)
+        assertEquals("d", out.secondary?.username)
+    }
+
+    @Test
+    fun testMergePathExcludesPrimaryToo() {
+        val before = LaneSelection.Snapshot(
+            rooms = listOf("a", "b", "c", "d"),
+            primary = LaneCursor(username = "b", direction = 1),
+            secondary = LaneCursor(username = "a", direction = -1),
+            focus = LaneID.PRIMARY,
+        )
+        val out = LaneSelection.resolve(
+            before = before,
+            afterRooms = listOf("b", "c", "d"),
+            proposedPrimary = "b",
+            intent = LaneSelection.Intent.Merge,
+        )
+        assertEquals("b", out.primary.username)
+        assertEquals("c", out.secondary?.username)
+    }
+
+    private fun recentSnapshot(
+        rooms: List<String> = listOf("a", "b", "c", "d", "e"),
+        primary: String,
+        secondary: String,
+        recent: Set<String>,
+        primaryPrevious: String? = null,
+        secondaryPrevious: String? = null,
+    ): LaneSelection.Snapshot = LaneSelection.Snapshot(
+        rooms = rooms,
+        primary = LaneCursor(username = primary, previous = primaryPrevious),
+        secondary = LaneCursor(username = secondary, previous = secondaryPrevious),
+        focus = LaneID.PRIMARY,
+        recent = recent,
+    )
+
+    private fun moveRecent(before: LaneSelection.Snapshot, lane: LaneID, delta: Int): LaneSelection.Outcome =
+        LaneSelection.resolve(
+            before = before,
+            afterRooms = before.rooms,
+            proposedPrimary = before.primary.username,
+            intent = LaneSelection.Intent.Move(lane, delta),
+        )
+
+    @Test
+    fun testForwardSwipeSkipsRoomsRecentlyLeftByEitherLane() {
+        val before = recentSnapshot(primary = "c", secondary = "a", recent = setOf("d"))
+        val out = moveRecent(before, LaneID.PRIMARY, 1)
+        assertEquals("e", out.primary.username, "d 刚被划走，向前跳过")
+        assertEquals("a", out.secondary?.username)
+    }
+
+    @Test
+    fun testForwardSwipeStillSkipsOtherLaneRoomAndRecent() {
+        val before = recentSnapshot(primary = "a", secondary = "b", recent = setOf("c"))
+        assertEquals("d", moveRecent(before, LaneID.PRIMARY, 1).primary.username)
+        val sec = recentSnapshot(primary = "d", secondary = "a", recent = setOf("b", "c"))
+        assertEquals("e", moveRecent(sec, LaneID.SECONDARY, 1).secondary?.username)
+    }
+
+    @Test
+    fun testRecentMatchingIsCaseInsensitive() {
+        val before = recentSnapshot(rooms = listOf("a", "b", "C", "d"), primary = "a", secondary = "d", recent = setOf("c"))
+        assertEquals("b", moveRecent(before, LaneID.PRIMARY, 1).primary.username)
+        val after = recentSnapshot(rooms = listOf("a", "B", "c", "d"), primary = "a", secondary = "d", recent = setOf("b", "c"))
+        assertEquals("B", moveRecent(after, LaneID.PRIMARY, 1).primary.username)
+    }
+
+    @Test
+    fun testBackSwipeToOwnPreviousRoomIsAllowed() {
+        val before = recentSnapshot(primary = "a", secondary = "d", recent = setOf("c", "b"), secondaryPrevious = "c")
+        assertEquals("c", moveRecent(before, LaneID.SECONDARY, -1).secondary?.username)
+        val noPrevious = recentSnapshot(primary = "a", secondary = "d", recent = setOf("c"))
+        assertEquals("b", moveRecent(noPrevious, LaneID.SECONDARY, -1).secondary?.username)
+    }
+
+    @Test
+    fun testOwnPreviousRoomStillRefusedWhenTheOtherLaneIsOnIt() {
+        val before = recentSnapshot(primary = "c", secondary = "d", recent = setOf("c"), secondaryPrevious = "c")
+        val out = moveRecent(before, LaneID.SECONDARY, -1)
+        assertNotEquals("c", out.secondary?.username)
+    }
+
+    @Test
+    fun testCurrentRoomInRecentNeverLandsOnTheOtherLane() {
+        val before = recentSnapshot(rooms = listOf("a", "b", "c"), primary = "a", secondary = "b", recent = setOf("b", "c"), secondaryPrevious = "c")
+        val out = moveRecent(before, LaneID.SECONDARY, -1)
+        assertEquals("b", out.secondary?.username)
+        assertEquals("a", out.primary.username)
+    }
+
+    @Test
+    fun testShortListRelaxesRecentBeforeStayingPut() {
+        val before = recentSnapshot(rooms = listOf("a", "b", "c"), primary = "a", secondary = "b", recent = setOf("c"))
+        val out = moveRecent(before, LaneID.PRIMARY, 1)
+        assertEquals("c", out.primary.username)
+        assertNotEquals(out.primary.username, out.secondary?.username)
+    }
+
+    @Test
+    fun testShortListStaysPutWhenNothingElseExists() {
+        val before = recentSnapshot(rooms = listOf("a", "b"), primary = "a", secondary = "b", recent = setOf("a", "b"))
+        val out = moveRecent(before, LaneID.PRIMARY, 1)
+        assertEquals("a", out.primary.username)
+        assertEquals("b", out.secondary?.username)
+    }
+
+    @Test
+    fun testRecentDoesNotAffectDirectReveal() {
+        val before = recentSnapshot(primary = "a", secondary = "b", recent = setOf("d"))
+        val out = LaneSelection.resolve(
+            before = before,
+            afterRooms = before.rooms,
+            proposedPrimary = "d",
+            intent = LaneSelection.Intent.Reveal("d"),
+        )
+        assertEquals("d", out.primary.username)
+    }
+
+    @Test
+    fun testRecentSkipsExpireByReadTime() {
+        val skips = RecentSkips()
+        val t0 = Instant.ofEpochSecond(1_000_000)
+        skips.record("Alice", t0)
+        assertEquals(setOf("alice"), skips.active(t0.plusSeconds(30 * 60 - 1)))
+        assertTrue(skips.active(t0.plusSeconds(30 * 60)).isEmpty(), "满 30 分钟恢复可选")
+    }
+
+    @Test
+    fun testRecentSkipsRerecordRefreshesTimestamp() {
+        val skips = RecentSkips()
+        val t0 = Instant.ofEpochSecond(1_000_000)
+        skips.record("a", t0)
+        skips.record("A", t0.plusSeconds(20 * 60))
+        assertEquals(1, skips.count)
+        assertEquals(setOf("a"), skips.active(t0.plusSeconds(40 * 60)))
+    }
+
+    @Test
+    fun testRecentSkipsCapacityDropsOldest() {
+        val skips = RecentSkips()
+        val t0 = Instant.ofEpochSecond(1_000_000)
+        for (index in 0 until (RecentSkips.capacity + 5)) {
+            skips.record("r$index", t0.plusSeconds(index.toLong()))
+        }
+        assertEquals(RecentSkips.capacity, skips.count)
+        val active = skips.active(t0.plusSeconds(300))
+        assertFalse(active.contains("r0"))
+        assertTrue(active.contains("r${RecentSkips.capacity + 4}"))
+    }
+
+    @Test
+    fun testSingleWindowIgnoresRecent() {
+        val before = LaneSelection.Snapshot(
+            rooms = listOf("a", "b", "c"),
+            primary = LaneCursor(username = "a"),
+            secondary = null,
+            focus = LaneID.PRIMARY,
+            recent = setOf("b"),
+        )
+        val out = LaneSelection.resolve(
+            before = before,
+            afterRooms = before.rooms,
+            proposedPrimary = "b",
+            intent = LaneSelection.Intent.Move(LaneID.PRIMARY, 1),
+        )
+        assertEquals("b", out.primary.username, "单窗不受 recent 约束")
+        assertNull(out.secondary)
+    }
+
+    @Test
+    fun testStillSingleRoomLeavesSecondaryEmpty() {
+        val before = LaneSelection.Snapshot(
+            rooms = listOf("bob"),
+            primary = LaneCursor(username = "bob"),
+            secondary = LaneCursor(username = null),
+            focus = LaneID.PRIMARY,
+        )
+        val out = LaneSelection.resolve(
+            before = before,
+            afterRooms = listOf("bob"),
+            proposedPrimary = "bob",
+            intent = LaneSelection.Intent.Filter,
+        )
+        assertEquals("bob", out.primary.username)
+        assertNull(out.secondary?.username)
     }
 }

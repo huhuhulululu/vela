@@ -52,6 +52,8 @@ jobs:
           for g in $groups; do echo "== $g"; python3 -I android/tools/parity.py --group "$g"; done
       - name: Parity --all
         run: python3 -I android/tools/parity.py --all
+      - name: Resource sample tests
+        run: python3 -I android/tools/test_resource_sample.py
       - name: Check release APK
         run: |
           apk=$(find android/app/build/outputs/apk/release -name '*.apk' -type f | head -n 1)

@@ -15,6 +15,7 @@ import vela.core.ledger.ListOrigin
 import vela.core.feed.SiteSearch
 import vela.core.ledger.DwellTracker
 import vela.core.recommend.Recommender
+import vela.app.sync.syncLocalWriteAllowed
 import vela.core.selection.LaneSelection
 import vela.core.selection.LaneSettlement
 
@@ -83,6 +84,10 @@ internal fun StageViewModel.move(delta: Int, userInitiated: Boolean): Boolean {
     }
     moveUserInitiated = false
     if (feed.currentUsername == before) return false
+    if (laneCount > 1 && before != null) {
+        recentSkips.record(before, now())
+        primaryCursor = primaryCursor.copy(previous = before)
+    }
     laneFace = laneFace.copy(
         manuallyPaused = MoveRules.pausedAfterMove(laneFace.manuallyPaused, userInitiated),
     )
@@ -127,8 +132,10 @@ internal fun StageViewModel.recordSettlement(
         endReason = endReason,
         userInitiated = userInitiated,
     )
-    taste = settlement.recording(taste, settled.room, at, tagRarity)
-    tasteSaver.schedule(taste)
+    if (syncLocalWriteAllowed()) {
+        taste = settlement.recording(taste, settled.room, at, tagRarity)
+        tasteSaver.schedule(taste)
+    }
     val start = settled.start
     if (settled.ledgerSeconds <= 0.0 || start == null) return
     val ledgerSettlement = if (settled.ledgerSeconds == settled.dwell) {

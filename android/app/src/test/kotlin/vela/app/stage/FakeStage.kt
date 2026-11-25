@@ -47,6 +47,9 @@ class FakeStage(initial: StageUiState = StageUiState()) : StageContract {
     /** 质询闸门用的钟，测试可改。 */
     var now: Instant = Instant.EPOCH
 
+    var pipEnters: Int = 0
+        private set
+
     val effects: List<StageEffect>
         get() = effectLog.toList()
 
@@ -215,6 +218,14 @@ class FakeStage(initial: StageUiState = StageUiState()) : StageContract {
             is StageIntent.SetLearningPaused -> setLearningPaused(snapshot, intent.paused)
             StageIntent.ResetTaste -> resetTaste(snapshot, "口味画像已重置")
             StageIntent.ClearPreferences -> resetTaste(snapshot, "已清除口味与观看记录，收藏与屏蔽保留")
+            is StageIntent.SetDual -> commit(LaneWindow.setDual(snapshot, intent.on, intent.remember))
+            is StageIntent.SetLaneCount -> commit(LaneWindow.setLaneCount(snapshot, intent.count, intent.remember))
+            is StageIntent.SetFocus -> commit(LaneWindow.setFocus(snapshot, intent.lane))
+            is StageIntent.SetLandscape -> commit(LaneWindow.setLandscape(snapshot, intent.on))
+            is StageIntent.NotePortraitStageSize ->
+                commit(LaneWindow.notePortraitStageSize(snapshot, intent.width, intent.height))
+            is StageIntent.SetAutoEnterPip -> commit(snapshot.copy(autoEnterPip = intent.enabled))
+            StageIntent.EnterPictureInPicture -> pipEnters += 1
             else -> Unit
         }
     }

@@ -12,6 +12,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import vela.core.base.net.HTTPClient
 import vela.core.base.net.HTTPRequest
+import vela.core.base.net.UserAgent
 
 /**
  * 房间缩略图内存缓存。长边最多 192 像素，按位图字节计费（宽 × 高 × 4），总量约 2 MB，最多 20 张。
@@ -51,7 +52,17 @@ class ThumbnailCache(
     private suspend fun load(url: String): Bitmap? {
         try {
             val result = try {
-                client.send(HTTPRequest(url = url, timeoutSeconds = 12.0))
+                client.send(
+                    HTTPRequest(
+                        url = url,
+                        headers = mapOf(
+                            "User-Agent" to UserAgent.safari,
+                            "Accept" to "image/avif,image/webp,image/*,*/*;q=0.8",
+                            "Referer" to "https://chaturbate.com/",
+                        ),
+                        timeoutSeconds = 12.0,
+                    ),
+                )
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {

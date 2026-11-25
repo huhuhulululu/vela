@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.view.Surface
+import androidx.annotation.VisibleForTesting
 import androidx.media3.common.PlaybackException
 import java.time.Clock
 import java.time.Duration
@@ -51,7 +52,7 @@ class PlaybackLane(
     private val sleeper: Sleeper = HandlerSleeper(),
     private val isRenewing: (String) -> Boolean = { source -> hub.isRenewing(source) },
 ) : LanePlayerListener {
-    val laneLabel: String = if (id == LaneID.PRIMARY) "primary" else "secondary"
+    val laneLabel: String = id.label
 
     var refreshRequested: ((String, Boolean) -> Unit)? = null
     var noAudioDetected: ((String) -> Unit)? = null
@@ -160,6 +161,24 @@ class PlaybackLane(
         start(rendition, username, peakBitrate, keepReady = false)
     }
 
+    /** 这一路是否还挂着播放项。没有就不换档，下次起播带新上限。 */
+    fun hasItem(): Boolean = sessionOpen && lastPlay != null
+
+    /** 正在用的码率上限。还没播过为 null。 */
+    fun currentPeak(): Double? = lastPlay?.peak
+
+    /**
+     * 按新上限原地换档。不换房间、不计失败。
+     * 没有播放项或上限没变就不动，返回 false。
+     */
+    fun retierPeak(peakBitrate: Double): Boolean {
+        val last = lastPlay ?: return false
+        if (!sessionOpen) return false
+        if (last.peak == peakBitrate) return false
+        start(last.rendition, last.username, peakBitrate, keepReady = true)
+        return true
+    }
+
     fun setAllowed(value: Boolean) {
         allowed = value
         if (value) resumeIfNeeded() else pauseDecoding()
@@ -258,6 +277,14 @@ class PlaybackLane(
 
     /** 必须在创建播放器的那条线程上调用。 */
     fun renderedOutputBufferCount(): Int = player.renderedOutputBufferCount()
+
+    /** 已选中的音轨数。必须在创建播放器的那条线程上调用。 */
+    @VisibleForTesting
+    fun audioEnabledCountForTest(): Int = player.audioEnabledCount()
+
+    /** 当前音量。必须在创建播放器的那条线程上调用。 */
+    @VisibleForTesting
+    fun playerVolumeForTest(): Float = player.volume()
 
     fun release() {
         onPlaybackFace = null
@@ -380,7 +407,7 @@ class PlaybackLane(
             player.stop()
             sessionOpen = false
             if (!hub.allowStart) return
-            lastError = "本地中继没能启动，暂时无法播放"
+            lastError = "画面源没能接上，暂时无法播放"
             failed = true
             publishFace()
             return

@@ -310,7 +310,7 @@ class StageScreenTest {
                     stage = stage,
                     challengeUrl = challengeUrl,
                     onImportFavorites = onImport,
-                    player = { room: Room ->
+                    player = { _, room: Room ->
                         seen.add(room.username)
                         BasicText("attached:${room.username}")
                     },

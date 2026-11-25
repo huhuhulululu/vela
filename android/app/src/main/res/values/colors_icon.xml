@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 帆标圆角外的透明角落到这个颜色上，取自 A2 深色砖面。 -->
+    <color name="ic_launcher_background">#FF1B1A1C</color>
+</resources>

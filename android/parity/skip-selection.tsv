@@ -1,41 +1,19 @@
 # 选房组跳过。三列制表符：swift_file、swift_test、reason。
 swift_file	swift_test	reason
-Tests/VelaCoreTests/LaneSelectionTests.swift	testFilterRelaxRefillsEmptySecondary	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
-Tests/VelaCoreTests/LaneSelectionTests.swift	testMergeRefillsEmptySecondaryEvenWhenPrimaryIsLast	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
-Tests/VelaCoreTests/LaneSelectionTests.swift	testRefillNeverDuplicatesPrimary	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
-Tests/VelaCoreTests/LaneSelectionTests.swift	testStillSingleRoomLeavesSecondaryEmpty	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
-Tests/VelaCoreTests/LaneSelectionTests.swift	testSecondaryBeforePrimaryMovingBackwardKeepsPrimaryWhenBlocked	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
-Tests/VelaCoreTests/LaneSelectionTests.swift	testSecondaryAfterPrimaryMovingForwardKeepsPrimaryWhenBlocked	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
-Tests/VelaCoreTests/LaneSelectionTests.swift	testMergePathExcludesPrimaryToo	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
-Tests/VelaCoreTests/LaneSelectionTests.swift	testForwardSwipeSkipsRoomsRecentlyLeftByEitherLane	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
-Tests/VelaCoreTests/LaneSelectionTests.swift	testForwardSwipeStillSkipsOtherLaneRoomAndRecent	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
-Tests/VelaCoreTests/LaneSelectionTests.swift	testRecentMatchingIsCaseInsensitive	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
-Tests/VelaCoreTests/LaneSelectionTests.swift	testBackSwipeToOwnPreviousRoomIsAllowed	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
-Tests/VelaCoreTests/LaneSelectionTests.swift	testOwnPreviousRoomStillRefusedWhenTheOtherLaneIsOnIt	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
-Tests/VelaCoreTests/LaneSelectionTests.swift	testCurrentRoomInRecentNeverLandsOnTheOtherLane	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
-Tests/VelaCoreTests/LaneSelectionTests.swift	testShortListRelaxesRecentBeforeStayingPut	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
-Tests/VelaCoreTests/LaneSelectionTests.swift	testShortListStaysPutWhenNothingElseExists	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
-Tests/VelaCoreTests/LaneSelectionTests.swift	testRecentDoesNotAffectDirectReveal	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
-Tests/VelaCoreTests/LaneSelectionTests.swift	testSingleWindowIgnoresRecent	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
-Tests/VelaCoreTests/LaneSelectionTests.swift	testRecentSkipsExpireByReadTime	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
-Tests/VelaCoreTests/LaneSelectionTests.swift	testRecentSkipsRerecordRefreshesTimestamp	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
-Tests/VelaCoreTests/LaneSelectionTests.swift	testRecentSkipsCapacityDropsOldest	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
-Tests/VelaCoreTests/LaneSelectionTests.swift	testLaneIDsActiveCountAndRoleMapping	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
-Tests/VelaCoreTests/LaneSelectionTests.swift	testBlockingPrimaryYieldsPastBothOtherLanes	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
-Tests/VelaCoreTests/LaneSelectionTests.swift	testBlockingSecondaryReplacementSkipsTertiaryRoom	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
-Tests/VelaCoreTests/LaneSelectionTests.swift	testBlockingTertiaryFindsNextFreeRoomAlongItsDirection	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
-Tests/VelaCoreTests/LaneSelectionTests.swift	testUnfavoritingTwoLanesWithTwoRoomsLeftLeavesANonFocusLaneEmpty	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
-Tests/VelaCoreTests/LaneSelectionTests.swift	testFocusLaneKeepsARoomWhenCandidatesRunShort	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
-Tests/VelaCoreTests/LaneSelectionTests.swift	testOnlyOneRoomGoesToTheFocusLane	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
-Tests/VelaCoreTests/LaneSelectionTests.swift	testExactlyThreeRoomsStayDistinctAfterMerge	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
-Tests/VelaCoreTests/LaneSelectionTests.swift	testMergeRefillsEmptyTertiaryWithoutDuplicating	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
-Tests/VelaCoreTests/LaneSelectionTests.swift	testEmptyListClearsAllThreeAndBlankResumeRefillsInOrder	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
-Tests/VelaCoreTests/LaneSelectionTests.swift	testSearchInstallExitAndReloadChainLanesAfterPrimary	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
-Tests/VelaCoreTests/LaneSelectionTests.swift	testRevealTargetOnAnotherLaneOnlySwitchesFocus	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
-Tests/VelaCoreTests/LaneSelectionTests.swift	testRevealNewTargetGoesToPrimaryAndKeepsOthersDistinct	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
-Tests/VelaCoreTests/LaneSelectionTests.swift	testMoveNeverLandsOnEitherOtherLane	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
-Tests/VelaCoreTests/LaneSelectionTests.swift	testRecentSkipsAreSharedByAllThreeLanes	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
-Tests/VelaCoreTests/LaneSelectionTests.swift	testFillPlacesNewLanesAfterTheirPredecessorAndRespectsRecent	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
-Tests/VelaCoreTests/LaneSelectionTests.swift	testTwoLaneSnapshotWithoutTertiaryKeepsDualBehavior	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
-Tests/VelaCoreTests/LaneSelectionTests.swift	testPaneHeightAndThreeLaneFit	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
+Tests/VelaCoreTests/LaneSelectionTests.swift	testBlockingSecondaryReplacementSkipsTertiaryRoom	三窗未实现
+Tests/VelaCoreTests/LaneSelectionTests.swift	testBlockingTertiaryFindsNextFreeRoomAlongItsDirection	三窗未实现
+Tests/VelaCoreTests/LaneSelectionTests.swift	testUnfavoritingTwoLanesWithTwoRoomsLeftLeavesANonFocusLaneEmpty	三窗未实现
+Tests/VelaCoreTests/LaneSelectionTests.swift	testFocusLaneKeepsARoomWhenCandidatesRunShort	三窗未实现
+Tests/VelaCoreTests/LaneSelectionTests.swift	testExactlyThreeRoomsStayDistinctAfterMerge	三窗未实现
+Tests/VelaCoreTests/LaneSelectionTests.swift	testMergeRefillsEmptyTertiaryWithoutDuplicating	三窗未实现
+Tests/VelaCoreTests/LaneSelectionTests.swift	testRecentSkipsAreSharedByAllThreeLanes	不移植：三窗（安卓无三窗里程碑，编排者 2026-11-24 裁决）
+Tests/VelaCoreTests/LaneSelectionTests.swift	testFillPlacesNewLanesAfterTheirPredecessorAndRespectsRecent	不移植：三窗（安卓无三窗里程碑，编排者 2026-11-24 裁决）
+Tests/VelaCoreTests/LaneSelectionTests.swift	testRevealTargetOnAnotherLaneOnlySwitchesFocus	不移植：三窗（安卓无三窗里程碑，编排者 2026-11-24 裁决）
+Tests/VelaCoreTests/LaneSelectionTests.swift	testMoveNeverLandsOnEitherOtherLane	不移植：三窗（安卓无三窗里程碑，编排者 2026-11-24 裁决）
+Tests/VelaCoreTests/LaneSelectionTests.swift	testOnlyOneRoomGoesToTheFocusLane	不移植：三窗（安卓无三窗里程碑，编排者 2026-11-24 裁决）
+Tests/VelaCoreTests/LaneSelectionTests.swift	testEmptyListClearsAllThreeAndBlankResumeRefillsInOrder	不移植：三窗（安卓无三窗里程碑，编排者 2026-11-24 裁决）
+Tests/VelaCoreTests/LaneSelectionTests.swift	testSearchInstallExitAndReloadChainLanesAfterPrimary	不移植：三窗（安卓无三窗里程碑，编排者 2026-11-24 裁决）
+Tests/VelaCoreTests/LaneSelectionTests.swift	testBlockingPrimaryYieldsPastBothOtherLanes	不移植：三窗（安卓无三窗里程碑，编排者 2026-11-24 裁决）
+Tests/VelaCoreTests/LaneSelectionTests.swift	testRevealNewTargetGoesToPrimaryAndKeepsOthersDistinct	不移植：三窗（安卓无三窗里程碑，编排者 2026-11-24 裁决）
+Tests/VelaCoreTests/LaneSelectionTests.swift	testTwoLaneSnapshotWithoutTertiaryKeepsDualBehavior	不移植：三窗（安卓无三窗里程碑，编排者 2026-11-24 裁决）
 Tests/VelaCoreTests/LaneSettlementTests.swift	testEndReasonLogTextPin	不移植：Apple 专属（钉住 Swift LaneSettlement.EndReason.label 日志文字，Kotlin LaneEndReason 无对应方法）

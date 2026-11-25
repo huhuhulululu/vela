@@ -52,6 +52,9 @@ interface LanePlayer {
 
     fun audioEnabledCount(): Int
 
+    /** 当前播放器音量（0..1）。测试读出声状态用。 */
+    fun volume(): Float
+
     fun audibleGroup(): MuteAudioPolicy.AudibleGroupState
 
     fun setListener(listener: LanePlayerListener?)

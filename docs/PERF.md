@@ -578,4 +578,76 @@ G-mac 两组（`ssh localhost` 回环，`perf-probe.sh --build --fixed-stream --
 
 ### 还没有的基线
 
-仓库里没有模拟器资源采样的 JSON（作业写在结果目录，文件名 e2e-a-resources.json），也没有模拟器上的 PSS、CPU 中位数。计划写里程碑 A 的首测写入本文，之后按基线 +10% 做门。首测数字不在这棵树上，本文不编造，也不把「+10%」写成一个具体的 KB 或百分比。`android/PORTING.md` 文末的 `apk_bytes=667213` 是脚手架当时的空壳包，不是现在的 `:app`。体积门仍是 `android/tools/check-apk.sh` 的 5120 KB；等有一次当前 release 包的实测，再把字节数记进来。
+仓库里仍没有入库的模拟器资源采样 JSON（作业写在结果目录，文件名 e2e-a-resources.json）。下面是一次 CI 运行的观测，原样引自日志，不是入库基线。来源：GitHub Actions 运行 44703388301 第 2 次，提交 4621e0689bba4c13e777efb5e0b6aa4c56f30b8e，日志里的 e2e-a JSON，共 32 条样本。
+
+| 项 | 观测 |
+|---|---|
+| TOTAL PSS | 最小 125927 KB，最大 141190 KB，中位数 136125 KB |
+| cpu_percent 为 null 的 20 条 | PSS 中位数 137198.5 KB（128633 到 141190 KB） |
+| cpu_percent 为 0 的 12 条 | PSS 中位数 133593.5 KB |
+| CPU tick 估算 | tick 单调的前 31 条跨 149 秒，utime+stime 增加 1574；按 Android USER_HZ 100 估算约合单核 10.6% |
+
+最后一条样本的 tick 掉到 126，是进程重启，不计入单调前缀。播放那一段进程百分比为空，是因为 dumpsys cpuinfo 没把 vela.app 列出来，不是采样脚本的正则写错。dumpsys cpuinfo 的 TOTAL 先是 93 后是 14，那是整机，不是本应用；dumpsys 的百分比不能当本应用的 CPU 基线。解析与 tick 估算在 `android/tools/resource_sample.py`；`android/tools/emu-modes/e2e-a.sh` 末尾只打印单调 tick 增量、墙钟秒数和按 100 Hz 估算的单核比例，不因中位数高低失败。
+
+计划写里程碑 A 的首测写入本文，之后按基线 +10% 做门。这次「基线 +10%」不落成 CI 失败条件：只有一轮观测，而且播放段没有进程百分比，立不起 CPU 基线；PSS 中位数也暂不做失败阈值。`android/PORTING.md` 文末的 `apk_bytes=667213` 是脚手架当时的空壳包，不是现在的 `:app`。体积门仍是 `android/tools/check-apk.sh` 的 5120 KB；等有一次当前 release 包的实测，再把字节数记进来。
+
+## 安卓（里程碑 B，竖屏双窗）
+
+与单窗共用伪上游与 `emulator-run.sh` 框架。里程碑 B **不单独采** PSS/CPU 基线入库；双路流量约为单路同档位的约 2 倍是产品裁决（计划冻结 5），不是性能回退门。
+
+### 方法
+
+- 仪器：`android/tools/emu-modes/e2e-b.sh` 安装 perf 应用 + debug `androidTest`，跑 `vela.app.e2e.b.MilestoneBTest`（与 A 相同：应用 perf、测试 debug）。
+- 热状态：真机/模拟器上 `PowerManager` 常为 `NOMINAL`；E2eB 用 `StageViewModel.injectThermalForTest` 注入 `PhoneThermalState`，不伪造系统 API。
+- 双路出画占比：`E2eBSupport.dualSimultaneousRenderRatio` 轮询两路 `renderedOutputBufferCount`，窗口默认 30 秒、步长 500 ms。
+
+### 已经写进测试的门（S-B1 / S-B2）
+
+| 门 | 断言要点 | 出处 |
+|---|---|---|
+| 两路不同房 | 打开双窗后 `lanesDistinct()`，两路首帧 ≤ 12s | `MilestoneBTest`、`E2eBSupport` |
+| 焦点出声互斥 | 切焦后仅一路 `audioEnabledCountForTest() > 0` | 同上 |
+| 热降档 | 注入 `SERIOUS` 后 `isQualityLimitedForTest`，cap ≥ 896 kbps | 同上 |
+| 60 秒回升 | 注入 `FAIR` 并推进时钟，限时内取消限档 | 同上（`scheduleRecovery`） |
+| 副路降级 | `degradeLaneForTest(SECONDARY)`，主路仍播 | 同上 |
+| 双路同时出画 | 30s 窗口内两路同时渲染占比 ≥ 90% | `dualSimultaneousRenderRatio` |
+| 关双窗释放副路 | `SetLaneCount(1)` 后 `secondaryLaneForTest == null` | `SecondaryLaneReleaseTest`（JVM） |
+
+单窗 A 的门（首帧、比例、静音稳态、后台零播放线程等）在双窗关或横屏单路显示时仍适用；双窗竖屏下每格各自 `display-check`。
+
+### 尚未入库
+
+- 双窗 steady 态 PSS/CPU 中位数（无 `e2e-b-resources.json` 进仓）。
+- 热降档前后流量对比（未要求 ≤ 单窗 ×2 的自动化门，仅产品接受翻倍）。
+
+正式测试钩子与反射待办见 `android/PORTING.md`「仪器测试」与 `android/docs/dual-window.md`。
+
+## 安卓（里程碑 C，画中画）
+
+与 A / B 共用伪上游、`emulator-run.sh` 框架与 perf 应用 + debug `androidTest` 组合。里程碑 C **不单独采**画中画 PSS/CPU 基线入库；本节只登记行为验收门，不测流量翻倍，本文不写任何未实测的资源数字。
+
+### 方法
+
+- 仪器：`android/tools/emu-modes/e2e-c.sh` 用 `-e class` 逐条跑 `vela.app.e2e.c.MilestoneCTest` 的三个方法，条与条之间 `am force-stop`；脚本再按 `VELA_REQUEST_LOG` 的 marker 窗口核对请求。
+- 包级：`android/tools/emu-modes/pip.sh` 逐条跑 `vela.app.pip.PipEmulatorTest` 四个方法，是补充，不替代 S-C 三门。两个模式都登记在 `emulator-run.sh all`（按文件名顺序执行 `emu-modes/*.sh`）。
+- 语义：回桌面在继续路径上只放行焦点路（`ContinueLane` + `RetainRelaySource`，非焦点路 `ReleaseLane`）；没有画中画时仍 `suspendLanes` 全停；启动中与显示中锁焦点与路数；继续后 3 秒（`PiPFallback.TIMEOUT_SECONDS`）未进入 `ACTIVE` 则全停；后台关闭画中画也补做全停；退出后恢复可见性与路数。比例 `PiPAspect`，静音 `RemoteAction`，出声焦点 `AUDIOFOCUS_GAIN_TRANSIENT`。细节见 `android/docs/pip.md` 与 `docs/ARCHITECTURE.md` 11.5。
+- 设备不支持 `FEATURE_PICTURE_IN_PICTURE` 时，S-C1 与 pip 模式期望全停，S-C3 跳过关窗段，不算失败语义漂移。
+
+### 已经写进测试的门（S-C1 / S-C2 / S-C3）
+
+| 门 | 断言要点 | 出处 |
+|---|---|---|
+| 进画中画或全停 | HOME 后 3 秒内进入（`isInPictureInPictureMode` 或协调器 `STARTING`/`ACTIVE`），否则门关、`allowedLane == null`、主路播放器为 null | `MilestoneCTest#test01HomeEntersPipFocusOnlyUncroppedAndRestoresLanes` |
+| 只焦点路、锁与恢复 | `allowedLane` 等于焦点路；副路已释放或不可见；`SetFocus` / `SetLaneCount` 被忽略；回前台后路数（或 `rememberedLaneCount`）恢复、两把锁为假 | 同上 |
+| 比例不裁切 | `display-check` 含 `gravity=fit` 与 `uncropped=true`；日志未刷出时用焦点路 `currentVideoSize` 兜底 | 同上 |
+| 进画中画仍联网 | S-C1 marker 窗口内媒体请求（`.m3u8` / `.ts`）≥ 1 | `e2e-c.sh` 请求日志核对 |
+| 静音与音频焦点 | 静音（含静音画中画）时 `dumpsys audio` 焦点栈无本包、`holdingFocus` 为假；取消静音后拿到焦点且栈里有 `GAIN_TRANSIENT`；再静音放弃焦点 | `MilestoneCTest#test02PipMuteAudioFocusGainTransient` |
+| 关自动进入全停 | `autoEnterPip=false` 时 HOME 全停，主副播放器都为 null | `MilestoneCTest#test03AutoEnterOffStopsAndClosingPipIsQuiet` |
+| 关画中画后静默 | `finish()` 关窗后全停；5 秒后无 `ExoPlayer:Playback` 线程；随后 30 秒 marker 窗口零请求（脚本断言）。关自动进入的后台窗口含起播，不要求零请求 | 同上 + `e2e-c.sh` |
+| 包级补充 | 无自动进入 3 秒全停；有自动进入则进或停；`PiPAspect.clamp` 极端比例夹到边界；`ACTION_TOGGLE_MUTE` 常量值 | `PipEmulatorTest` 四个方法，`pip.sh` |
+
+### 尚未入库
+
+- 画中画 steady 态与退出后的 PSS/CPU 中位数（无 `e2e-c-resources.json` 进仓）。
+- 画中画期间相对单路的流量比（未要求自动化性能门）。
+- 与双窗叠加时的资源采样。
