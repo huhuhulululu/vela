@@ -136,8 +136,38 @@ class HttpClientImplTest {
         }
     }
 
-    @Test(timeout = 8_000)
+    /**
+     * 期限语义与 iOS URLSession 对齐：timeoutSeconds 是空闲超时，正文每到一段数据就往后推；
+     * 另有总上限 [HttpClientImpl.TOTAL_CAP_FACTOR] 倍超时，慢速滴流最终仍会被掐断。
+     * 旧约定是「总期限 = 超时」：这条在旧约定下 1 秒就失败，慢链路上收得完的首页因此永远收不完。
+     */
+    @Test(timeout = 10_000)
+    fun testSteadySlowBodyLongerThanTheTimeoutStillCompletes() {
+        withServer({ exchange ->
+            exchange.sendResponseHeaders(200, 0)
+            exchange.responseBody.use { body ->
+                repeat(8) {
+                    body.write(ByteArray(64) { 7 })
+                    body.flush()
+                    Thread.sleep(300)
+                }
+            }
+        }) { port ->
+            val started = System.nanoTime()
+            val result = runBlocking {
+                HttpClientImpl().send(HTTPRequest(url = "http://127.0.0.1:$port/steady", timeoutSeconds = 1.0))
+            }
+            val elapsedMs = (System.nanoTime() - started) / 1_000_000
+            assertEquals(200, result.status)
+            assertEquals(8 * 64, result.data.size)
+            assertTrue("elapsed=$elapsedMs", elapsedMs > 1_500)
+        }
+    }
+
+    /** 新约定：滴流不会触发空闲超时，但到总上限（4 × 1 秒）一定掐断；旧约定是 1 秒就断。 */
+    @Test(timeout = 10_000)
     fun testSlowDripStopsAtTheTotalDeadline() {
+        val closed = CountDownLatch(1)
         withServer({ exchange ->
             exchange.sendResponseHeaders(200, 0)
             val body = exchange.responseBody
@@ -148,6 +178,7 @@ class HttpClientImplTest {
                     Thread.sleep(200)
                 }
             } catch (_: Exception) {
+                closed.countDown()
             }
         }) { port ->
             val started = System.nanoTime()
@@ -158,12 +189,38 @@ class HttpClientImplTest {
             }
             val elapsedMs = (System.nanoTime() - started) / 1_000_000
             assertTrue(failed.isFailure)
-            assertTrue("持续滴数据时没有总期限 elapsed=$elapsedMs", elapsedMs < 3_000)
+            assertTrue(failed.exceptionOrNull() is java.net.SocketTimeoutException)
+            val cap = HttpClientImpl.TOTAL_CAP_FACTOR * 1_000
+            assertTrue("滴流应撑到总上限附近才断 elapsed=$elapsedMs", elapsedMs >= cap - 300)
+            assertTrue("持续滴数据时没有在总上限处掐断 elapsed=$elapsedMs", elapsedMs < cap + 1_500)
+            assertTrue("掐断后连接没有断开", closed.await(2, TimeUnit.SECONDS))
         }
     }
 
+    /** 响应头迟迟不来按空闲超时算，不会拿到总上限。 */
     @Test(timeout = 8_000)
-    fun testHeaderDelayCountsAgainstTheTotalDeadline() {
+    fun testHeaderDelayCountsAgainstTheIdleTimeout() {
+        withServer({ exchange ->
+            try {
+                Thread.sleep(5_000)
+            } catch (_: InterruptedException) {
+            }
+        }) { port ->
+            val started = System.nanoTime()
+            val failed = runCatching {
+                runBlocking {
+                    HttpClientImpl().send(HTTPRequest(url = "http://127.0.0.1:$port/no-header", timeoutSeconds = 1.0))
+                }
+            }
+            val elapsedMs = (System.nanoTime() - started) / 1_000_000
+            assertTrue(failed.isFailure)
+            assertTrue("响应头不来时拿到了超过空闲超时的时间 elapsed=$elapsedMs", elapsedMs < 1_500)
+        }
+    }
+
+    /** 响应头之后正文停住：从响应头那一刻再给一个空闲超时，不再给完整总上限。 */
+    @Test(timeout = 8_000)
+    fun testBodyStallAfterHeaderStopsAtTheIdleTimeout() {
         withServer({ exchange ->
             Thread.sleep(800)
             exchange.sendResponseHeaders(200, 100_000)
@@ -180,8 +237,88 @@ class HttpClientImplTest {
             }
             val elapsedMs = (System.nanoTime() - started) / 1_000_000
             assertTrue(failed.isFailure)
-            assertTrue("响应头之后又给了完整读超时 elapsed=$elapsedMs", elapsedMs < 1_500)
+            assertTrue("正文停住后超过一个空闲超时仍没断 elapsed=$elapsedMs", elapsedMs < 2_500)
         }
+    }
+
+    /**
+     * 安卓的 HttpURLConnection 在建连时把读超时复制进 socket，之后再改 readTimeout 不生效。
+     * 假连接照这个行为：建连那一刻锁定读超时，正文两段之间的间隔超过它就抛读超时。
+     * 排队吃掉大半期限后，传给连接的读超时仍须是完整空闲超时，正文间隔小于它就能收完。
+     */
+    @Test(timeout = 15_000)
+    fun testQueuedRequestStillGetsTheFullIdleReadTimeoutOnTheConnection() {
+        val connection = AndroidLikeConnection(gapsMs = listOf(500, 500, 500, 500))
+        saturateIo {
+            val client = HttpClientImpl { connection }
+            val scope = CoroutineScope(SupervisorJob())
+            val result = AtomicReference<Result<vela.core.base.net.HTTPResult>?>(null)
+            val job = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                result.set(runCatching { client.send(HTTPRequest(url = "http://127.0.0.1:9/queued", timeoutSeconds = 1.0)) })
+            }
+            Thread.sleep(700)
+            releaseSaturatedIo()
+            runBlocking { withTimeout(8_000) { job.join() } }
+            scope.cancel()
+        }
+        assertEquals("建连时传给连接的读超时应是完整空闲超时", 1_000, connection.lockedReadTimeout)
+        assertEquals("建连时传给连接的连接超时应是完整空闲超时", 1_000, connection.lockedConnectTimeout)
+        assertTrue("所有读超时设置都应是完整空闲超时 ${connection.readTimeouts}", connection.readTimeouts.all { it == 1_000 })
+        assertEquals(4 * 16, connection.delivered)
+    }
+
+    /** 模仿安卓：建连时锁定读超时；正文按给定间隔逐段到达，间隔超过锁定值即读超时。 */
+    private class AndroidLikeConnection(private val gapsMs: List<Int>) :
+        HttpURLConnection(URL("http://127.0.0.1:9/")) {
+        val readTimeouts = java.util.Collections.synchronizedList(mutableListOf<Int>())
+        @Volatile var lockedReadTimeout: Int = -1
+        @Volatile var lockedConnectTimeout: Int = -1
+        @Volatile var delivered: Int = 0
+
+        override fun setReadTimeout(timeout: Int) {
+            readTimeouts.add(timeout)
+            super.setReadTimeout(timeout)
+        }
+
+        override fun connect() {
+            if (connected) return
+            lockedReadTimeout = readTimeout
+            lockedConnectTimeout = connectTimeout
+            connected = true
+        }
+
+        override fun getResponseCode(): Int {
+            connect()
+            return 200
+        }
+
+        override fun getHeaderFields(): Map<String, List<String>> = emptyMap()
+
+        override fun getInputStream(): java.io.InputStream {
+            connect()
+            return object : java.io.InputStream() {
+                private var index = 0
+                override fun read(): Int = error("unused")
+                override fun read(b: ByteArray, off: Int, len: Int): Int {
+                    if (index >= gapsMs.size) return -1
+                    val gap = gapsMs[index]
+                    if (gap > lockedReadTimeout) {
+                        Thread.sleep(lockedReadTimeout.toLong())
+                        throw java.net.SocketTimeoutException("Read timed out (locked at connect)")
+                    }
+                    Thread.sleep(gap.toLong())
+                    index += 1
+                    val n = minOf(16, len)
+                    java.util.Arrays.fill(b, off, off + n, 7)
+                    delivered += n
+                    return n
+                }
+            }
+        }
+
+        override fun disconnect() = Unit
+
+        override fun usingProxy(): Boolean = false
     }
 
     @Test(timeout = 15_000)

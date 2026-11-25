@@ -511,7 +511,7 @@ xcodebuild -project Vela.xcodeproj -scheme Vela -destination 'platform=macOS' \
 | `android/app/src/main/kotlin/vela/app/stage` | `StageViewModel`（含 `setPipSolo`、`focusLocked`、`laneCountLocked`、`syncHub`）；`Stage+Lanes.kt` 双路选房、焦点、热降档、横屏与画中画共用的可见性；目录、起播、收藏、口味（写入入口接入同步提交锁与 `SyncHub.perform`）；`LifecycleWiring` 主副路会话并接 `PiPCoordinator` 与 `SyncHub` 前后台转发；侧车 |
 | `android/app/src/main/kotlin/vela/app/pip` | `ActivityPictureInPicture`（系统参数、比例、静音 RemoteAction、自动进入）、`PiPCoordinator`（状态机与 3 秒回退）、`PiPAspect`、`PiPFallback`、`PiPEvent`、`PictureInPictureControlling` |
 | `android/app/src/main/kotlin/vela/app/sync` | 跨设备同步 App 层接线（S6，见 `android/docs/sync.md`）：minSdk 26 门槛、P-256 探针分级、`AndroidKeyStore` 密钥包裹、`HttpURLConnection` 传输（含总期限与取消断连）、启动检查屏障、加入快照事务、`SyncHub` 与 `SyncPanel`（查看同步码前强制身份验证） |
-| `android/app/src/main/kotlin/vela/app/ui` | `StageScreen`（单窗分页 + 竖屏双格切换，透传 `syncHub` 与身份验证回调）、`DualStageScreen`、顶栏、收藏夹、口味（底部挂 `SyncSettingsSection`）、质询、年龄确认 |
+| `android/app/src/main/kotlin/vela/app/ui` | `StageScreen`（单窗分页 + 竖屏双格切换，透传 `syncHub` 与身份验证回调）、`DualStageScreen`、顶栏、收藏夹、口味（底部挂 `SyncSettingsSection`）、质询、年龄确认。系统栏：targetSdk 36 在安卓 15 起强制全屏绘制，底色与单窗画面铺满，顶栏、操作栏、提示、状态页、双格舞台、年龄确认与各面板内容套 `SystemBarInsets`（状态栏 + 导航条 + 挖孔，面板另让键盘），画中画不加内边距 |
 | `android/app/src/main/kotlin/vela/app/audio` | 双路时只听焦点路；`AudioFocusRequest` 执行 `AudioFocusPlan` |
 | `android/app/src/hooks/kotlin/vela/app/hooks` | 仅 debug / perf：首帧记录、站点根地址覆盖、仪器测试用的空宿主 |
 
@@ -523,7 +523,7 @@ xcodebuild -project Vela.xcodeproj -scheme Vela -destination 'platform=macOS' \
 
 播放器只看见合成地址。有独立音轨时是 `vela://lane/<id>/master.m3u8`，音视频合一时直接是 `vela://lane/<id>/video.m3u8`，不生成主列表。`LaneDataSource.getUri()` 读列表时仍是这个合成地址，续期换掉的真实子列表地址对 ExoPlayer 不可见；读分片时返回改写后的绝对地址，不用 `vela://…/seg/<序号>`。这是 P1 的结论，写在 `LaneHub` 和 `android/docs/spike-ll-hls.md`：两种分片地址对 R1、R2、R3 的结局一样，不回退到移植中继。
 
-列表读完后走 `PlaylistLadder.steadyPlaylist`（`android/core/src/main/kotlin/vela/core/hls/PlaylistLadder.kt`）：去掉低延迟标签，相对地址改成绝对地址。请求经 `LaneHttp`（`HttpURLConnection`，不走 Cronet），头里带 `UserAgent.safari`、`Referer: https://chaturbate.com/`、同主机的 `Origin`，不存 cookie，超时 4 秒。目录与流地址走 `HttpClientImpl`（`android/app/src/main/kotlin/vela/app/infra/HttpClientImpl.kt`），同样不存 cookie，超时上限 12 秒。
+列表读完后走 `PlaylistLadder.steadyPlaylist`（`android/core/src/main/kotlin/vela/core/hls/PlaylistLadder.kt`）：去掉低延迟标签，相对地址改成绝对地址。请求经 `LaneHttp`（`HttpURLConnection`，不走 Cronet），头里带 `UserAgent.safari`、`Referer: https://chaturbate.com/`、同主机的 `Origin`，不存 cookie，超时 4 秒。目录与流地址走 `HttpClientImpl`（`android/app/src/main/kotlin/vela/app/infra/HttpClientImpl.kt`），同样不存 cookie，超时上限 12 秒；超时是空闲超时（与 iOS `timeoutIntervalForRequest` 一致：排队、连接、等响应头共用一个超时，响应头与正文每到一段数据期限再推后一个超时），另有总上限 4 倍超时（12 秒即 48 秒）掐断慢速滴流；传给连接的连接与读超时一律是完整空闲超时（安卓建连时把读超时复制进 socket，之后改不动），排队、等响应头与总上限由看门线程按逻辑期限掐断。首屏目录遇超时或连接类失败（`IOException`）自动重试一次，期间保持加载态；质询、非 2xx、格式错误、退避不重试。播放路起播后每次停住与续上写诊断日志 `playing-stalled` / `playing-resumed`。
 
 403 或 410 由 `RenewalCoordinator.renewBlocking` 续期，视频与音轨共用一次，最长等 `RenewalPolicy.waitBound`（8 秒，`android/core/src/main/kotlin/vela/core/hls/Renewal.kt`）。线程被中断或本路释放时取消。看门狗读 `LaneHub.isRenewing`：正在续期（含续期后那次重取）就重新计时。只有一档，`VelaLoadErrorPolicy` 在 403 时不排除轨道。
 

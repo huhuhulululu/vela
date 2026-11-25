@@ -9,11 +9,19 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
@@ -64,6 +72,13 @@ import vela.core.base.model.ViewerCount
 import vela.core.feed.InfoVisibility
 
 /**
+ * 状态栏、导航条与挖孔。targetSdk 35 起安卓 15 及以上强制全屏绘制，系统不再替应用让出这些区域。
+ * 底色与单窗画面铺满整屏（同 iOS `ignoresSafeArea`），可点的控件一律套这一组内边距。键盘由面板自己让。
+ */
+internal val SystemBarInsets: WindowInsets
+    @Composable get() = WindowInsets.systemBars.union(WindowInsets.displayCutout)
+
+/**
  * 舞台主界面。竖屏多路时交给 [DualStageScreen]；横屏或多路关闭时只显示焦点路单窗。
  * 垂直分页只摆当前页和上下各一页，播放器只挂在当前页。
  * 画面比例由 [vela.app.lane.LaneSurface] 按原始比例摆，这里不裁切、不拉伸。
@@ -101,6 +116,7 @@ fun StageScreen(
             AgeGateScreen(
                 onEnter = { dispatch(StageIntent.ConfirmAge) },
                 onQuit = { dispatch(StageIntent.Quit) },
+                modifier = Modifier.windowInsetsPadding(SystemBarInsets),
             )
         } else {
             StageBody(state, dispatch, challengeUrl, onImportFavorites, syncHub, onRequestSyncReveal, player)
@@ -131,9 +147,15 @@ private fun StageBody(
     val dualPortrait = state.dualWindow && !state.landscape
     Box(Modifier.fillMaxSize()) {
         if (state.rooms.isEmpty()) {
-            StatusPane(state, dispatch, Modifier.fillMaxSize())
+            StatusPane(state, dispatch, Modifier.fillMaxSize().windowInsetsPadding(SystemBarInsets))
         } else if (dualPortrait) {
-            DualStageScreen(state = state, dispatch = dispatch, player = player)
+            // 多格各自带底栏，按窗口内边距没法只让最下一格，整块舞台放进安全区。
+            DualStageScreen(
+                state = state,
+                dispatch = dispatch,
+                player = player,
+                modifier = Modifier.windowInsetsPadding(SystemBarInsets),
+            )
         } else {
             val focus = if (state.dualWindow) state.focusLane else LaneID.PRIMARY
             val face = state.face(focus) ?: state.lane
@@ -148,10 +170,19 @@ private fun StageBody(
                 pagerTag = "pager",
             )
             if (state.chromeShown && state.focusRoom != null) {
-                ActionRail(state, dispatch, Modifier.align(Alignment.CenterEnd).padding(end = 8.dp))
+                ActionRail(
+                    state,
+                    dispatch,
+                    Modifier.align(Alignment.CenterEnd).windowInsetsPadding(SystemBarInsets).padding(end = 8.dp),
+                )
             }
         }
-        Column(Modifier.align(Alignment.TopCenter).fillMaxWidth()) {
+        Column(
+            Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .windowInsetsPadding(SystemBarInsets.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)),
+        ) {
             if (state.chromeShown) {
                 Row(
                     Modifier.fillMaxWidth(),
@@ -331,7 +362,10 @@ private fun RoomPage(
                 room = room,
                 reason = state.reasonFor(room),
                 live = active && face.playingUsername.equals(room.username, ignoreCase = true) && infoVisible,
-                modifier = Modifier.align(Alignment.BottomStart).testTag("caption:${room.username}"),
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .windowInsetsPadding(SystemBarInsets)
+                    .testTag("caption:${room.username}"),
             )
         }
         if (active && face.manuallyPaused) {
@@ -344,6 +378,7 @@ private fun RoomPage(
                 Box(
                     Modifier
                         .align(Alignment.TopCenter)
+                        .windowInsetsPadding(SystemBarInsets)
                         .padding(top = 12.dp)
                         .testTag("loading")
                         .fillMaxWidth(0.2f)
@@ -554,7 +589,7 @@ private fun StatusPane(state: StageUiState, dispatch: (StageIntent) -> Unit, mod
 
 @Composable
 private fun Notices(state: StageUiState, dispatch: (StageIntent) -> Unit) {
-    Box(Modifier.fillMaxSize()) {
+    Box(Modifier.fillMaxSize().windowInsetsPadding(SystemBarInsets)) {
         Column(
             Modifier
                 .align(Alignment.TopCenter)
@@ -651,26 +686,30 @@ internal fun SheetFrame(
                 )
                 .testTag("sheet-scrim"),
         )
-        Column(
-            Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .fillMaxHeight(0.9f)
-                .background(Theme.ink)
-                .pointerInput(Unit) {
-                    // 空白处自己接住，不穿透到遮罩。不用 clickable，避免把子孙语义合并掉。
-                    // 命中先落到按钮和滚动区，这里只接到没有子节点接住的按下。
-                    awaitEachGesture {
-                        val down = awaitFirstDown(requireUnconsumed = true)
-                        down.consume()
-                        while (true) {
-                            val event = awaitPointerEvent()
-                            if (event.changes.all { !it.pressed }) break
+        // 遮罩铺满；面板量高前先让出状态栏，底色延伸到导航条下，内容再让开导航条、挖孔与键盘。
+        Box(Modifier.fillMaxSize().windowInsetsPadding(SystemBarInsets.only(WindowInsetsSides.Top))) {
+            Column(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.9f)
+                    .background(Theme.ink)
+                    .pointerInput(Unit) {
+                        // 空白处自己接住，不穿透到遮罩。不用 clickable，避免把子孙语义合并掉。
+                        // 命中先落到按钮和滚动区，这里只接到没有子节点接住的按下。
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = true)
+                            down.consume()
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                if (event.changes.all { !it.pressed }) break
+                            }
                         }
                     }
-                },
-        ) {
-            content()
+                    .windowInsetsPadding(SystemBarInsets.union(WindowInsets.ime)),
+            ) {
+                content()
+            }
         }
     }
 }

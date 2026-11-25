@@ -1,6 +1,7 @@
 package vela.app.stage
 
 import android.util.Log
+import java.io.IOException
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.isActive
@@ -66,7 +67,7 @@ internal suspend fun StageViewModel.reload(keepingSearchTask: Boolean = false) {
             publish()
             return
         }
-        val fetched = fetchOpening()
+        val fetched = fetchOpeningRetryingOnce(token, life)
         if (token != loadGeneration || !lifecycleEpoch.allows(vela.core.lifecycle.LifecycleEpoch.Gate.BEFORE_COMMIT, life)) {
             loading = false
             publish()
@@ -405,6 +406,29 @@ internal suspend fun StageViewModel.fetchPage(offset: Int): FetchedPage {
         null
     }
     return FetchedPage(page = regular, regular = regular.rooms, targeted = plan)
+}
+
+/**
+ * 首屏目录遇到超时或连接类失败（[IOException]）自动再取一次，期间仍是加载态，不闪错误页。
+ * 质询、非 2xx、格式错误、退避都不是 [IOException]，原样抛出。代次已变或已挂起时不再重试。
+ */
+private suspend fun StageViewModel.fetchOpeningRetryingOnce(
+    token: Int,
+    life: vela.core.lifecycle.LifecycleEpoch.Token,
+): FetchedPage {
+    try {
+        return fetchOpening()
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: IOException) {
+        if (token != loadGeneration ||
+            !lifecycleEpoch.allows(vela.core.lifecycle.LifecycleEpoch.Gate.BEFORE_REQUEST, life)
+        ) {
+            throw error
+        }
+        Log.w(LOG, "catalog retry ${error.javaClass.simpleName}")
+        return fetchOpening()
+    }
 }
 
 /** 冷启动只等首页。后续页在后台续拉，不另发第二次「启动」请求。 */

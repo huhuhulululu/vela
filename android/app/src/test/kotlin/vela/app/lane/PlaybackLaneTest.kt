@@ -75,6 +75,20 @@ class PlaybackLaneTest {
         assertTrue(fixture.upstream.count("/live.m3u8") > settled)
     }
 
+    /** 起播之后每次停住与续上都进诊断日志，慢链路上能数出卡顿；起播前的切换不记。 */
+    @Test(timeout = 15_000)
+    fun testStallsAfterFirstPlayAreLogged() {
+        val fixture = open()
+        LaneLog.clear()
+        fixture.lane.play(fixture.rendition, "room-a", 800_000.0, allowed = true)
+        fixture.player.emitPlaying(false)
+        fixture.player.emitPlaying(true)
+        fixture.player.emitPlaying(false)
+        fixture.player.emitPlaying(true)
+        val lines = LaneLog.snapshot().filter { it.startsWith("playing-") }
+        assertEquals(listOf("playing-started", "playing-stalled", "playing-resumed"), lines)
+    }
+
     @Test(timeout = 15_000)
     fun testResumeTiersFollow15And30Seconds() {
         val fixture = open()
