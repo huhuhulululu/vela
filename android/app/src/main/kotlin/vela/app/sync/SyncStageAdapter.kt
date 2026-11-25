@@ -55,11 +55,47 @@ internal fun verifiedBarrierSink(
 interface SyncLocalBridge : SyncJoinSink, SyncSettingsPersistSink {
     val curationLoadOutcome: PreferenceLoadOutcome
     val tasteLoadOutcome: PreferenceLoadOutcome
+    /** 应用是否已进入画中画（或画中画后台继续路径）：期间不得触发同步网络请求。 */
+    val isInPictureInPicture: Boolean get() = false
+    /** 宿主 Activity 是否正因配置变化销毁重建：期间 onStop/onDestroy 不应视为退后台取消加入或清同步码。 */
+    val isHostChangingConfigurations: Boolean get() = false
     fun localData(): SyncLocalData
     fun applyProjection(doc: SyncDocument)
     fun reloadSyncedSettingsFromStore()
     fun dropLocalOnlyVetoes(keys: List<String>)
     fun showToast(message: String)
+}
+
+/**
+ * 可重绑定的本机桥接代理：进程级 [SyncHub] 在 Activity 配置变化重建后切换到新 [StageSyncBridge]，
+ * 让在途的同步、加入、恢复与清除屏障自动落到新宿主，不滞留旧 Activity/StageViewModel 引用。
+ */
+internal class RebindableSyncBridge(initial: SyncLocalBridge) : SyncLocalBridge {
+    @Volatile
+    private var target: SyncLocalBridge = initial
+
+    fun rebind(next: SyncLocalBridge) {
+        target = next
+    }
+
+    override val curationLoadOutcome: PreferenceLoadOutcome get() = target.curationLoadOutcome
+    override val tasteLoadOutcome: PreferenceLoadOutcome get() = target.tasteLoadOutcome
+    override val isInPictureInPicture: Boolean get() = target.isInPictureInPicture
+    override val isHostChangingConfigurations: Boolean get() = target.isHostChangingConfigurations
+    override fun localData(): SyncLocalData = target.localData()
+    override fun applyProjection(doc: SyncDocument) = target.applyProjection(doc)
+    override fun reloadSyncedSettingsFromStore() = target.reloadSyncedSettingsFromStore()
+    override fun dropLocalOnlyVetoes(keys: List<String>) = target.dropLocalOnlyVetoes(keys)
+    override fun showToast(message: String) = target.showToast(message)
+    override fun persistPending(): Boolean = target.persistPending()
+    override fun reloadAfterRollback() = target.reloadAfterRollback()
+    override fun persistSettings(settings: Map<String, Boolean>): Boolean = target.persistSettings(settings)
+    override fun reloadAfterBarrier() = target.reloadAfterBarrier()
+    override fun cancelPendingSaves() = target.cancelPendingSaves()
+    override fun currentTaste(): Taste = target.currentTaste()
+    override fun saveCuration(curation: Curation): Boolean = target.saveCuration(curation)
+    override fun saveTaste(taste: Taste): Boolean = target.saveTaste(taste)
+    override fun applySettings(settings: Map<String, Boolean>) = target.applySettings(settings)
 }
 
 /**
@@ -74,6 +110,7 @@ class StageSyncBridge(
     private val prefs: SyncPrefs,
     private val curationOutcomeOverride: PreferenceLoadOutcome? = null,
     private val tasteOutcomeOverride: PreferenceLoadOutcome? = null,
+    private val hostChangingConfigurations: () -> Boolean = { false },
 ) : SyncLocalBridge {
     override val curationLoadOutcome: PreferenceLoadOutcome
         get() = curationOutcomeOverride ?: if (stage.curationStore.isReadOnly) {
@@ -88,6 +125,13 @@ class StageSyncBridge(
         } else {
             PreferenceLoadOutcome.LOADED
         }
+
+    override val isInPictureInPicture: Boolean
+        get() = stage.lifecycleEpoch.suspended &&
+            (stage.lifecycleEpoch.allowedLane != null || stage.pictureInPicture || stage.pipSolo)
+
+    override val isHostChangingConfigurations: Boolean
+        get() = hostChangingConfigurations()
 
     override fun localData(): SyncLocalData = SyncLocalData(
         curation = stage.curation,
