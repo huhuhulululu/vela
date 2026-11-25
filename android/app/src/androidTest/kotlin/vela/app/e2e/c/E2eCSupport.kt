@@ -137,40 +137,18 @@ internal object E2eCSupport {
         return device.executeShellCommand("dumpsys audio").orEmpty()
     }
 
-    internal fun audioFocusStackLines(dump: String): List<String> = dump.lineSequence()
-        .dropWhile { !it.contains("Audio Focus stack entries", ignoreCase = true) && !it.contains("Audio Focus", ignoreCase = true) }
-        .drop(1)
-        .takeWhile { line ->
-            val trimmed = line.trim()
-            trimmed.isNotEmpty() &&
-                !trimmed.startsWith("Audio Focus stack entry count") &&
-                !trimmed.startsWith("No external focus policy") &&
-                !trimmed.startsWith("Events log") &&
-                !trimmed.startsWith("Audio dumping") &&
-                !trimmed.startsWith("Audio Policy")
-        }
-        .toList()
+    internal fun audioFocusStackLines(dump: String): List<String> =
+        vela.app.pip.AudioFocusDump.stackLines(dump)
 
-    fun packageInAudioFocusStack(dump: String, packageName: String = "vela.app"): Boolean {
-        return audioFocusStackLines(dump).any { line ->
-            line.contains(packageName) &&
-                (
-                    line.contains("pack:", ignoreCase = true) ||
-                        line.contains("package:", ignoreCase = true) ||
-                        line.contains("client", ignoreCase = true)
-                    )
-        }
-    }
+    internal fun audioFocusPackageLines(dump: String, packageName: String = "vela.app"): List<String> =
+        vela.app.pip.AudioFocusDump.packageLines(dump, packageName)
 
-    /** 仅检查当前音频焦点栈里本包条目的精确 GAIN_TRANSIENT，排除历史日志、其他包以及 MAY_DUCK/EXCLUSIVE/LOSS。 */
-    fun hasGainTransient(dump: String, packageName: String = "vela.app"): Boolean {
-        val exact = Regex("""\bGAIN_TRANSIENT\b""")
-        return audioFocusStackLines(dump).any { line ->
-            line.contains(packageName) &&
-                exact.containsMatchIn(line) &&
-                !line.contains("LOSS")
-        }
-    }
+    fun packageInAudioFocusStack(dump: String, packageName: String = "vela.app"): Boolean =
+        vela.app.pip.AudioFocusDump.packageInStack(dump, packageName)
+
+    /** 仅检查当前音频焦点栈里本包条目的精确 GAIN_TRANSIENT，排除历史日志、其他包以及 MAY_DUCK/EXCLUSIVE/loss!=none。 */
+    fun hasGainTransient(dump: String, packageName: String = "vela.app"): Boolean =
+        vela.app.pip.AudioFocusDump.hasGainTransient(dump, packageName)
 
     /**
      * 校验进入画中画之后焦点路的最后一条真实 display-check 几何日志。
