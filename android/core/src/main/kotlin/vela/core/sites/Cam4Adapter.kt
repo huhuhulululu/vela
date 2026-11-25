@@ -37,18 +37,20 @@ class Cam4Adapter(
         val limit: Int,
         val fetchedAt: Instant,
         val geo: Boolean,
+        val invalidated: Boolean = false,
     )
 
     private val lock = Any()
     private val index = LinkedHashMap<String, Entry>()
     private val order = ArrayList<String>()
+    private val lastForcedRefresh = HashMap<String, Instant>()
 
     override val site: SiteID = SiteID.cam4
     override val capabilities: SiteCapabilities = SiteCapabilities.strictMaster
     override val challengeHome: URI? = null
 
     override suspend fun fetchDirectory(query: CatalogQuery): CatalogPage {
-        if (unsupported(query)) return CatalogPage(rooms = emptyList(), total = 0, nextOffset = 0)
+        if (!supportsDirectory(query)) return CatalogPage(rooms = emptyList(), total = 0, nextOffset = 0)
         val limit = query.limit.coerceIn(1, Cam4Directory.maxPageSize)
         val needsFilter = viewerRegions.isNotEmpty() ||
             query.gender != null ||
@@ -59,7 +61,8 @@ class Cam4Adapter(
         var total = 0
         var scans = 0
         while (true) {
-            val raw = load(offset = cursor, limit = limit)
+            val loaded = load(offset = cursor, limit = limit)
+            val raw = loaded.page
             scans += 1
             total = maxOf(total, raw.total)
             for (room in filtered(raw, query).rooms) {
@@ -67,18 +70,31 @@ class Cam4Adapter(
             }
             val upstreamStep = raw.nextOffset - cursor
             cursor = raw.nextOffset
-            if (!needsFilter || collected.size >= limit || upstreamStep < limit || upstreamStep <= 0 || cursor >= total || scans >= maxFilterScans) {
+            if (!needsFilter || collected.size >= limit || loaded.rawCount < limit || upstreamStep <= 0 || cursor >= total || scans >= maxFilterScans) {
                 break
             }
         }
         return CatalogPage(rooms = collected, total = total, nextOffset = cursor)
     }
 
+    override fun invalidateStream(key: RoomKey) {
+        if (key.site != site) return
+        val name = key.name.lowerRoot()
+        synchronized(lock) {
+            val existing = index[name] ?: return
+            index[name] = existing.copy(invalidated = true)
+        }
+    }
+
     override suspend fun resolveStream(room: Room): SourcedTicket {
         val name = room.key.name.lowerRoot()
+        val now = clock()
         val cached = lookup(name)
-        if (cached != null && fresh(cached, streamTTLMillis, clock())) {
-            return ticket(cached, cached.room.stream)
+        if (cached != null && fresh(cached, streamTTLMillis, now)) {
+            if (!cached.invalidated || inRefreshCooldown(name, now)) {
+                return ticket(cached, cached.room.stream)
+            }
+            recordForcedRefresh(name, now)
         }
         val offset = cached?.offset ?: 0
         val limit = cached?.limit ?: Cam4Directory.maxPageSize
@@ -125,10 +141,7 @@ class Cam4Adapter(
         return null
     }
 
-    private fun unsupported(query: CatalogQuery): Boolean =
-        query.region != null || CatalogQuery.normalizedHashtag(query.tag) != null || query.newCams
-
-    private suspend fun load(offset: Int, limit: Int): CatalogPage {
+    private suspend fun load(offset: Int, limit: Int): Cam4Directory.DecodedPage {
         val gate = backoff
         if (gate != null && !gate.allows(SiteEndpoint.cam4Directory)) {
             throw EndpointBackedOff(SiteEndpoint.cam4Directory)
@@ -151,15 +164,15 @@ class Cam4Adapter(
             throw CatalogFailure.Malformed
         }
         val now = clock()
-        val page = Cam4Directory.decode(
+        val decoded = Cam4Directory.decodeWithRawCount(
             data = result.data,
             requestLimit = pageSize,
             requestOffset = offset,
             now = now,
             viewerRegions = viewerRegions,
         )
-        remember(page.rooms, offset, pageSize, now)
-        return page
+        remember(decoded.page.rooms, offset, pageSize, now)
+        return decoded
     }
 
     /** 观看地区被主播屏蔽的房间不进目录（只留在索引里）；总数与游标仍按原页。 */
@@ -186,6 +199,7 @@ class Cam4Adapter(
             while (order.size > indexLimit) {
                 val oldest = order.removeAt(0)
                 index.remove(oldest)
+                lastForcedRefresh.remove(oldest)
             }
         }
     }
@@ -198,9 +212,21 @@ class Cam4Adapter(
 
     private fun lookup(name: String): Entry? = synchronized(lock) { index[name] }
 
+    private fun inRefreshCooldown(name: String, now: Instant): Boolean = synchronized(lock) {
+        val last = lastForcedRefresh[name] ?: return false
+        now.toEpochMilli() - last.toEpochMilli() < refreshCooldownMillis
+    }
+
+    private fun recordForcedRefresh(name: String, at: Instant) {
+        synchronized(lock) {
+            lastForcedRefresh[name] = at
+        }
+    }
+
     private fun drop(name: String) {
         synchronized(lock) {
             index.remove(name)
+            lastForcedRefresh.remove(name)
             order.remove(name)
         }
     }
@@ -224,6 +250,8 @@ class Cam4Adapter(
         const val statusTTLMillis: Long = 3 * 60 * 1000
         const val indexLimit: Int = 2_000
         const val thumbnailMarginMillis: Long = 60_000
+        /** 流失效强制刷新目录的最短间隔，避免 403 高频刷目录。 */
+        const val refreshCooldownMillis: Long = 15_000
         /** 本地过滤把原页滤短或滤空时，单次目录请求最多顺延扫描的原页数。 */
         const val maxFilterScans: Int = 5
         private val MEDIA_HEADERS = mapOf(

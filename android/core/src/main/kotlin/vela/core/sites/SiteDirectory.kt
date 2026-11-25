@@ -63,16 +63,20 @@ class SiteDirectory(
         val sites = mode.sites
         val scope = QueryScope(query)
         val cursor = synchronized(lock) {
-            if (query.offset <= 0) cursors[scope] = HashMap()
-            touchScope(scope)
-            cursors[scope]?.get(query.offset) ?: MixedCursor(sites)
+            if (query.offset <= 0) {
+                MixedCursor(sites)
+            } else {
+                touchScope(scope)
+                cursors[scope]?.get(query.offset) ?: MixedCursor(sites)
+            }
         }
         val result = SiteCatalog.fetch(mode, query, cursor, registry)
         synchronized(lock) {
             failed = sites.filter { result.failures[it] != null }
-            val bucket = cursors.getOrPut(scope) { HashMap() }
+            val bucket = if (query.offset <= 0) HashMap() else (cursors[scope] ?: HashMap())
             if (bucket.size >= 64) bucket.clear()
             bucket[result.page.nextOffset] = result.cursor
+            cursors[scope] = bucket
             touchScope(scope)
             while (scopeOrder.size > 16) {
                 val oldest = scopeOrder.removeAt(0)

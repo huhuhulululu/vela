@@ -135,6 +135,48 @@ class SiteDirectoryTests {
         assertEquals(SiteID.cam4, RoomKey.siteOfRef("C4:Sample_One"))
         assertEquals(SiteID.chaturbate, RoomKey.siteOfRef("cb:alice"))
         assertEquals(SiteID.chaturbate, RoomKey.siteOfRef("vela-perf-room"))
+        assertEquals(SiteID.cam4, RoomKey.siteOfRef(" c4:alice "), "前导空白应先裁剪再识别站点")
+        assertEquals(SiteID.cam4, RoomKey.siteOfRef("\tC4:bob\n"))
+        assertEquals(listOf(" c4:alice "), SiteMode.cam4.filterFavorites(listOf(" c4:alice ", "alice")))
+    }
+
+    @Test
+    fun testMixedReloadFailureKeepsExistingPaginationCursors() = runBlocking {
+        val client = HostClient.withResults(
+            cbResults = mutableListOf(
+                HTTPResult(200, cbBody(listOf("cb_1", "cb_2"), total = 20)),
+                HTTPResult(503, "{}".encodeToByteArray()),
+                HTTPResult(200, cbBody(listOf("cb_3", "cb_4"), total = 20)),
+            ),
+            c4Results = mutableListOf(
+                HTTPResult(200, c4Body(listOf("c4_1", "c4_2"), total = 20)),
+                HTTPResult(503, "{}".encodeToByteArray()),
+                HTTPResult(200, c4Body(listOf("c4_3", "c4_4"), total = 20)),
+            ),
+        )
+        val dir = directory(SiteMode.mixed, client)
+        val page1 = dir.fetch(CatalogQuery(limit = 2, offset = 0))
+        assertEquals(4, page1.nextOffset)
+
+        try {
+            dir.fetch(CatalogQuery(limit = 2, offset = 0))
+            kotlin.test.fail("模拟的重载应失败")
+        } catch (_: Throwable) {
+            // 预期
+        }
+
+        val feed = vela.core.feed.FeedStore()
+        feed.replace(page1)
+        val page2 = dir.fetch(CatalogQuery(limit = 2, offset = page1.nextOffset))
+        assertEquals(8, page2.nextOffset, "重载失败后继续翻页应沿原游标前进")
+        assertEquals(listOf("cb_3", "c4:c4_3", "cb_4", "c4:c4_4"), page2.rooms.map { it.id })
+        feed.append(page2, offset = page1.nextOffset)
+        kotlin.test.assertFalse(feed.reachedEnd)
+
+        val cbOffsets = client.urls.filter { URI(it).host == "chaturbate.com" }.map { query(it, "offset") }
+        val c4Pages = client.urls.filter { URI(it).host == "www.cam4.com" }.map { query(it, "page") }
+        assertEquals(listOf("0", "0", "2"), cbOffsets)
+        assertEquals(listOf("1", "1", "2"), c4Pages)
     }
 
     @Test
@@ -213,11 +255,28 @@ class SiteDirectoryTests {
     }
 }
 
-private class HostClient(
-    private val cb: MutableList<ByteArray> = mutableListOf(),
-    private val c4: MutableList<ByteArray> = mutableListOf(),
-    private val c4Status: Int = 200,
+private class HostClient private constructor(
+    private val cb: MutableList<HTTPResult>,
+    private val c4: MutableList<HTTPResult>,
+    private val c4Status: Int,
+    @Suppress("UNUSED_PARAMETER") raw: Unit,
 ) : HTTPClient {
+    constructor(
+        cb: MutableList<ByteArray> = mutableListOf(),
+        c4: MutableList<ByteArray> = mutableListOf(),
+        c4Status: Int = 200,
+    ) : this(
+        cb = cb.mapTo(ArrayList()) { HTTPResult(200, it) },
+        c4 = c4.mapTo(ArrayList()) { HTTPResult(200, it) },
+        c4Status = c4Status,
+        raw = Unit,
+    )
+
+    companion object {
+        fun withResults(cbResults: MutableList<HTTPResult>, c4Results: MutableList<HTTPResult>): HostClient =
+            HostClient(cb = cbResults, c4 = c4Results, c4Status = 200, raw = Unit)
+    }
+
     private val lock = Any()
     val urls: List<String>
         get() = synchronized(lock) { recorded.toList() }
@@ -232,9 +291,9 @@ private class HostClient(
                 val status = if (c4Status == 200) 404 else c4Status
                 return HTTPResult(status, "{}".encodeToByteArray())
             }
-            return HTTPResult(200, c4.removeAt(0))
+            return c4.removeAt(0)
         }
         if (cb.isEmpty()) return HTTPResult(404, "{}".encodeToByteArray())
-        HTTPResult(200, cb.removeAt(0))
+        cb.removeAt(0)
     }
 }

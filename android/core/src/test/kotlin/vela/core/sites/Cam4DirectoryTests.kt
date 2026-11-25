@@ -47,8 +47,8 @@ class Cam4DirectoryTests {
     fun testFixtureMapsEveryFieldAndIgnoresDefaultImage() {
         val page = Cam4Directory.decode(fixture(), requestLimit = 50, requestOffset = 0, now = now, viewerRegions = emptySet())
         assertEquals(40, page.total)
-        assertEquals(3, page.nextOffset)
-        assertEquals(3, page.rooms.size)
+        assertEquals(4, page.nextOffset)
+        assertEquals(4, page.rooms.size)
 
         val full = page.rooms[0]
         assertEquals("sample_one", full.username)
@@ -87,6 +87,13 @@ class Cam4DirectoryTests {
         assertEquals(0, bare.viewers)
         assertTrue(bare.tags.isEmpty())
         assertTrue(bare.blockedRegions.isEmpty())
+
+        val publicHttp = page.rooms[3]
+        assertEquals("public_http", publicHttp.username)
+        assertEquals(ShowState.publicShow, publicHttp.show)
+        assertNull(publicHttp.stream, "公开房间非 https 流地址应被丢弃")
+        assertNull(Cam4Links.https("https:///no-host.m3u8"), "缺少主机的 https 链接应被丢弃")
+        assertNull(Cam4Links.https("https://"))
     }
 
     @Test
@@ -110,6 +117,8 @@ class Cam4DirectoryTests {
         assertEquals(listOf(Gender.male, Gender.couple, Gender.trans, null, null), page.rooms.map { it.gender })
         assertEquals(25, page.nextOffset)
         assertEquals(now.plusSeconds(Cam4Directory.snapshotTTL), page.rooms[4].thumbnailExpires)
+        assertNull(Cam4Links.validto("https://images.example/a.jpg?validto=NaN"), "validto=NaN 应被拦截")
+        assertNull(Cam4Links.validto("https://images.example/a.jpg?validto=Infinity"))
     }
 
     @Test
@@ -161,9 +170,9 @@ class Cam4DirectoryTests {
             override suspend fun send(request: HTTPRequest): HTTPResult = HTTPResult(200, fixture())
         }
         val page = Cam4Adapter(client, backoff = null, viewerRegions = setOf("RU")).fetchDirectory(CatalogQuery(limit = 90))
-        assertEquals(listOf("c4:sample_two", "c4:bare_min"), page.rooms.map { it.id })
+        assertEquals(listOf("c4:sample_two", "c4:bare_min", "c4:public_http"), page.rooms.map { it.id })
         assertEquals(40, page.total)
-        assertEquals(3, page.nextOffset)
+        assertEquals(4, page.nextOffset)
     }
 
     @Test
@@ -228,10 +237,48 @@ class Cam4DirectoryTests {
           {"username": "valid_one", "gender": "female", "viewers": 20}
         ]
         """.trimIndent().encodeToByteArray()
-        val bare = Cam4Directory.decode(arrayJSON, requestLimit = 2, requestOffset = 0, now = now, viewerRegions = emptySet())
-        assertEquals(listOf("valid_one"), bare.rooms.map { it.username })
-        assertEquals(2, bare.total)
-        assertEquals(2, bare.nextOffset)
+        val bareShort = Cam4Directory.decode(arrayJSON, requestLimit = 3, requestOffset = 0, now = now, viewerRegions = emptySet())
+        assertEquals(listOf("valid_one"), bareShort.rooms.map { it.username })
+        assertEquals(2, bareShort.total)
+        assertEquals(2, bareShort.nextOffset)
+    }
+
+    @Test
+    fun testShortPageAlignsNextOffsetAndBareArrayPaginationDoesNotEndEarly() {
+        val shortObj = """
+        {
+          "totalCount": 500,
+          "users": [
+            {"username": "user_one", "gender": "female", "viewers": 10},
+            {"username": "user_two", "gender": "female", "viewers": 20}
+          ]
+        }
+        """.trimIndent().encodeToByteArray()
+        val first = Cam4Directory.decode(shortObj, requestLimit = 90, requestOffset = 0, now = now, viewerRegions = emptySet())
+        assertEquals(90, first.nextOffset, "非满页但 total 更大时应直接对齐到第 2 页起始偏移")
+        assertEquals("2", query(Cam4Directory.url(offset = first.nextOffset, limit = 90))["page"])
+
+        val second = Cam4Directory.decode(shortObj, requestLimit = 90, requestOffset = 90, now = now, viewerRegions = emptySet())
+        assertEquals(180, second.nextOffset)
+        assertEquals("3", query(Cam4Directory.url(offset = second.nextOffset, limit = 90))["page"])
+
+        val emptyObj = """{"totalCount": 500, "users": []}""".encodeToByteArray()
+        val empty = Cam4Directory.decode(emptyObj, requestLimit = 90, requestOffset = 90, now = now, viewerRegions = emptySet())
+        assertEquals(90, empty.nextOffset)
+
+        val fullBareJSON = """
+        [
+          {"username": "user_one", "gender": "female", "viewers": 10},
+          {"username": "user_two", "gender": "female", "viewers": 20}
+        ]
+        """.trimIndent().encodeToByteArray()
+        val fullBare = Cam4Directory.decode(fullBareJSON, requestLimit = 2, requestOffset = 2, now = now, viewerRegions = emptySet())
+        assertEquals(4, fullBare.nextOffset)
+        assertTrue(fullBare.total > fullBare.nextOffset, "裸数组满页时应允许继续翻下一页")
+
+        val shortBare = Cam4Directory.decode(fullBareJSON, requestLimit = 90, requestOffset = 90, now = now, viewerRegions = emptySet())
+        assertEquals(92, shortBare.nextOffset)
+        assertEquals(92, shortBare.total)
     }
 
     private fun fixture(): ByteArray {

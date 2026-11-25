@@ -383,7 +383,7 @@ class ParityCliTest(unittest.TestCase):
         code, out, err = run_parity(["--group", "sites", "--repo", str(ROOT)])
         self.assertEqual(code, 0, err)
         self.assertIn("problems=0", out)
-        self.assertIn("executed=65", out)
+        self.assertIn("executed=72", out)
 
     def test_real_repository_all_passes(self):
         code, out, err = run_parity(["--all", "--repo", str(ROOT)])

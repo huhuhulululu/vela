@@ -129,9 +129,10 @@ class RoomKey private constructor(
 
         /** 内存 ref 属于哪个站：带已知站点前缀的按前缀，其余一律是 cb。 */
         fun siteOfRef(ref: String): SiteID {
-            val colon = ref.indexOf(':')
+            val trimmed = ref.trimSwiftWhitespace()
+            val colon = trimmed.indexOf(':')
             if (colon < 0) return SiteID.chaturbate
-            return SiteID.fromWire(SyncKeys.asciiLower(ref.substring(0, colon))) ?: SiteID.chaturbate
+            return SiteID.fromWire(SyncKeys.asciiLower(trimmed.substring(0, colon))) ?: SiteID.chaturbate
         }
     }
 }

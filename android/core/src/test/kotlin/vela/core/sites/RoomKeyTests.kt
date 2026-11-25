@@ -278,6 +278,32 @@ class RoomKeyTests {
     }
 
     @Test
+    fun testRoomQueryMatchesSitePrefixWithoutFalsePositivesOnBareWord() {
+        val cb = Room(username = "alice", viewers = 1, show = ShowState.publicShow)
+        val c4 = Room(username = "alice", viewers = 9, show = ShowState.publicShow, site = SiteID.cam4)
+        val bob = Room(username = "bob", viewers = 3, show = ShowState.publicShow)
+
+        assertTrue(RoomQuery(text = "cb:alice").matches(cb))
+        assertTrue(RoomQuery(text = "CB:ALICE").matches(cb))
+        assertTrue(RoomQuery(text = "cb:").matches(cb))
+        assertFalse(RoomQuery(text = "cb:").matches(c4))
+        assertFalse(RoomQuery(text = "cb:alice").matches(c4))
+        assertFalse(RoomQuery(text = "cb").matches(cb), "裸词 cb 不应误匹配全部 Chaturbate 房间")
+        assertFalse(RoomQuery(text = "cb").matches(bob))
+        assertTrue(RoomQuery(text = "c4:alice").matches(c4))
+
+        val store = FeedStore()
+        store.replace(CatalogPage(rooms = listOf(cb, c4, bob), total = 3, nextOffset = 3))
+        store.previewQuery(RoomQuery(text = "c4: alice"))
+        assertEquals(0, store.localMatches)
+        val direct = Room.direct(RoomKey(SiteID.cam4, "alice")!!)
+        assertTrue(store.reveal(direct))
+        assertEquals("c4:alice", store.current?.ref)
+        assertEquals(9, store.current?.viewers, "已有房间走 reveal 应保留目录元数据")
+        assertEquals("", store.query.text)
+    }
+
+    @Test
     fun testRelativePlaylistResolutionDropsMasterQuery() {
         val master = java.net.URI.create("https://cdn.example/live/master.m3u8?token=abc")
         val cases = listOf(

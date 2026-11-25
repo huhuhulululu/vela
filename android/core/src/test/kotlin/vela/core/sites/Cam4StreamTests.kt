@@ -382,6 +382,43 @@ class Cam4StreamTests {
         assertEquals(2, client.requests.size)
     }
 
+    @Test
+    fun testInvalidateStreamRefetchesOriginalPageWithinTTLAndHonorsCooldown() = runBlocking {
+        val freshHLS = "https://preview.example/sample_one/master.m3u8?token=fresh"
+        val newerHLS = "https://preview.example/sample_one/master.m3u8?token=newer"
+        val client = ScriptClient(
+            mutableListOf(
+                page(listOf(user("sample_one", hls = hls)), total = 200),
+                page(listOf(user("sample_one", hls = freshHLS)), total = 200),
+                page(listOf(user("sample_one", hls = newerHLS)), total = 200),
+            ),
+        )
+        var now = Instant.ofEpochSecond(10_000)
+        val adapter = Cam4Adapter(client, backoff = null, viewerRegions = emptySet(), clock = { now })
+        adapter.fetchDirectory(CatalogQuery(limit = 40, offset = 80))
+        val key = RoomKey(SiteID.cam4, "sample_one")!!
+        val room = Room.direct(key)
+
+        now = now.plusSeconds(30)
+        adapter.invalidateStream(key)
+        val refreshed = adapter.resolveStream(room)
+        assertEquals(freshHLS, refreshed.ticket.url?.toString())
+        assertEquals(2, client.requests.size)
+        assertEquals("3", query(client.requests[1].url, "page"))
+        assertEquals("40", query(client.requests[1].url, "resultsPerPage"))
+
+        now = now.plusSeconds(2)
+        adapter.invalidateStream(key)
+        val throttled = adapter.resolveStream(room)
+        assertEquals(freshHLS, throttled.ticket.url?.toString())
+        assertEquals(2, client.requests.size, "短冷却期内不应高频刷目录")
+
+        now = now.plusMillis(Cam4Adapter.refreshCooldownMillis)
+        val afterCooldown = adapter.resolveStream(room)
+        assertEquals(newerHLS, afterCooldown.ticket.url?.toString())
+        assertEquals(3, client.requests.size)
+    }
+
     private fun user(
         name: String,
         hls: String? = null,

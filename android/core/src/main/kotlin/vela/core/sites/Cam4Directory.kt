@@ -51,20 +51,48 @@ object Cam4Directory {
         return URI("https", "www.cam4.com", "/directoryCams", query, null)
     }
 
+    internal data class DecodedPage(val page: CatalogPage, val rawCount: Int)
+
     fun decode(
         data: ByteArray,
         requestLimit: Int,
         requestOffset: Int,
         now: Instant,
         viewerRegions: Set<String>,
-    ): CatalogPage {
+    ): CatalogPage = decodeWithRawCount(data, requestLimit, requestOffset, now, viewerRegions).page
+
+    internal fun decodeWithRawCount(
+        data: ByteArray,
+        requestLimit: Int,
+        requestOffset: Int,
+        now: Instant,
+        viewerRegions: Set<String>,
+    ): DecodedPage {
         if (!ResponseShape.looksLikeJSON(data)) throw CatalogFailure.Malformed
         val parsed = parse(data)
+        val base = maxOf(requestOffset, 0)
         val limit = requestLimit.coerceIn(1, maxPageSize)
         val rooms = parsed.users.mapNotNull { it.room(now, viewerRegions) }
-        val total = parsed.total ?: parsed.users.size
         val step = minOf(parsed.users.size, limit)
-        return CatalogPage(rooms = rooms, total = total, nextOffset = requestOffset + step)
+        val nextPage = ((base / limit) + 1) * limit
+        val total: Int
+        val nextOffset: Int
+        val serverTotal = parsed.total
+        if (serverTotal != null) {
+            total = serverTotal
+            nextOffset = when {
+                parsed.users.isEmpty() -> base
+                nextPage < serverTotal -> nextPage
+                else -> base + step
+            }
+        } else if (parsed.users.size < limit) {
+            nextOffset = base + step
+            total = nextOffset
+        } else {
+            nextOffset = nextPage
+            total = nextOffset + 1
+        }
+        return DecodedPage(CatalogPage(rooms = rooms, total = total, nextOffset = nextOffset), parsed.users.size)
     }
 
     private data class Parsed(val users: List<Cam4User>, val total: Int?)
@@ -224,7 +252,7 @@ internal object Cam4Links {
         } catch (_: URISyntaxException) {
             return null
         }
-        if (parsed.scheme != "https") return null
+        if (parsed.scheme != "https" || parsed.host.isNullOrEmpty()) return null
         return parsed
     }
 
@@ -265,7 +293,7 @@ internal object Cam4Links {
             decodeQuery(part.substring(eq + 1))
         } ?: return null
         val seconds = value.toDoubleOrNull() ?: return null
-        if (seconds < 1_000_000_000.0 || seconds >= 100_000_000_000.0) return null
+        if (!seconds.isFinite() || seconds < 1_000_000_000.0 || seconds >= 100_000_000_000.0) return null
         return Instant.ofEpochSecond(seconds.toLong())
     }
 
