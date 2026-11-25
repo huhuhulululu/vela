@@ -222,7 +222,15 @@ class MilestoneCTest {
             activity = activity,
             message = "取消静音后焦点栈本包条目应为精确 GAIN_TRANSIENT",
             limitMs = 5_000,
-            extra = { E2eCSupport.audioFocusStackLines(E2eCSupport.dumpsysAudioFocus()).joinToString("\n") },
+            extra = {
+                val dump = E2eCSupport.dumpsysAudioFocus()
+                val own = E2eCSupport.audioFocusPackageLines(dump)
+                if (own.isNotEmpty()) {
+                    "own=${own.joinToString(" ; ")}"
+                } else {
+                    "stack=${E2eCSupport.audioFocusStackLines(dump).joinToString(" ; ")}"
+                }
+            },
         ) {
             E2eCSupport.hasGainTransient(E2eCSupport.dumpsysAudioFocus())
         }
