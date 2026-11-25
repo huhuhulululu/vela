@@ -376,7 +376,7 @@ internal fun StageViewModel.setDual(on: Boolean, remember: Boolean = true) {
 
 internal fun StageViewModel.setLaneCount(requested: Int, remember: Boolean = true) {
     if (laneCountLocked || focusLocked) return
-    val cap = LaneWindow.maxLaneCount(threeLanesFit)
+    val cap = minOf(LaneWindow.maxLaneCount(threeLanesFit), 2)
     val next = requested.coerceIn(1, cap)
     if (next == laneCount) {
         if (remember && requested == next && rememberedLaneCount != next) {
@@ -1069,6 +1069,8 @@ private fun StageViewModel.requestSecondary(isRetry: Boolean) {
         publish()
         return
     }
+    if (face?.visible == false) return
+    if (lifecycleEpoch.begin(PlaybackLaneRole.SECONDARY) == null) return
     ensureSecondary?.invoke()
     if (secondarySink == null) {
         startUnboundSecondary()
@@ -1135,7 +1137,9 @@ private fun StageViewModel.bumpSecondary(): Int {
 }
 
 private suspend fun StageViewModel.playSecondary(token: Int, isRetry: Boolean) {
-    if (!ageConfirmed || token != secondaryFace?.generation) return
+    if (!ageConfirmed || !playbackGateOpen || token != secondaryFace?.generation) return
+    if (secondaryFace?.manuallyPaused == true || secondaryFace?.visible == false) return
+    val life = lifecycleEpoch.begin(PlaybackLaneRole.SECONDARY) ?: return
     val room = roomNamed(secondaryCursor?.username)
     val sink = secondarySink ?: return
     if (room == null) {
@@ -1144,13 +1148,13 @@ private suspend fun StageViewModel.playSecondary(token: Int, isRetry: Boolean) {
         publish()
         return
     }
-    if (secondaryFace?.manuallyPaused == true || secondaryFace?.visible == false) return
     try {
         val cap = laneCap(LaneID.SECONDARY)
         appliedCap[LaneID.SECONDARY] = cap
-        val target = secondaryPlayable(room.username, cap, token) ?: return
-        if (token != secondaryFace?.generation) return
-        if (secondaryFace?.manuallyPaused == true || secondaryFace?.visible == false) return
+        val target = secondaryPlayable(room.username, cap, token, life) ?: return
+        if (token != secondaryFace?.generation || !coroutineContext.isActive) return
+        if (!playbackGateOpen || secondaryFace?.manuallyPaused == true || secondaryFace?.visible == false) return
+        if (!lifecycleEpoch.allows(vela.core.lifecycle.LifecycleEpoch.Gate.BEFORE_COMMIT, life)) return
         sink.play(target.playable, room.username, cap, secondaryAllowed(), isRetry)
         pushVolumes()
     } catch (cancelled: CancellationException) {
@@ -1163,12 +1167,19 @@ private suspend fun StageViewModel.playSecondary(token: Int, isRetry: Boolean) {
     }
 }
 
-private suspend fun StageViewModel.secondaryPlayable(username: String, cap: Double, token: Int): PlayTarget? {
+private suspend fun StageViewModel.secondaryPlayable(
+    username: String,
+    cap: Double,
+    token: Int,
+    life: vela.core.lifecycle.LifecycleEpoch.Token,
+): PlayTarget? {
     prepared.fresh(username, cap, now())?.let { cached ->
         return PlayTarget(master = null, playable = cached)
     }
+    if (!lifecycleEpoch.allows(vela.core.lifecycle.LifecycleEpoch.Gate.BEFORE_REQUEST, life)) return null
     val sourced = resolveSourced(username)
-    if (token != secondaryFace?.generation) return null
+    if (token != secondaryFace?.generation || !coroutineContext.isActive) return null
+    if (!lifecycleEpoch.allows(vela.core.lifecycle.LifecycleEpoch.Gate.BEFORE_REQUEST, life)) return null
     val ticket = sourced.ticket
     val address = ticket.url
     if (!ticket.isPlayable || address == null) {
@@ -1178,7 +1189,8 @@ private suspend fun StageViewModel.secondaryPlayable(username: String, cap: Doub
     }
     val master = loopbackSharedMaster(address)
     val playable = selectRendition(master, cap)
-    if (token != secondaryFace?.generation) return null
+    if (token != secondaryFace?.generation || !coroutineContext.isActive) return null
+    if (!lifecycleEpoch.allows(vela.core.lifecycle.LifecycleEpoch.Gate.BEFORE_COMMIT, life)) return null
     if (!playable.isUnselected) prepared.set(playable, cap, username, now())
     return PlayTarget(master = master, playable = playable)
 }
@@ -1200,7 +1212,11 @@ private fun StageViewModel.refreshSecondary(username: String, isRetry: Boolean) 
     }
     prepared.remove(username)
     val scheduled = secondaryFace?.generation ?: return
-    if (!playbackGateOpen || !ageConfirmed) {
+    if (!playbackGateOpen || !ageConfirmed || secondaryFace?.visible == false) {
+        sink.refreshFinished(null, false)
+        return
+    }
+    if (lifecycleEpoch.begin(PlaybackLaneRole.SECONDARY) == null) {
         sink.refreshFinished(null, false)
         return
     }
@@ -1236,7 +1252,9 @@ private suspend fun StageViewModel.renewSecondaryRenditionOnce(
     cap: Double,
     token: Int,
 ): StreamRendition? {
-    if (!secondaryRenewalIsCurrent(username, token)) return null
+    val life = lifecycleEpoch.begin(PlaybackLaneRole.SECONDARY) ?: return null
+    if (secondaryFace?.visible == false || !secondaryRenewalIsCurrent(username, token)) return null
+    if (!lifecycleEpoch.allows(vela.core.lifecycle.LifecycleEpoch.Gate.BEFORE_REQUEST, life)) return null
     val ticket = try {
         resolveSourced(username).ticket
     } catch (cancelled: CancellationException) {
@@ -1246,9 +1264,11 @@ private suspend fun StageViewModel.renewSecondaryRenditionOnce(
     }
     val address = ticket.url
     if (!ticket.isPlayable || address == null) return null
-    if (!secondaryRenewalIsCurrent(username, token)) return null
+    if (secondaryFace?.visible == false || !secondaryRenewalIsCurrent(username, token)) return null
+    if (!lifecycleEpoch.allows(vela.core.lifecycle.LifecycleEpoch.Gate.BEFORE_REQUEST, life)) return null
     val playable = selectRendition(loopbackSharedMaster(address), cap)
     if (playable.isUnselected || !secondaryRenewalIsCurrent(username, token)) return null
+    if (!lifecycleEpoch.allows(vela.core.lifecycle.LifecycleEpoch.Gate.BEFORE_COMMIT, life)) return null
     prepared.set(playable, cap, username, now())
     return playable
 }

@@ -29,6 +29,7 @@ import java.io.InputStream
 import java.nio.file.Paths
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import vela.app.infra.AtomicFile
@@ -76,7 +77,9 @@ class MainActivity : ComponentActivity() {
 
     private var composeView: ComposeView? = null
     private var composed: Boolean = false
-    private val thumbnails: ThumbnailCache by lazy { ThumbnailCache(HttpClientImpl()) }
+    private val thumbnailJob = kotlinx.coroutines.SupervisorJob()
+    private val thumbnailScope = kotlinx.coroutines.CoroutineScope(thumbnailJob + Dispatchers.IO)
+    private var thumbnails: ThumbnailCache? = null
     private var nextExportId: Long = 1L
     private var pendingExport: ByteArray? = null
     private var pendingExportId: Long = 0L
@@ -245,6 +248,11 @@ class MainActivity : ComponentActivity() {
             }
         }
         wiring.attachPictureInPicture(coordinator)
+        thumbnails = ThumbnailCache(
+            client = EpochGatedThumbnailClient(HttpClientImpl(), stage),
+            scope = thumbnailScope,
+        )
+        stage.onCancelSharedWork = { thumbnailJob.cancelChildren() }
         stage.onQuit = { finish() }
         stage.bindLifecycleHooks(
             ensurePlayback = { session.ensureLane() },
@@ -315,6 +323,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         pendingSyncReveal = null
+        thumbnailJob.cancel()
         pictureInPicture?.detach()
         pictureInPicture = null
         if (this::wiring.isInitialized) {
@@ -334,12 +343,17 @@ class MainActivity : ComponentActivity() {
         val stage = this.stage
         val session = this.session
         val hub = this.syncHub
+        val cache = this.thumbnails ?: ThumbnailCache(
+            client = EpochGatedThumbnailClient(HttpClientImpl(), stage),
+            scope = thumbnailScope,
+        ).also { thumbnails = it }
         view.setContent {
             val state by stage.state.collectAsState()
             val primary by session.lane.collectAsState()
             // 副路挂在舞台上；读 state 触发重组时一起拿到最新的 secondaryLane。
             val secondary = stage.secondaryLane
             val laneCount = state.laneCount
+            val allowThumbnailFetch = !state.pictureInPicture && !stage.lifecycleEpoch.suspended
             StageScreen(
                 stage = stage,
                 challengeUrl = challengeEntryUrl(),
@@ -353,7 +367,11 @@ class MainActivity : ComponentActivity() {
                     LaneID.TERTIARY -> null
                 }
                 if (current != null) {
-                    val thumbnail = laneThumbnail(state.face(laneId)?.username, thumbnails)
+                    val thumbnail = laneThumbnail(
+                        username = state.face(laneId)?.username,
+                        cache = cache,
+                        allowFetch = allowThumbnailFetch,
+                    )
                     LaneSurface(lane = current, thumbnail = thumbnail, modifier = Modifier.fillMaxSize())
                 }
             }
@@ -488,16 +506,35 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-internal fun laneThumbnail(username: String?, cache: ThumbnailCache): Bitmap? {
+internal fun laneThumbnail(
+    username: String?,
+    cache: ThumbnailCache,
+    allowFetch: Boolean = true,
+): Bitmap? {
     val url = if (username.isNullOrBlank()) null else Endpoints.thumbnail(username)
     var bitmap by remember(url) { mutableStateOf(cache.peek(url)) }
-    LaunchedEffect(url) {
-        if (url != null) {
+    LaunchedEffect(url, allowFetch) {
+        if (url != null && allowFetch) {
             val fetched = cache.imageOrFetch(url)
             if (fetched != null) bitmap = fetched
         }
     }
     return bitmap
+}
+
+/** 缩略图属于共享任务：画中画或后台挂起期间直接拒绝发网，避免绕过 cancelSharedWork。 */
+internal class EpochGatedThumbnailClient(
+    private val inner: vela.core.base.net.HTTPClient,
+    private val stage: StageViewModel,
+) : vela.core.base.net.HTTPClient {
+    override suspend fun send(request: vela.core.base.net.HTTPRequest): vela.core.base.net.HTTPResult {
+        val token = stage.lifecycleEpoch.begin()
+            ?: throw CancellationException("thumbnail gated")
+        if (!stage.lifecycleEpoch.allows(vela.core.lifecycle.LifecycleEpoch.Gate.BEFORE_REQUEST, token)) {
+            throw CancellationException("thumbnail gated")
+        }
+        return inner.send(request)
+    }
 }
 
 internal fun installDebugHooks(context: Context) {

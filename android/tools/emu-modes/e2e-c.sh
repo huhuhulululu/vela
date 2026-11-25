@@ -122,17 +122,19 @@ c2 = between("/marker/pip-c2-begin", "/marker/pip-c2-end")
 if index("/marker/pip-c2-begin") < 0:
     raise SystemExit("缺少 pip-c2-begin")
 
-# S-C3：关掉自动进入后的后台，以及关闭画中画后的静默窗口应为零请求。
+# S-C3：关掉自动进入后的后台静默窗口，以及关闭画中画后的静默窗口都必须为零请求。
 off = between("/marker/pip-c3-off-begin", "/marker/pip-c3-off-end")
-# off 窗口包含起播，不要求零请求；关闭后的窗口必须为零。
+if off:
+    paths = [row.get("path") for row in off[:8]]
+    raise SystemExit("关掉自动进入回桌面后仍有 %d 条请求: %s" % (len(off), paths))
 quiet = between("/marker/pip-c3-close-begin", "/marker/pip-c3-close-end")
 if quiet:
     paths = [row.get("path") for row in quiet[:8]]
     raise SystemExit("关闭画中画后仍有 %d 条请求: %s" % (len(quiet), paths))
 
 print(
-    "e2e-c-requests c1_media=%d c2_rows=%d off_rows=%d close_rows=0"
-    % (c1_media, len(c2), len(off))
+    "e2e-c-requests c1_media=%d c2_rows=%d off_rows=0 close_rows=0"
+    % (c1_media, len(c2))
 )
 PY
 

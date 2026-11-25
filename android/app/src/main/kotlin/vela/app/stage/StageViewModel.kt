@@ -436,14 +436,19 @@ class StageViewModel(
             is StageIntent.BlockCurrent -> blockCurrent(intent.target)
             is StageIntent.MarkNotInterested -> markNotInterested(intent.target)
             is StageIntent.RetryPlayback -> {
-                val degradedSecondary = intent.target?.laneID == LaneID.SECONDARY &&
+                val target = intent.target
+                val degradedSecondary = target?.laneID == LaneID.SECONDARY &&
                     secondaryFace?.playback == LanePlayback.Degraded
-                if (accepts(intent.target) && !degradedSecondary) {
-                    degradedHold.release(DegradedHold.Release.RETRY)
-                    skips.reset()
-                    feed.currentUsername?.let { prepared.remove(it) }
+                if (accepts(target) && !degradedSecondary) {
+                    if (target?.laneID == LaneID.SECONDARY) {
+                        prepared.remove(target.username)
+                    } else {
+                        degradedHold.release(DegradedHold.Release.RETRY)
+                        skips.reset()
+                        (target?.username ?: feed.currentUsername)?.let { prepared.remove(it) }
+                    }
                 }
-                retryPlayback(intent.target)
+                retryPlayback(target)
             }
             is StageIntent.RemoveFavorite -> {
                 val next = syncedCuration(SyncLocalOp.Unfavorite(intent.name)) { curation.unfavoriting(intent.name) } ?: return
@@ -765,9 +770,10 @@ class StageViewModel(
         )
     }
 
-    /** 没接播放器时只推进界面。接上之后才解析地址并交给这一路。闸门关着时直接丢掉。 */
+    /** 没接播放器时只推进界面。接上之后才解析地址并交给这一路。闸门关着、主路隐藏或代次拒绝时直接丢掉。 */
     internal fun requestPlay(isRetry: Boolean = false) {
-        if (!playbackGateOpen) return
+        if (!playbackGateOpen || !laneFace.visible || !primaryVisible) return
+        if (lifecycleEpoch.begin(PlaybackLaneRole.PRIMARY) == null) return
         ensurePlayback?.invoke()
         if (!playbackBound) {
             startUnboundPlayback()
@@ -789,6 +795,8 @@ class StageViewModel(
         startBoundPlayback(isRetry)
     }
 
+    internal var onCancelSharedWork: (() -> Unit)? = null
+
     internal fun cancelPlaybackWork() {
         playJob?.cancel()
         playJob = null
@@ -802,9 +810,10 @@ class StageViewModel(
         awayJob = null
     }
 
-    /** 目录、搜索、收藏、关联。播放任务也一起停。代次作废后调用。 */
+    /** 目录、搜索、收藏、关联、缩略图。播放任务也一起停。代次作废后调用。 */
     internal fun cancelSharedWork() {
         cancelPlaybackWork()
+        onCancelSharedWork?.invoke()
         catalogRestJob?.cancel()
         catalogRestJob = null
         targetedJob?.cancel()
@@ -962,7 +971,7 @@ class StageViewModel(
         }
         muted = nextMuted
         settings.muted = muted
-        if (bridge != null) playbackSink?.setVolume(volume, muted)
+        if (bridge != null) pushVolumes()
         publish()
     }
 

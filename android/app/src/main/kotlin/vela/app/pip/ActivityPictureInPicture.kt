@@ -122,6 +122,7 @@ class ActivityPictureInPicture(
 
     override fun enter() {
         if (!supported || activity.isInPictureInPictureMode) return
+        if (!focusLooksPlayable()) return
         val params = buildParams()
         try {
             if (Build.VERSION.SDK_INT >= 26) {

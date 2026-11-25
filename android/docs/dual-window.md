@@ -6,19 +6,19 @@
 
 - 默认单路（`laneCount == 1`）。用户用顶栏路数选择器或双窗开关可开到 2 路；`Settings.dualWindow` 与 `rememberedLaneCount` 记住选择，冷启动由 `restoreDualIfRemembered()` 恢复。
 - `StageUiState.dualWindow` 是 `laneCount > 1` 的派生镜像，界面与测试只读契约，不直接改设置键。
-- 第三路（`LaneID.TERTIARY`）在契约与 `DualStageScreen` 里预留格位，**本里程碑不创建第三路 `PlaybackLane`**；`setLaneCount(3)` 只更新 UI 状态，起播仍限主路 + 副路。
+- 第三路（`LaneID.TERTIARY`）仅在 `LaneWindow` 契约与 `DualStageScreen` 保留布局格位，**本里程碑不创建第三路 `PlaybackLane`**；`StageViewModel.setLaneCount` 与 `LaneCountPicker` 将可选路数上限收紧为 2 路。
 - 画中画启动中或进行中 `focusLocked` / `laneCountLocked` 为真时，路数选择与显式切焦点被忽略（由 `PiPCoordinator` 经 `syncLaneCountLock` 与 `focusLocked` 写入，`WillStop` 后路数锁保持到 `DidStop`，与 iOS 一致）。
 
 ## 舞台：`StageViewModel` + `Stage+Lanes.kt`
 
 | 主题 | 行为 |
 |---|---|
-| 联合选房 | `updateFeedLanes` 在副本上变更后调 `LaneSelection.resolve`，`secondaryCursor` 非空；主路结果与 FeedStore 不一致时记日志。双路两两不同房，规则对齐计划 S-B1。 |
+| 联合选房 | `updateFeedLanes` 在副本上变更后调 `LaneSelection.resolve`，`secondaryCursor` 非空；双路两两不同房，规则对齐计划 S-B1。收藏跳转与本地搜索命中副路时走 `Reveal` 聚焦副路且不重启主路。 |
 | 焦点 | `setFocus` 更新 `focusLane`、停留焦点段 `FocusSegments`、音量推送与 `onLaneFocusChanged`；非焦点路 ExoPlayer 音轨关闭。 |
-| 目标路操作 | 收藏、屏蔽、不感兴趣、重试、暂停经 `RoomTarget` / `matchedLane`，只作用于点到的那一路；顶栏心形、收藏面板的「收藏/屏蔽当前」经 `StageUiState.focusTarget()` 与 `TogglePause(null)` 均按 `focusLane` 作用于当前焦点路。 |
+| 目标路操作 | 收藏、屏蔽、不感兴趣、重试、暂停经 `RoomTarget` / `matchedLane`，只作用于点到的那一路；顶栏心形、右侧 `ActionRail`、收藏面板的「收藏/屏蔽当前」经 `StageUiState.focusTarget()` 与 `TogglePause(null)` 均按 `focusLane` 作用于当前焦点路；副路重试只清副路预解析缓存，不动主路缓存与跳过计数。 |
 | 热降档 | `ThermalMonitor` 订阅 `PowerManager`（API 29+）；`noteThermal` + `LaneQuality`：未发热不封顶；`SERIOUS` 及以上按 `estimatedDisplayHeight` 降档，下限 896 kbps；回到 `FAIR` 及以下连续满 60 秒回升。起播经 `ThermalCapSink` 带上限。 |
 | 副路资源不足 | `PlaybackFailureClassifier.Outcome.RESOURCE_DEGRADE` 仅副路：`degradeLane` 取消在途解析并停播，显示「双窗暂不可用」，不记房间失败、不自动跳过。 |
-| 副路续签、异常与空路停播 | 副路续签走按路校验的 `renewLaneRendition`（核对副路用户名与 generation）；解析抛非取消异常时先停旧播放源再标失败；筛选/搜索使副路变空或横屏/画中画隐藏副路时，经 `stopSecondaryPlayback` 取消在途解析并停播。 |
+| 副路续签、异常与空路停播 | 副路续签走按路校验的 `renewLaneRendition`（核对副路用户名、generation 与路级代次）；解析抛非取消异常时先停旧播放源再标失败；筛选/搜索使副路变空或横屏/画中画隐藏副路时，经 `stopSecondaryPlayback` 取消在途解析并停播；主路预取跳过且保护副路当前房间。 |
 | 最近划走 | `RecentSkips` + `LaneSelection`：双窗下任一路划走房间记入共享集合（30 分钟有效、上限 200），另一路前进避开，回划本路 `previous` 允许，直达与单窗不受限，列表重载保留。 |
 
 日志 category：`vela.stage`，关键字 `lanes`、`focus`、`thermal limit|recover`、`degrade secondary`、`lane-rooms distinct=`。
@@ -26,7 +26,7 @@
 ## 界面
 
 - **竖屏双窗**：`StageScreen` 在 `dualWindow && !landscape && !pictureInPicture` 时整块交给 `DualStageScreen`：上下等高窗格，间距 `LaneLayout.gap`（2dp），格高 `(H − (N−1)×gap) / N`。
-- **横屏或单路显示模式**：同一 `StageScreen` 只渲染焦点路的 `LaneRoomPager`，另一路逻辑状态保留但不画双格。
+- **横屏或单路显示模式**：同一 `StageScreen` 只渲染焦点路的 `LaneRoomPager` 与指向 `focusTarget()` 的右侧 `ActionRail`，另一路逻辑状态保留但不画双格。
 - **画中画**：`state.pictureInPicture` 为真时只渲染焦点路全屏单视频槽位（`pip-stage`），隐藏双窗布局、顶栏、控制条、提示与弹窗，并跳过 `onSizeChanged` 尺寸上报避免污染竖屏路数判定。
 - 每格：`LaneRoomPager` 独立上下滑；点格或在该格划动触发 `SetFocus`；焦点路香槟色细边（`Theme.champagne`）；副路可带 `PaneBar`（房间信息、心形、更多菜单），动作带 `target(showing:)`。
 - 画面仍由 `LaneSurface` + `DisplayFit` 原比例摆放；禁止 `ContentScale.Crop` / `FillBounds` / `RESIZE_MODE_ZOOM`。
@@ -36,7 +36,7 @@
 `AppPlaybackSession` 持有主路 `PlaybackLane` 与可选副路，两路观察器独立维护（创建主路不清除副路观察器）。舞台通过回调接线：
 
 - `ensureSecondary` → `ensureSecondary()` 创建副路并 `bindLane`。
-- `releaseSecondaryLane` → 用户关双窗、画中画释放副路或 `dropSecondary` 时**完整释放**副路 ExoPlayer 并清空 `stage.secondaryLane` / `stage.secondarySink`，不是仅 `stop()`；`suspendLanes` 同样清空两路舞台引用。
+- `releaseLane(PRIMARY)` / `releaseSecondaryLane` / `suspendLanes` / `releaseLeftovers` 在释放前均先 `attachSurface(null)` 与 `suspendNow()`，并同步清空对应路的 `primaryLane`、`playbackSink`、`playbackBound`、`secondaryLane`、`secondarySink`，确保后续音量或停止调用不会落到已释放播放器上。
 
 ### 减路 / 关双窗（持久释放）
 

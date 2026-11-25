@@ -94,13 +94,19 @@ internal fun StageViewModel.playFavorite(name: String) {
     val room = favoriteStatus.status(name)?.room
         ?: feed.catalog.firstOrNull { Curation.key(it.username) == key && it.show.isPlayable }
         ?: return
+    val beforePrimary = feed.currentUsername
     cancelSiteSearch()
     surface = StageSurface.None
     updateFeed(intent = LaneSelection.Intent.Reveal(room.username)) { store ->
         store.reveal(room)
     }
     if (siteSearch == null && feed.query.text != searchText) searchText = feed.query.text
-    requestPlay()
+    val focusedSecondary = laneCount > 1 &&
+        focusLane == vela.core.base.lane.LaneID.SECONDARY &&
+        secondaryCursor?.username?.equals(room.username, ignoreCase = true) == true
+    if (!focusedSecondary || !beforePrimary.equals(feed.currentUsername, ignoreCase = true)) {
+        requestPlay()
+    }
 }
 
 internal fun StageViewModel.exportFavorites() {

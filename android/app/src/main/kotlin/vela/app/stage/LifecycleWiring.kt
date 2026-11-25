@@ -389,15 +389,19 @@ class AppPlaybackSession(
         secondaryLane = null
         lanesByRole.clear()
         stage.primaryLane = null
+        stage.playbackSink = null
+        stage.playbackBound = false
         stage.secondaryLane = null
         stage.secondarySink = null
         if (current == null && secondary == null) return
         stage.playerReleased = true
         if (current != null) {
+            current.attachSurface(null)
             current.suspendNow()
             current.release()
         }
         if (secondary != null) {
+            secondary.attachSurface(null)
             secondary.suspendNow()
             secondary.release()
         }
@@ -413,9 +417,12 @@ class AppPlaybackSession(
                 }
                 mutableLane.value = null
                 lanesByRole.remove(PlaybackLaneRole.PRIMARY)
+                stage.primaryLane = null
+                stage.playbackSink = null
+                stage.playbackBound = false
+                current.attachSurface(null)
                 current.suspendNow()
                 current.release()
-                stage.primaryLane = null
                 if (secondaryLane == null) stage.playerReleased = true
             }
             PlaybackLaneRole.SECONDARY -> releaseSecondaryLane()
@@ -476,6 +483,8 @@ class AppPlaybackSession(
         lanesByRole.remove(PlaybackLaneRole.SECONDARY)
         stage.secondaryLane = null
         stage.secondarySink = null
+        secondary.attachSurface(null)
+        secondary.suspendNow()
         secondary.release()
         audio.focus = stage.focusLane.role
         audio.lanes = stage.openRoles()
@@ -493,11 +502,15 @@ class AppPlaybackSession(
         secondaryLane = null
         lanesByRole.clear()
         stage.primaryLane = null
+        stage.playbackSink = null
+        stage.playbackBound = false
         stage.secondaryLane = null
         stage.secondarySink = null
         if (current != null || secondary != null) {
             stage.playerReleased = true
+            current?.attachSurface(null)
             current?.release()
+            secondary?.attachSurface(null)
             secondary?.release()
         }
         if (audioStarted) {

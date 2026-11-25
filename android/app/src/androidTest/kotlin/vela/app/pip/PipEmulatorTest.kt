@@ -73,40 +73,48 @@ class PipEmulatorTest {
         val stage = activity.stage
         assertTrue(stage.state.value.currentUsername != null)
         val supported = activity.packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
+        val homePressedAt = SystemClock.elapsedRealtime()
         UiDevice.getInstance(instrumentation).pressHome()
-        assertTrue(waitUntil { activity.wiring.phase == PhoneScenePhase.BACKGROUND })
         if (!supported) {
             assertTrue(
-                waitUntil(4_000) { !stage.playbackGateOpen && stage.lifecycleEpoch.allowedLane == null },
+                waitUntil(4_000) {
+                    activity.wiring.phase == PhoneScenePhase.BACKGROUND &&
+                        !stage.playbackGateOpen &&
+                        stage.lifecycleEpoch.allowedLane == null &&
+                        activity.session.lane.value == null
+                },
             )
             return
         }
-        val entered = waitUntil(4_000) {
-            activity.isInPictureInPictureMode ||
+        val entered = waitUntil((3_000L - (SystemClock.elapsedRealtime() - homePressedAt)).coerceAtLeast(100L)) {
+            activity.wiring.phase == PhoneScenePhase.BACKGROUND &&
+                activity.isInPictureInPictureMode &&
                 activity.wiring.pipCoordinator?.pictureInPictureState == PiPPolicy.State.ACTIVE
         }
         if (entered) {
             onMain(activity) {
-                assertTrue(stage.focusLocked || stage.laneCountLocked || stage.pictureInPicture)
+                assertTrue(stage.focusLocked)
+                assertTrue(stage.laneCountLocked)
+                assertTrue(stage.pictureInPicture)
                 assertEquals(
                     stage.focusLane.role,
                     stage.lifecycleEpoch.allowedLane,
                 )
             }
-            // 画中画里只有焦点路：副路播放器应已释放。
+            // 画中画里只有焦点路：非焦点副路播放器实例必须真正释放。
             if (stage.laneCount >= 2) {
                 assertTrue(
-                    waitUntil(3_000) {
-                        activity.session.secondaryLaneForTest == null ||
-                            stage.secondaryFace?.visible == false
-                    },
+                    waitUntil(3_000) { activity.session.secondaryLaneForTest == null },
                 )
             }
         } else {
             assertTrue(
-                "既没进画中画也没全停",
-                waitUntil(1_000) {
-                    !stage.playbackGateOpen && stage.lifecycleEpoch.allowedLane == null
+                "既没在 3 秒内进画中画也没全停",
+                waitUntil(1_500) {
+                    !stage.playbackGateOpen &&
+                        stage.lifecycleEpoch.allowedLane == null &&
+                        activity.session.lane.value == null &&
+                        activity.session.secondaryLaneForTest == null
                 },
             )
         }

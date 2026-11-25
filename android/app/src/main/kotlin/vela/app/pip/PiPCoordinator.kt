@@ -201,6 +201,7 @@ class PiPCoordinator(
     }
 
     fun enterFromUi() {
+        if (!focusIsPlaying()) return
         pip?.enter()
     }
 
@@ -208,6 +209,7 @@ class PiPCoordinator(
         if (pictureInPicturePlaying) {
             pip?.stop()
         } else {
+            if (!focusIsPlaying()) return
             pip?.enter()
         }
     }

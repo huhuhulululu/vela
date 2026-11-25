@@ -137,19 +137,22 @@ internal object E2eCSupport {
         return device.executeShellCommand("dumpsys audio").orEmpty()
     }
 
+    internal fun audioFocusStackLines(dump: String): List<String> = dump.lineSequence()
+        .dropWhile { !it.contains("Audio Focus stack entries", ignoreCase = true) && !it.contains("Audio Focus", ignoreCase = true) }
+        .drop(1)
+        .takeWhile { line ->
+            val trimmed = line.trim()
+            trimmed.isNotEmpty() &&
+                !trimmed.startsWith("Audio Focus stack entry count") &&
+                !trimmed.startsWith("No external focus policy") &&
+                !trimmed.startsWith("Events log") &&
+                !trimmed.startsWith("Audio dumping") &&
+                !trimmed.startsWith("Audio Policy")
+        }
+        .toList()
+
     fun packageInAudioFocusStack(dump: String, packageName: String = "vela.app"): Boolean {
-        val lines = dump.lineSequence()
-            .dropWhile { !it.contains("Audio Focus", ignoreCase = true) }
-            .takeWhile { line ->
-                val trimmed = line.trim()
-                trimmed.isNotEmpty() &&
-                    !trimmed.startsWith("Audio Focus stack entry count") &&
-                    !trimmed.startsWith("Audio dumping") &&
-                    !trimmed.startsWith("Audio Policy")
-            }
-            .toList()
-        // 焦点栈条目常见含 pack: / package: / uid 与客户端信息。
-        return lines.any { line ->
+        return audioFocusStackLines(dump).any { line ->
             line.contains(packageName) &&
                 (
                     line.contains("pack:", ignoreCase = true) ||
@@ -159,13 +162,72 @@ internal object E2eCSupport {
         }
     }
 
+    /** 仅检查当前音频焦点栈里本包条目的精确 GAIN_TRANSIENT，排除历史日志、其他包以及 MAY_DUCK/EXCLUSIVE/LOSS。 */
     fun hasGainTransient(dump: String, packageName: String = "vela.app"): Boolean {
-        val lines = dump.lines().filter { it.contains(packageName) }
-        return lines.any { line ->
-            line.contains("GAIN_TRANSIENT") &&
-                !line.contains("GAIN_TRANSIENT_MAY_DUCK") &&
+        val exact = Regex("""\bGAIN_TRANSIENT\b""")
+        return audioFocusStackLines(dump).any { line ->
+            line.contains(packageName) &&
+                exact.containsMatchIn(line) &&
                 !line.contains("LOSS")
-        } || dump.contains("GAIN_TRANSIENT") && packageInAudioFocusStack(dump, packageName)
+        }
+    }
+
+    /**
+     * 校验进入画中画之后焦点路的最后一条真实 display-check 几何日志。
+     * 不再接受与渲染无关的 PiPAspect.clamp 兜底。
+     */
+    fun latestPipDisplayUncropped(focusLabel: String): Boolean {
+        val last = vela.app.lane.LaneLog.snapshot().lastOrNull { line ->
+            line.contains("display-check") && line.contains("lane=$focusLabel")
+        } ?: return false
+        return last.contains("gravity=fit") &&
+            last.contains("uncropped=true") &&
+            !last.contains("presentation=0.00x0.00") &&
+            !last.contains("videoRect=0.00,0.00,0.00x0.00")
+    }
+
+    /**
+     * 通过系统真实关闭小窗/息屏触发非销毁 onStop（绝不调用 activity.finish()）：
+     * 1) 点击小窗呼出系统控制层并点关闭按钮；
+     * 2) 拖到底部关闭区；
+     * 3) 仍停留在 STARTED 时走 device.sleep()（锁屏/灭屏，不销毁 Activity）。
+     */
+    fun dismissPictureInPictureWithoutFinishing(activity: MainActivity, device: UiDevice): String {
+        val bounds = onMain(activity) {
+            val view = activity.window.decorView
+            val loc = IntArray(2)
+            view.getLocationOnScreen(loc)
+            intArrayOf(loc[0], loc[1], view.width, view.height)
+        }
+        val cx = (bounds[0] + bounds[2] / 2).coerceIn(1, (device.displayWidth - 1).coerceAtLeast(1))
+        val cy = (bounds[1] + bounds[3] / 2).coerceIn(1, (device.displayHeight - 1).coerceAtLeast(1))
+
+        // 1) 点小窗呼出 SystemUI 菜单，再点关闭按钮。
+        device.click(cx, cy)
+        val closeButton = device.wait(
+            androidx.test.uiautomator.Until.findObject(
+                androidx.test.uiautomator.By.res("com.android.systemui:id/dismiss"),
+            ),
+            800L,
+        ) ?: device.findObject(androidx.test.uiautomator.By.descContains("Close"))
+            ?: device.findObject(androidx.test.uiautomator.By.descContains("Dismiss"))
+            ?: device.findObject(androidx.test.uiautomator.By.descContains("关闭"))
+        if (closeButton != null) {
+            closeButton.click()
+            if (waitUntil(1_500) { activity.lifecycle.currentState == androidx.lifecycle.Lifecycle.State.CREATED }) {
+                return "systemui-dismiss"
+            }
+        }
+
+        // 2) 拖动小窗到底部中央关闭区。
+        device.drag(cx, cy, device.displayWidth / 2, (device.displayHeight - 24).coerceAtLeast(1), 20)
+        if (waitUntil(1_500) { activity.lifecycle.currentState == androidx.lifecycle.Lifecycle.State.CREATED }) {
+            return "drag-dismiss"
+        }
+
+        // 3) 无头模拟器 SystemUI 未响应手势时走灭屏（KEYCODE_SLEEP），触发真实非销毁 onStop。
+        device.sleep()
+        return "sleep-stop"
     }
 
     fun exoPlaybackThreads(): List<String> = threadNames().filter { name ->
