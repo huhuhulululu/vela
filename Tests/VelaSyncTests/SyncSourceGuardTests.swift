@@ -23,9 +23,11 @@ final class SyncSourceGuardTests: XCTestCase {
 
     /// 安全审查 L7：macOS 复制同步码 120 秒后，若剪贴板没被别的内容替换（changeCount 未变）就清空，与 iOS 的过期一致。
     func testMacPasteboardIsClearedAfter120Seconds() throws {
-        let source = try text("Shared/Stage/SyncPanel.swift")
-        XCTAssertTrue(source.contains("SyncPasteboard.expirySeconds"))
-        XCTAssertTrue(source.contains("board.changeCount == stamp"))
+        let panel = try text("Shared/Stage/SyncPanel.swift")
+        XCTAssertTrue(panel.contains("SyncPasteboard.expirySeconds"))
+        XCTAssertTrue(panel.contains("SyncPasteboardController"))
+        let core = try text("Sources/VelaCore/Sync/SyncLifecycle.swift")
+        XCTAssertTrue(core.contains("clipboard.changeCount == stamp"))
     }
 
     /// 复审 medium：macOS 剪贴板过期不能只靠进程内延时。明文与 ConcealedType 一次写入（同一个 NSPasteboardItem），
@@ -34,16 +36,16 @@ final class SyncSourceGuardTests: XCTestCase {
         let panel = try text("Shared/Stage/SyncPanel.swift")
         XCTAssertTrue(panel.contains("NSPasteboardItem()"))
         XCTAssertFalse(panel.contains("board.setString(text, forType: .string)"), "不再先单独写明文")
+        XCTAssertTrue(panel.contains("NSApplication.willTerminateNotification"), "退出清理观察者在 SyncPasteboard 独立注册")
         let hub = try text("Shared/Stage/StageModel+Sync.swift")
         XCTAssertTrue(hub.contains("SyncPasteboard.expireLeftover()"), "启动时检查")
-        XCTAssertTrue(hub.contains("SyncPasteboard.expireNow()"), "退出时清掉")
     }
 
     /// 复审 low：每次复制生成新令牌；到期任务只在令牌仍是自己的、剪贴板也没变时才清空，不会提前清掉后一次复制。
     func testPasteboardExpiryUsesPerCopyToken() throws {
-        let panel = try text("Shared/Stage/SyncPanel.swift")
-        XCTAssertTrue(panel.contains("let token = UUID().uuidString"))
-        XCTAssertTrue(panel.contains("expire(onlyIf: token)"))
+        let core = try text("Sources/VelaCore/Sync/SyncLifecycle.swift")
+        XCTAssertTrue(core.contains("UUID().uuidString"))
+        XCTAssertTrue(core.contains("expire(onlyIf: token)"))
     }
 
     /// 实验开关默认关；关着时不接线（不读钥匙串、不联网、不注册生命周期观察）。
@@ -52,5 +54,15 @@ final class SyncSourceGuardTests: XCTestCase {
         XCTAssertTrue(settings.contains("defaults.bool(forKey: \"experimentSync\")"), "默认 false")
         let hub = try text("Shared/Stage/StageModel+Sync.swift")
         XCTAssertTrue(hub.contains("guard experimentEnabled else { return }"))
+    }
+
+    /// 审计 A/B：加入回滚写回设置后必须返回 `settings.synchronize()` 的刷盘结果，失败时不丢弃快照。
+    func testJoinJournalWriteSettingsSynchronizes() throws {
+        let hub = try text("Shared/Stage/StageModel+Sync.swift")
+        let start = try XCTUnwrap(hub.range(of: "static func journal(settings:")).lowerBound
+        let end = try XCTUnwrap(hub.range(of: "static func defaultEnvironment()")).lowerBound
+        let body = String(hub[start..<end])
+        XCTAssertTrue(body.contains("settings.setExplicit("))
+        XCTAssertTrue(body.contains("return settings.synchronize()"), "writeSettings 必须传播 synchronize() 刷盘结果")
     }
 }

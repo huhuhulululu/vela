@@ -1,3 +1,5 @@
+import Foundation
+
 /// 钥匙串（或 Keystore）里的条目读取结果（第 12.1、13 节）。条目内容 `{K, dev, blobID}` 由 S2 定义，这里只关心 blobID。
 public enum SyncKeychainRead: Equatable, Sendable {
     case none
@@ -212,4 +214,75 @@ public enum SyncLifecycle {
         next.phase = .active
         return (next, report)
     }
+}
+
+/// 敏感剪贴板的最小抽象（macOS 由 `NSPasteboard.general` 实现，测试用内存桩注入）。
+public protocol SyncClipboard: AnyObject {
+    var changeCount: Int { get }
+    /// 原子写入带敏感标记的文本，并返回写入后的 `changeCount`。
+    func writeConcealed(_ text: String) -> Int
+    func clear()
+}
+
+/// 剪贴板清理记录的持久化抽象（macOS 由 `UserDefaults.standard` 实现，测试用内存桩注入）。
+public protocol SyncClipboardStampStore: AnyObject {
+    var changeCount: Int? { get set }
+    var token: String? { get set }
+}
+
+/// macOS 同步码剪贴板清理控制器（docs/plans/sync.md 第 4.3、23 节）。
+/// 通过可注入的剪贴板与存储接口统一承担复制、120 秒到期、退出清理与启动清理：
+/// 首次 `copySensitive` 时注册独立于实验开关的退出回调（重复复制只注册一次），关闭实验开关不撤销；
+/// 清理时仅在 `clipboard.changeCount == store.changeCount` 时清空，不动用户之后复制的别的内容。
+public final class SyncPasteboardController {
+    private let clipboard: SyncClipboard
+    private let store: SyncClipboardStampStore
+    private let makeToken: () -> String
+    private let scheduleExpiry: (_ delaySeconds: TimeInterval, _ action: @escaping () -> Void) -> Void
+    private let registerExit: (_ action: @escaping () -> Void) -> Void
+    private var exitRegistered = false
+
+    public init(
+        clipboard: SyncClipboard,
+        store: SyncClipboardStampStore,
+        makeToken: @escaping () -> String = { UUID().uuidString },
+        scheduleExpiry: @escaping (_ delaySeconds: TimeInterval, _ action: @escaping () -> Void) -> Void,
+        registerExit: @escaping (_ action: @escaping () -> Void) -> Void
+    ) {
+        self.clipboard = clipboard
+        self.store = store
+        self.makeToken = makeToken
+        self.scheduleExpiry = scheduleExpiry
+        self.registerExit = registerExit
+    }
+
+    /// 写入带敏感标记的同步码，记录当前 `changeCount` 与令牌，确保退出清理已注册，并排一次性到期任务。
+    public func copySensitive(_ text: String, expirySeconds: TimeInterval = 120) {
+        let stamp = clipboard.writeConcealed(text)
+        let token = makeToken()
+        store.changeCount = stamp
+        store.token = token
+        if !exitRegistered {
+            exitRegistered = true
+            registerExit { [weak self] in self?.expireNow() }
+        }
+        scheduleExpiry(expirySeconds) { [weak self] in self?.expire(onlyIf: token) }
+    }
+
+    /// 到期：只在记录的令牌仍是这次复制时才尝试清理；之后又复制过就什么都不做。
+    public func expire(onlyIf token: String) {
+        guard store.token == token else { return }
+        expireNow()
+    }
+
+    /// 剪贴板仍是本 App 最近一次写入的同步码就清空（退出、启动、到期时调用）。
+    public func expireNow() {
+        guard let stamp = store.changeCount else { return }
+        if clipboard.changeCount == stamp { clipboard.clear() }
+        store.changeCount = nil
+        store.token = nil
+    }
+
+    /// 启动时检查上次进程异常退出留下的同步码（未复制过时记录为空，不碰剪贴板）。
+    public func expireLeftover() { expireNow() }
 }

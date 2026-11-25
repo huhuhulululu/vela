@@ -75,7 +75,10 @@ final class SyncHub: ObservableObject {
             files: [CurationStore.defaultURL(), TasteStore.defaultURL()],
             settingKeys: keys,
             readSettings: { keys.reduce(into: [:]) { out, k in out[k] = settings.explicitBool(forKey: k) } },
-            writeSettings: { values in for (k, v) in values { settings.setExplicit(k, v) } }
+            writeSettings: { values in
+                for (k, v) in values { settings.setExplicit(k, v) }
+                return settings.synchronize()
+            }
         )
     }
 
@@ -108,6 +111,10 @@ final class SyncHub: ObservableObject {
 
     func attach(_ model: StageModel) {
         self.model = model
+        #if os(macOS)
+        // 启动时检查上次进程异常退出留下的同步码（未复制过时记录为空，不碰剪贴板，也不联网或读钥匙串）。
+        SyncPasteboard.expireLeftover()
+        #endif
         set(\.experimentEnabled, model.settings.experimentSync)
         guard experimentEnabled else { return }
         wire(model)
@@ -239,9 +246,7 @@ final class SyncHub: ObservableObject {
                 self?.cancelJoin()
                 self?.pushBeforeExit()
             }
-            SyncPasteboard.expireNow()
         })
-        SyncPasteboard.expireLeftover()
         #elseif os(iOS)
         observers.append(center.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.trigger(.foreground) }

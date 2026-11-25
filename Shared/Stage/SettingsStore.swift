@@ -25,7 +25,8 @@ final class SettingsStore {
     }
 
     /// 同步投影写入后提示系统落盘（第 12.2 节第 3 步）。
-    func synchronize() { defaults.synchronize() }
+    @discardableResult
+    func synchronize() -> Bool { defaults.synchronize() }
 
     var ageConfirmed: Bool {
         get { defaults.bool(forKey: "ageConfirmed") }
