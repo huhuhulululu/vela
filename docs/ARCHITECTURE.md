@@ -511,7 +511,7 @@ xcodebuild -project Vela.xcodeproj -scheme Vela -destination 'platform=macOS' \
 | `android/app/src/main/kotlin/vela/app/stage` | `StageViewModel`（含 `setPipSolo`、`focusLocked`、`laneCountLocked`、`syncHub`）；`Stage+Lanes.kt` 双路选房、焦点、热降档、横屏与画中画共用的可见性；目录、起播、收藏、口味（写入入口接入同步提交锁与 `SyncHub.perform`）；`LifecycleWiring` 主副路会话并接 `PiPCoordinator` 与 `SyncHub` 前后台转发；侧车 |
 | `android/app/src/main/kotlin/vela/app/pip` | `ActivityPictureInPicture`（系统参数、比例、静音 RemoteAction、自动进入）、`PiPCoordinator`（状态机与 3 秒回退）、`PiPAspect`、`PiPFallback`、`PiPEvent`、`PictureInPictureControlling` |
 | `android/app/src/main/kotlin/vela/app/sync` | 跨设备同步 App 层接线（S6，见 `android/docs/sync.md`）：minSdk 26 门槛、P-256 探针分级、`AndroidKeyStore` 密钥包裹、`HttpURLConnection` 传输（含总期限与取消断连）、启动检查屏障、加入快照事务、`SyncHub` 与 `SyncPanel`（查看同步码前强制身份验证） |
-| `android/app/src/main/kotlin/vela/app/ui` | `StageScreen`（单窗分页 + 竖屏双格切换，透传 `syncHub` 与身份验证回调）、`DualStageScreen`、顶栏、收藏夹、口味（底部挂 `SyncSettingsSection`）、质询、年龄确认 |
+| `android/app/src/main/kotlin/vela/app/ui` | `StageScreen`（单窗分页 + 竖屏双格切换，透传 `syncHub` 与身份验证回调）、`DualStageScreen`、顶栏、收藏夹、口味（底部挂 `SyncSettingsSection`）、质询、年龄确认。系统栏：targetSdk 36 在安卓 15 起强制全屏绘制，底色与单窗画面铺满，顶栏、操作栏、提示、状态页、双格舞台、年龄确认与各面板内容套 `SystemBarInsets`（状态栏 + 导航条 + 挖孔，面板另让键盘），画中画不加内边距 |
 | `android/app/src/main/kotlin/vela/app/audio` | 双路时只听焦点路；`AudioFocusRequest` 执行 `AudioFocusPlan` |
 | `android/app/src/hooks/kotlin/vela/app/hooks` | 仅 debug / perf：首帧记录、站点根地址覆盖、仪器测试用的空宿主 |
 
