@@ -341,6 +341,163 @@ class ParityCliTest(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertIn("problems=0", out)
 
+    def test_replaced_by_missing_in_group_skip_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            scope = root / "scope.tsv"
+            parity = root / "android" / "parity"
+            reports = root / "reports"
+            write(scope, f"group\tswift_file\tswift_test\ndemo\t{SWIFT}\t{TEST_A}\n")
+            write(
+                parity / "skip-demo.tsv",
+                f"swift_file\tswift_test\treason\n{SWIFT}\t{TEST_A}\t不移植；replaced-by:vela.app.MissingTest#testGhost\n",
+            )
+            write(
+                reports / "TEST-demo.xml",
+                junit([{"classname": "vela.app.OtherTest", "name": "testOther"}]),
+            )
+            code, _out, err = run_parity(
+                [
+                    "--group",
+                    "demo",
+                    "--repo",
+                    str(root),
+                    "--scope",
+                    str(scope),
+                    "--parity-dir",
+                    str(parity),
+                    "--reports",
+                    str(reports),
+                ]
+            )
+        self.assertNotEqual(code, 0)
+        self.assertIn("replaced-by", err)
+        self.assertIn("vela.app.MissingTest#testGhost", err)
+
+    def test_replaced_by_missing_or_skipped_or_failed_in_global_skip_fails_all(self):
+        for kind, case in [
+            ("missing", {"classname": "vela.app.OtherTest", "name": "testOther"}),
+            ("skipped", {"classname": "vela.app.RealTest", "name": "testTarget", "skipped": True}),
+            ("failed", {"classname": "vela.app.RealTest", "name": "testTarget", "failure": True}),
+        ]:
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                scope = root / "scope.tsv"
+                parity = root / "android" / "parity"
+                reports = root / "reports"
+                write(scope, f"group\tswift_file\tswift_test\ndemo\t{SWIFT}\t{TEST_A}\n")
+                write(
+                    parity / "skip.tsv",
+                    f"swift_file\tswift_test\treason\nTests/VelaPhoneTests/Fake.swift\ttestGlobal\treplaced-by:vela.app.RealTest#testTarget\n",
+                )
+                write(
+                    reports / "TEST-demo.xml",
+                    junit(
+                        [
+                            {"classname": "vela.core.base.BOMShapeTests", "name": TEST_A},
+                            case,
+                        ]
+                    ),
+                )
+                code, _out, err = run_parity(
+                    [
+                        "--all",
+                        "--repo",
+                        str(root),
+                        "--scope",
+                        str(scope),
+                        "--parity-dir",
+                        str(parity),
+                        "--reports",
+                        str(reports),
+                    ]
+                )
+                self.assertNotEqual(code, 0, f"{kind} should fail")
+                if kind == "failed":
+                    self.assertIn("测试失败", err)
+                else:
+                    self.assertIn("replaced-by", err)
+
+    def test_replaced_by_executed_method_and_class_pass(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            scope = root / "scope.tsv"
+            parity = root / "android" / "parity"
+            reports = root / "reports"
+            write(
+                scope,
+                "group\tswift_file\tswift_test\n"
+                f"demo\t{SWIFT}\t{TEST_A}\n"
+                f"demo\t{SWIFT}\t{TEST_B}\n",
+            )
+            write(
+                parity / "skip-demo.tsv",
+                "swift_file\tswift_test\treason\n"
+                f"{SWIFT}\t{TEST_A}\t不移植；replaced-by:vela.app.RealTest#testExact\n"
+                f"{SWIFT}\t{TEST_B}\t不移植；replaced-by:vela.app.RealClassTest\n",
+            )
+            write(
+                parity / "skip.tsv",
+                "swift_file\tswift_test\treason\n"
+                "Tests/VelaPhoneTests/Fake.swift\ttestGlobal\treplaced-by:vela.app.RealTest#testExact\n",
+            )
+            write(
+                reports / "TEST-demo.xml",
+                junit(
+                    [
+                        {"classname": "vela.app.RealTest", "name": "testExact"},
+                        {"classname": "vela.app.RealClassTest", "name": "testAnyMethod"},
+                    ]
+                ),
+            )
+            code, out, err = run_parity(
+                [
+                    "--all",
+                    "--repo",
+                    str(root),
+                    "--scope",
+                    str(scope),
+                    "--parity-dir",
+                    str(parity),
+                    "--reports",
+                    str(reports),
+                ]
+            )
+        self.assertEqual(code, 0, err)
+        self.assertIn("problems=0", out)
+
+    def test_non_c9_deferred_prefix_fails_group_and_all(self):
+        for flag in ["--group", "--all"]:
+            with self.subTest(flag=flag), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                scope = root / "scope.tsv"
+                parity = root / "android" / "parity"
+                reports = root / "reports"
+                reports.mkdir()
+                write(scope, f"group\tswift_file\tswift_test\nsync\t{SWIFT}\t{TEST_A}\n")
+                write(
+                    parity / "skip-sync.tsv",
+                    f"swift_file\tswift_test\treason\n{SWIFT}\t{TEST_A}\tdeferred:S6 尚未映射\n",
+                )
+                args = (
+                    ["--group", "sync"]
+                    if flag == "--group"
+                    else ["--all"]
+                ) + [
+                    "--repo",
+                    str(root),
+                    "--scope",
+                    str(scope),
+                    "--parity-dir",
+                    str(parity),
+                    "--reports",
+                    str(reports),
+                ]
+                code, _out, err = run_parity(args)
+                self.assertNotEqual(code, 0)
+                self.assertIn("deferred", err)
+                self.assertIn(TEST_A, err)
+
     def test_real_repository_all_passes(self):
         code, out, err = run_parity(["--all", "--repo", str(ROOT)])
         self.assertEqual(code, 0, err)
@@ -349,3 +506,4 @@ class ParityCliTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+

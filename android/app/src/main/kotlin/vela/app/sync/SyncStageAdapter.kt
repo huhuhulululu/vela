@@ -18,15 +18,18 @@ import vela.core.sync.SyncProjection
 import vela.core.sync.settingSyncedVeto
 import vela.core.taste.Taste
 
-/** 支持传播同步设置持久化结果（`SharedPreferences.Editor.commit()`）的本机落盘接口。 */
+/** 支持传播同步设置持久化结果（`SharedPreferences.Editor.commit()`）并在屏障落盘后刷新内存的本机接口。 */
 interface SyncSettingsPersistSink : SyncLocalSink {
     fun persistSettings(settings: Map<String, Boolean>): Boolean {
         applySettings(settings)
         return true
     }
+
+    /** 屏障把收藏、口味、设置全部成功落盘后，在释放锁之前按磁盘内容重读并刷新内存状态。 */
+    fun reloadAfterBarrier() = Unit
 }
 
-/** 包装 [SyncLocalSink]，在不改 `:core` 签名的前提下把同步设置 `commit()` 失败传播给 `SyncLifecycle.barrier`。 */
+/** 包装 [SyncLocalSink]，在不改 `:core` 签名的前提下传播设置 `commit()` 失败，并在屏障全部落盘后重读刷新内存。 */
 internal fun verifiedBarrierSink(
     sink: SyncLocalSink,
     settings: Map<String, Boolean>,
@@ -42,7 +45,9 @@ internal fun verifiedBarrierSink(
     }
 
     override fun applySettings(settings: Map<String, Boolean>) {
-        // 同步设置已在 saveTaste 阶段原子提交并校验 commit() 结果；不再重复写盘或吞掉失败。
+        // SyncLifecycle.barrier 仅在 saveCuration、saveTaste 与 persistSettings 均成功后调用本步；
+        // 在释放提交/恢复锁之前按落盘内容重读刷新内存舞台，与 Apple 端一致。
+        (sink as? SyncSettingsPersistSink)?.reloadAfterBarrier()
     }
 }
 
@@ -50,11 +55,47 @@ internal fun verifiedBarrierSink(
 interface SyncLocalBridge : SyncJoinSink, SyncSettingsPersistSink {
     val curationLoadOutcome: PreferenceLoadOutcome
     val tasteLoadOutcome: PreferenceLoadOutcome
+    /** 应用是否已进入画中画（或画中画后台继续路径）：期间不得触发同步网络请求。 */
+    val isInPictureInPicture: Boolean get() = false
+    /** 宿主 Activity 是否正因配置变化销毁重建：期间 onStop/onDestroy 不应视为退后台取消加入或清同步码。 */
+    val isHostChangingConfigurations: Boolean get() = false
     fun localData(): SyncLocalData
     fun applyProjection(doc: SyncDocument)
     fun reloadSyncedSettingsFromStore()
     fun dropLocalOnlyVetoes(keys: List<String>)
     fun showToast(message: String)
+}
+
+/**
+ * 可重绑定的本机桥接代理：进程级 [SyncHub] 在 Activity 配置变化重建后切换到新 [StageSyncBridge]，
+ * 让在途的同步、加入、恢复与清除屏障自动落到新宿主，不滞留旧 Activity/StageViewModel 引用。
+ */
+internal class RebindableSyncBridge(initial: SyncLocalBridge) : SyncLocalBridge {
+    @Volatile
+    private var target: SyncLocalBridge = initial
+
+    fun rebind(next: SyncLocalBridge) {
+        target = next
+    }
+
+    override val curationLoadOutcome: PreferenceLoadOutcome get() = target.curationLoadOutcome
+    override val tasteLoadOutcome: PreferenceLoadOutcome get() = target.tasteLoadOutcome
+    override val isInPictureInPicture: Boolean get() = target.isInPictureInPicture
+    override val isHostChangingConfigurations: Boolean get() = target.isHostChangingConfigurations
+    override fun localData(): SyncLocalData = target.localData()
+    override fun applyProjection(doc: SyncDocument) = target.applyProjection(doc)
+    override fun reloadSyncedSettingsFromStore() = target.reloadSyncedSettingsFromStore()
+    override fun dropLocalOnlyVetoes(keys: List<String>) = target.dropLocalOnlyVetoes(keys)
+    override fun showToast(message: String) = target.showToast(message)
+    override fun persistPending(): Boolean = target.persistPending()
+    override fun reloadAfterRollback() = target.reloadAfterRollback()
+    override fun persistSettings(settings: Map<String, Boolean>): Boolean = target.persistSettings(settings)
+    override fun reloadAfterBarrier() = target.reloadAfterBarrier()
+    override fun cancelPendingSaves() = target.cancelPendingSaves()
+    override fun currentTaste(): Taste = target.currentTaste()
+    override fun saveCuration(curation: Curation): Boolean = target.saveCuration(curation)
+    override fun saveTaste(taste: Taste): Boolean = target.saveTaste(taste)
+    override fun applySettings(settings: Map<String, Boolean>) = target.applySettings(settings)
 }
 
 /**
@@ -69,6 +110,7 @@ class StageSyncBridge(
     private val prefs: SyncPrefs,
     private val curationOutcomeOverride: PreferenceLoadOutcome? = null,
     private val tasteOutcomeOverride: PreferenceLoadOutcome? = null,
+    private val hostChangingConfigurations: () -> Boolean = { false },
 ) : SyncLocalBridge {
     override val curationLoadOutcome: PreferenceLoadOutcome
         get() = curationOutcomeOverride ?: if (stage.curationStore.isReadOnly) {
@@ -83,6 +125,13 @@ class StageSyncBridge(
         } else {
             PreferenceLoadOutcome.LOADED
         }
+
+    override val isInPictureInPicture: Boolean
+        get() = stage.lifecycleEpoch.suspended &&
+            (stage.lifecycleEpoch.allowedLane != null || stage.pictureInPicture || stage.pipSolo)
+
+    override val isHostChangingConfigurations: Boolean
+        get() = hostChangingConfigurations()
 
     override fun localData(): SyncLocalData = SyncLocalData(
         curation = stage.curation,
@@ -128,6 +177,19 @@ class StageSyncBridge(
     override fun persistPending(): Boolean {
         cancelPendingSaves()
         return stage.curationStore.save(stage.curation) && stage.tasteStore.save(stage.taste, stage.now())
+    }
+
+    override fun reloadAfterBarrier() {
+        val loadedCuration = stage.curationStore.load(stage.now())
+        if (loadedCuration != stage.curation) {
+            stage.commitCuration(loadedCuration, null)
+        }
+        val loadedTaste = stage.tasteStore.load(stage.now())
+        if (loadedTaste != stage.taste) {
+            stage.commitTaste(loadedTaste)
+        }
+        reloadSyncedSettingsFromStore()
+        stage.publish()
     }
 
     override fun reloadAfterRollback() {
@@ -262,5 +324,20 @@ internal fun StageViewModel.syncedClearVetoes(): Boolean {
 }
 
 internal fun StageViewModel.syncSetting(key: String, value: Boolean) {
-    syncHub?.perform(SyncLocalOp.Setting(key, value))
+    val hub = syncHub ?: return
+    if (hub.perform(SyncLocalOp.Setting(key, value)) != SyncOpOutcome.Full) return
+    val syncedValue = hub.service.state?.doc?.let { SyncProjection(it).settings[key] }
+    val defaultValue = when (key) {
+        Settings.KEY_PUBLIC_ONLY -> true
+        Settings.KEY_INFO_ALWAYS -> false
+        else -> !value
+    }
+    val reverted = syncedValue ?: !value
+    when (key) {
+        Settings.KEY_PUBLIC_ONLY -> publicOnly = reverted
+        Settings.KEY_INFO_ALWAYS -> infoAlwaysOn = reverted
+    }
+    val persistedValue = syncedValue ?: if (reverted == defaultValue) null else reverted
+    SyncPrefs(settings.preferences).setExplicit(key, persistedValue)
+    showToast(SyncHub.FULL_MESSAGE)
 }

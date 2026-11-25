@@ -4,8 +4,11 @@ import android.content.Context
 import android.os.Build
 import java.nio.file.Path
 import java.util.UUID
+import java.util.WeakHashMap
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -112,6 +115,11 @@ class SyncHub(
     private var joinToken: Any? = null
     private var rerun = false
     private var joinGeneration = 0
+    private var inBackground = false
+    @Volatile
+    private var pendingRevealAuth = false
+
+    internal val hasScheduledEdit: Boolean get() = editJob?.isActive == true
 
     val isOn: Boolean get() = uiState.value.phase == SyncUiPhase.Active
     val localWriteAllowed: Boolean
@@ -125,7 +133,8 @@ class SyncHub(
         service.isCommittingJoin || service.joinRepairPending -> COMMITTING_MESSAGE
         service.isCreating -> "正在开启同步…"
         service.isClearing -> "正在清除云端同步…"
-        wired && uiState.value.experimentEnabled && starting -> "正在恢复同步状态…"
+        service.isDisabling -> "正在关闭同步…"
+        service.isRecovering || (wired && uiState.value.experimentEnabled && starting) -> "正在恢复同步状态…"
         else -> "同步正在收尾，请先完成清除或关闭同步。"
     }
 
@@ -135,7 +144,20 @@ class SyncHub(
         if (!visible) return
         val enabled = prefs.experimentSync
         mutable.update { it.copy(experimentEnabled = enabled) }
-        if (enabled) wire()
+        if (!enabled) return
+        if (!wired) {
+            inBackground = false
+            wire()
+            return
+        }
+        // Activity 重建后复用进程级 SyncHub：把当前权威同步文档同步到新建的 StageViewModel。
+        if (isOn) {
+            service.state?.doc?.let { bridge.applyProjection(it) }
+        }
+        if (inBackground) {
+            inBackground = false
+            trigger(SyncScheduler.Trigger.FOREGROUND)
+        }
     }
 
     /** 设置里的「实验：跨设备同步」开关（第 23 节第 14、17 条，H9）。 */
@@ -171,6 +193,8 @@ class SyncHub(
     private fun unwire() {
         if (!wired) return
         wired = false
+        inBackground = false
+        pendingRevealAuth = false
         cancelJoin()
         startJob?.cancel()
         startJob = null
@@ -274,6 +298,12 @@ class SyncHub(
 
     fun trigger(trigger: SyncScheduler.Trigger) {
         if (!visible || !wired || !uiState.value.experimentEnabled) return
+        if (bridge.isInPictureInPicture || inBackground) {
+            editJob?.cancel()
+            editJob = null
+            rerun = false
+            return
+        }
         if (SyncScheduler.retriesStartup(uiState.value.phase == SyncUiPhase.Unavailable, trigger) && !starting) {
             launchStart()
             return
@@ -297,12 +327,18 @@ class SyncHub(
         refreshStatus()
         if (rerun) {
             rerun = false
-            scheduleEdit()
+            if (!inBackground && !bridge.isInPictureInPicture) {
+                scheduleEdit()
+            }
         }
     }
 
     private fun scheduleEdit() {
         editJob?.cancel()
+        if (inBackground || bridge.isInPictureInPicture) {
+            editJob = null
+            return
+        }
         val delayMs = scheduler.editDelay(nowU).toLong().coerceAtLeast(0L)
         editJob = scope.launch {
             delay(delayMs)
@@ -313,17 +349,28 @@ class SyncHub(
 
     fun syncNow() = trigger(SyncScheduler.Trigger.MANUAL)
 
-    fun onForeground() = trigger(SyncScheduler.Trigger.FOREGROUND)
+    fun onForeground() {
+        inBackground = false
+        trigger(SyncScheduler.Trigger.FOREGROUND)
+    }
 
     fun onBackground() {
+        if (bridge.isHostChangingConfigurations) return
+        inBackground = true
         dismissRevealedCode()
         cancelJoin()
+        editJob?.cancel()
+        editJob = null
+        rerun = false
+        if (bridge.isInPictureInPicture) {
+            cycleJob?.cancel()
+            cycleJob = null
+            return
+        }
         if (!visible || !wired || !isOn) return
         val s = service.state ?: return
         val unpushed = scheduler.allowsBackground(s.gen.toULong(), s.pushedGen.toULong(), nowU)
         if (!unpushed || cycleJob?.isActive == true) return
-        editJob?.cancel()
-        editJob = null
         cycleJob = scope.launch {
             val result = service.runCycle()
             finishCycle(result)
@@ -386,6 +433,9 @@ class SyncHub(
         val created = when (val local = service.createLocal(origin, bridge.localData())) {
             is SyncLocalCreateResult.Activated -> local
             is SyncLocalCreateResult.Failed -> {
+                if (service.hasPendingRecovery) {
+                    mutable.update { it.copy(phase = SyncUiPhase.Attention(local.message)) }
+                }
                 showNotice(local.message)
                 return null
             }
@@ -405,6 +455,7 @@ class SyncHub(
 
     private fun finishCreateFirstCycle(first: SyncCycleResult) {
         if (first is SyncCycleResult.Halted && first.halt is SyncHalt.Gone) {
+            pendingRevealAuth = false
             editJob?.cancel()
             editJob = null
             scheduler = SyncScheduler()
@@ -434,6 +485,25 @@ class SyncHub(
     fun dismissSavedCode() = mutable.update { it.copy(savedCode = null) }
 
     fun revealCode(): String? = service.currentCode()
+
+    /** 标记已发起一次查看同步码的锁屏凭据验证，跨 Activity 重建保留。 */
+    fun beginRevealAuth() {
+        pendingRevealAuth = true
+    }
+
+    /** 清理尚未完成的凭据验证请求。 */
+    fun cancelRevealAuth() {
+        pendingRevealAuth = false
+    }
+
+    /** 消费跨重建保留的凭据验证请求：仅当之前登记过请求且本次通过时展示一次同步码。 */
+    fun completeRevealAuth(granted: Boolean): Boolean {
+        val hadPending = pendingRevealAuth
+        pendingRevealAuth = false
+        if (!hadPending || !granted) return false
+        revealAfterAuth()
+        return true
+    }
 
     /** 通过设备身份验证后展示完整同步码，状态保存在 SyncHub 避免验证途中界面重建丢失。 */
     fun revealAfterAuth() {
@@ -589,7 +659,12 @@ class SyncHub(
         when (val local = service.createLocal(code.key, code.origin, bridge.localData())) {
             is SyncLocalCreateResult.Activated -> Unit
             is SyncLocalCreateResult.Failed -> {
-                mutable.update { it.copy(joinStage = SyncUiJoinStage.Idle) }
+                mutable.update {
+                    it.copy(
+                        joinStage = SyncUiJoinStage.Idle,
+                        phase = if (service.hasPendingRecovery) SyncUiPhase.Attention(local.message) else it.phase,
+                    )
+                }
                 showNotice(local.message)
                 return null
             }
@@ -644,6 +719,7 @@ class SyncHub(
 
     private fun finishFlow(result: SyncFlowResult) {
         if (result == SyncFlowResult.Done) {
+            pendingRevealAuth = false
             editJob?.cancel()
             editJob = null
             scheduler = SyncScheduler()
@@ -674,6 +750,100 @@ class SyncHub(
     companion object {
         const val FULL_MESSAGE: String = "同步数据已满，请删掉一些收藏、屏蔽或不想看"
         const val COMMITTING_MESSAGE: String = "正在加入同步…"
+
+        private data class RetainedKey(
+            val syncDir: String,
+            val origin: String,
+            val sdkInt: Int,
+        )
+
+        internal class RetainedEntry(
+            val hub: SyncHub,
+            val bridgeHolder: RebindableSyncBridge,
+            val scope: CoroutineScope,
+        )
+
+        private val retainedLock = Any()
+        private val retainedByApp = WeakHashMap<Context, MutableMap<RetainedKey, RetainedEntry>>()
+
+        /**
+         * 进程级宿主入口：同一 Application 与同步目录/服务端地址下跨 Activity 重建复用同一个 [SyncHub]
+         * 与独立长生命周期作用域，并把本机桥接重绑到新宿主，避免配置变化重建取消在途事务或丢失结果。
+         */
+        fun obtainOrCreate(
+            context: Context,
+            stage: StageViewModel,
+            syncDir: Path,
+            isHostChangingConfigurations: () -> Boolean = { false },
+            sdkInt: Int = Build.VERSION.SDK_INT,
+            configuredOriginOverride: String? = null,
+            probe: () -> SyncProbeReport = { SyncProbe.run(sdkInt) },
+        ): SyncHub? = SyncPlatformGate.loadIfSupported(sdkInt) {
+            val appContext = context.applicationContext ?: context
+            val origin = SyncConfig.configuredOrigin(configuredOriginOverride, appContext)
+                ?: return@loadIfSupported null
+            val key = RetainedKey(syncDir.toAbsolutePath().normalize().toString(), origin, sdkInt)
+            val prefs = SyncPrefs(stage.settings.preferences)
+            val newBridge = StageSyncBridge(
+                stage = stage,
+                prefs = prefs,
+                hostChangingConfigurations = isHostChangingConfigurations,
+            )
+            synchronized(retainedLock) {
+                val existing = retainedByApp[appContext]?.get(key)
+                if (existing != null) {
+                    existing.bridgeHolder.rebind(newBridge)
+                    return@loadIfSupported existing.hub
+                }
+            }
+            installAndroidUnicodeIfAvailable()
+            val capability = probe().capability
+            if (!SyncEntryPolicy.showEntry(sdkInt, capability, origin)) return@loadIfSupported null
+            synchronized(retainedLock) {
+                val map = retainedByApp.getOrPut(appContext) { HashMap() }
+                map[key]?.let { existing ->
+                    existing.bridgeHolder.rebind(newBridge)
+                    return@loadIfSupported existing.hub
+                }
+                val processScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+                val bridgeHolder = RebindableSyncBridge(newBridge)
+                val service = SyncService(
+                    SyncService.Environment(
+                        stateStore = SyncMarkedStateStore(SyncStateFileStore(syncDir.resolve(StageSyncBridge.STATE_FILE_NAME))),
+                        keyStore = AndroidSyncKeyStore(appContext),
+                        makeTransport = { remoteOrigin, keys -> SyncHttpTransport(remoteOrigin, keys) },
+                        journal = StageSyncBridge.makeFileJournal(syncDir, stage, prefs),
+                    ),
+                )
+                val hub = SyncHub(
+                    service = service,
+                    prefs = prefs,
+                    bridge = bridgeHolder,
+                    scope = processScope,
+                    sdkInt = sdkInt,
+                    capability = capability,
+                    configuredOrigin = origin,
+                )
+                map[key] = RetainedEntry(hub, bridgeHolder, processScope)
+                hub
+            }
+        }
+
+        internal fun retainForTest(
+            context: Context,
+            syncDir: Path,
+            origin: String,
+            hub: SyncHub,
+            bridgeHolder: RebindableSyncBridge,
+            scope: CoroutineScope,
+            sdkInt: Int = Build.VERSION.SDK_INT,
+        ) {
+            val appContext = context.applicationContext ?: context
+            val key = RetainedKey(syncDir.toAbsolutePath().normalize().toString(), origin, sdkInt)
+            synchronized(retainedLock) {
+                retainedByApp.getOrPut(appContext) { HashMap() }[key] = RetainedEntry(hub, bridgeHolder, scope)
+            }
+        }
 
         /**
          * 入口工厂：严格执行 minSdk 26 门槛（低于 26 直接返回 null，不加载同步模块、不跑探针）。

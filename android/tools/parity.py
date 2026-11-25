@@ -195,6 +195,7 @@ FUNC_RE = re.compile(
     re.M,
 )
 PARITY_RE = re.compile(r"parity:\s*(\S+?\.swift)#(test[A-Za-z0-9_]+)")
+REPLACED_BY_RE = re.compile(r"replaced-by:([^\s；;,，]*)")
 FUN_RE = re.compile(r"^\s*fun\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(")
 BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.S)
 LINE_COMMENT_RE = re.compile(r"//.*?$", re.M)
@@ -396,6 +397,51 @@ def is_deferred(reason: str) -> bool:
     return reason.strip().startswith("deferred:C9")
 
 
+def is_any_deferred(reason: str) -> bool:
+    return reason.strip().startswith("deferred:")
+
+
+def replaced_by_targets(reason: str) -> list[str]:
+    return REPLACED_BY_RE.findall(reason)
+
+
+def replaced_by_matches(case: Case, target: str) -> bool:
+    if "#" in target:
+        classname, method = target.split("#", 1)
+        if not method or case.name != method:
+            return False
+        if not classname:
+            return True
+        if "." in classname:
+            return case.classname == classname
+        return case.classname == classname or case.classname.endswith("." + classname)
+    if "." in target:
+        return case.classname == target
+    return case.classname == target or case.classname.endswith("." + target) or case.name == target
+
+
+def check_replaced_by(row: SkipRow, cases: list[Case]) -> list[str]:
+    targets = replaced_by_targets(row.reason)
+    if not targets:
+        return []
+    problems: list[str] = []
+    for target in targets:
+        if not target.strip():
+            problems.append(f"replaced-by 缺少目标: {row.test.key}")
+            continue
+        matched = [case for case in cases if replaced_by_matches(case, target)]
+        ran = [case for case in matched if not case.skipped]
+        if not ran:
+            problems.append(f"replaced-by 执行数为 0: {row.test.key} -> {target}")
+            continue
+        failed = [case for case in ran if case.failed]
+        if failed:
+            problems.append(
+                f"测试失败: {row.test.key} ({failed[0].classname}#{failed[0].name})"
+            )
+    return problems
+
+
 def kotlin_matches(case: Case, kotlin_id: str) -> bool:
     if "#" in kotlin_id:
         classname, method = kotlin_id.split("#", 1)
@@ -444,7 +490,17 @@ def check_group(
         ]
         if any(is_deferred(row.reason) for row in rows):
             continue
-        if any(row.reason.strip() for row in rows):
+        non_c9_deferred = [
+            row for row in rows if is_any_deferred(row.reason) and not is_deferred(row.reason)
+        ]
+        if non_c9_deferred:
+            for row in non_c9_deferred:
+                problems.append(f"未消化的 deferred: {test.key} ({row.reason.strip()})")
+            continue
+        non_empty_rows = [row for row in rows if row.reason.strip()]
+        if non_empty_rows:
+            for row in non_empty_rows:
+                problems.extend(check_replaced_by(row, cases))
             continue
         explicit = list(splits.get((group, test.file, test.name), []))
         explicit.extend(comments.get(test, []))
@@ -514,6 +570,18 @@ def structural_problems(tests: list[SwiftTest], skips: list[SkipRow]) -> list[st
     return problems
 
 
+def global_skip_problems(skips: list[SkipRow], cases: list[Case]) -> list[str]:
+    problems: list[str] = []
+    for row in skips:
+        if row.group != "":
+            continue
+        if is_any_deferred(row.reason):
+            problems.append(f"未消化的 deferred: {row.test.key} ({row.reason.strip()})")
+            continue
+        problems.extend(check_replaced_by(row, cases))
+    return problems
+
+
 def deferred_problems(skips: list[SkipRow], splits: dict[tuple[str, str, str], list[str]], cases: list[Case]) -> list[str]:
     problems: list[str] = []
     for row in skips:
@@ -521,7 +589,7 @@ def deferred_problems(skips: list[SkipRow], splits: dict[tuple[str, str, str], l
             continue
         consumed = False
         for other in skips:
-            if other.group == "cross" and other.test == row.test and not is_deferred(other.reason):
+            if other.group == "cross" and other.test == row.test and not is_any_deferred(other.reason):
                 if other.reason.strip():
                     consumed = True
                     break
@@ -623,6 +691,7 @@ def main(argv: list[str] | None = None) -> int:
         problems.extend(group_problems)
         executed += group_executed
     if args.all:
+        problems.extend(global_skip_problems(skips, cases))
         problems.extend(deferred_problems(skips, splits, cases))
     # 报告里已经失败、但没有挂到某条 Swift 测试上的用例也算失败。
     if any(case.failed for case in cases) and not any(p.startswith("测试失败:") for p in problems):

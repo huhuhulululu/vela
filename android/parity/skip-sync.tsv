@@ -1,5 +1,5 @@
 # 同步组跳过。三列制表符：swift_file、swift_test、reason。
-# 核心逻辑已有同名 Kotlin 测试的不在这里。Apple 专属与 S6 接线分开写。
+# 核心逻辑已有同名 Kotlin 测试的不在这里；S6 接线已全部落地并在 split-sync.tsv 或 Kotlin // parity: 注释映射。
 swift_file	swift_test	reason
 Tests/VelaCoreTests/SyncLifecycleTests.swift	testPasteboardControllerClearsOnExitAfterExperimentOffOnlyWhenUnchanged	Apple 专属：macOS 剪贴板控制器（NSPasteboard changeCount 与 NSApplication 退出清理）
 Tests/VelaCoreTests/SyncLifecycleTests.swift	testPasteboardControllerPerCopyTokenAndLeftoverCleanup	Apple 专属：macOS 剪贴板控制器按次令牌过期与残留清理
@@ -44,8 +44,6 @@ Tests/VelaSyncTests/SyncJoinRealFilesTests.swift	testH4a_markerPersistedBeforeQu
 Tests/VelaSyncTests/SyncJoinRealFilesTests.swift	testH4b_disableClearsMarkerBeforeDeletingKey	Apple 专属：文件快照，关闭时先清标记再删密钥
 Tests/VelaSyncTests/SyncJoinRealFilesTests.swift	testH4b_keyDeleteFailureFallsBackToOrphanCleanup	Apple 专属：文件快照，密钥删不掉则下次按孤儿清理
 Tests/VelaSyncTests/SyncJoinRealFilesTests.swift	testH7_markerWriteFailureStillReadsValidState	Apple 专属：文件快照，标记写不成时只读解码完好状态
-Tests/VelaSyncTests/SyncJoinRealFilesTests.swift	testH8_commitLockCanBeHeldUntilCallerActivates	deferred:S6 提交锁界面：加入成功后锁保持到激活
-Tests/VelaSyncTests/SyncJoinRealFilesTests.swift	testH8_failureReleasesLockEvenWhenHoldRequested	deferred:S6 提交锁界面：失败时释放提交锁
 Tests/VelaSyncTests/SyncJoinRealFilesTests.swift	testH6_halfSnapshotDirectoryIsDeletedNotRestored	Apple 专属：文件快照，不完整目录只删不换回
 Tests/VelaSyncTests/SyncJoinRealFilesTests.swift	testH6_failedSnapshotWriteLeavesNoDirectory	Apple 专属：文件快照，构建失败不留目录
 Tests/VelaSyncTests/SyncJoinRealFilesTests.swift	testH6_publishedSnapshotIsComplete	Apple 专属：文件快照，发布前必须带完整性标记
@@ -65,9 +63,7 @@ Tests/VelaSyncTests/SyncKeychainTests.swift	testCorruptEntryIsPermanentlyInvalid
 Tests/VelaSyncTests/SyncKeychainTests.swift	testMissingEntitlementMeansUnsupported	Apple 专属：钥匙串，缺 entitlement 即不支持
 Tests/VelaSyncTests/SyncKeychainTests.swift	testEntitlementsDeclareTheSyncAccessGroup	Apple 专属：钥匙串访问组声明
 Tests/VelaSyncTests/SyncKeychainTests.swift	testSystemKeychainRoundTripWhenEntitled	Apple 专属：钥匙串往返
-Tests/VelaSyncTests/SyncLiveServerTests.swift	testLiveServerEndToEnd	deferred:S6 舞台接线：对运行中的同步服务做端到端
-Tests/VelaSyncTests/SyncSingleFlightTests.swift	testConcurrentCyclesNeverInterleave	deferred:S6 舞台接线：周期单飞，不与在途周期交错
-Tests/VelaSyncTests/SyncSingleFlightTests.swift	testWaitingCyclesDoNotStarveTheThreadPool	deferred:S6 舞台接线：单飞不得占满线程池
+Tests/VelaSyncTests/SyncLiveServerTests.swift	testLiveServerEndToEnd	不移植：线上真服联调测试需外部环境变量 VELA_SYNC_LIVE_BASE（Swift 默认 XCTSkip），单测不访问公网；replaced-by:vela.app.sync.SyncEndToEndHttpTest#testFullLifecycleCreateJoinPushPullMergeDisableAndClear
 Tests/VelaSyncTests/SyncSourceGuardTests.swift	testSyncCodeTextIsNotSystemSelectable	Apple 专属：SwiftUI 界面守卫，同步码文本不可系统选择
 Tests/VelaSyncTests/SyncSourceGuardTests.swift	testFaceIDUsageDescriptionIsDeclaredOnIOS	Apple 专属：Face ID 用途声明
 Tests/VelaSyncTests/SyncSourceGuardTests.swift	testMacPasteboardIsClearedAfter120Seconds	Apple 专属：macOS 剪贴板 120 秒后清理
@@ -76,4 +72,3 @@ Tests/VelaSyncTests/SyncSourceGuardTests.swift	testPasteboardExpiryUsesPerCopyTo
 Tests/VelaSyncTests/SyncSourceGuardTests.swift	testSyncIsBehindDefaultOffExperimentFlag	deferred:S6 设置面板：实验开关默认关闭，关闭时不接线
 Tests/VelaSyncTests/SyncSourceGuardTests.swift	testJoinJournalWriteSettingsSynchronizes	Apple 专属：UserDefaults.synchronize() 刷盘源码守卫
 Tests/VelaSyncTests/SyncStateBackupTests.swift	testEverySaveMarksFileExcludedFromBackup	Apple 专属：iCloud 备份排除
-Tests/VelaSyncTests/SyncStatusTextTests.swift	testFlowFailuresAreDescribedAccurately	deferred:S6 设置面板：流程结果文案

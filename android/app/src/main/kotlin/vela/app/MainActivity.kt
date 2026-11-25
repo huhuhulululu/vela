@@ -106,7 +106,12 @@ class MainActivity : ComponentActivity() {
     internal fun onSyncRevealResult(resultCode: Int) {
         val grant = pendingSyncReveal
         pendingSyncReveal = null
-        if (resultCode == RESULT_OK) grant?.invoke()
+        if (grant != null) {
+            syncHub?.cancelRevealAuth()
+            if (resultCode == RESULT_OK) grant.invoke()
+        } else {
+            syncHub?.completeRevealAuth(resultCode == RESULT_OK)
+        }
     }
 
     @Suppress("DEPRECATION")
@@ -129,10 +134,12 @@ class MainActivity : ComponentActivity() {
             return
         }
         pendingSyncReveal = onGranted
+        syncHub?.beginRevealAuth()
         try {
             confirmSyncReveal.launch(intent)
         } catch (_: ActivityNotFoundException) {
             pendingSyncReveal = null
+            syncHub?.cancelRevealAuth()
             syncHub?.showNotice("当前无法验证设备身份，无法查看同步码。")
         }
     }
@@ -217,11 +224,11 @@ class MainActivity : ComponentActivity() {
         this.stage = stage
         this.session = session
         this.wiring = wiring
-        val syncHub = SyncHub.createIfSupported(
+        val syncHub = SyncHub.obtainOrCreate(
             context = applicationContext,
             stage = stage,
             syncDir = directory,
-            scope = lifecycleScope,
+            isHostChangingConfigurations = { isChangingConfigurations },
         )
         this.syncHub = syncHub
         stage.syncHub = syncHub

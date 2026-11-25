@@ -105,10 +105,10 @@ Tests/VelaCoreTests/ShortcutSearchTests.swift	testPlainKeysOnlyWhenNothingElseOw
 ```
 
 - 理由以 `deferred:C9` 开头：这条先不算缺映射。`--group` 通过；`--all` 还要组 `cross` 用 `skip-cross.tsv` 的非 deferred 理由，或 `split-cross.tsv` 里一条真正跑过的映射，把它消化掉。
-- 理由里写 `replaced-by:<Kotlin 测试名>`，例如 `replaced-by:vela.app.playback.LaneDataSourceTest#testTwoSourcesServeConcurrently`。没有单独的替代列。
+- 理由里写 `replaced-by:<Kotlin 测试名>`，例如 `replaced-by:vela.app.playback.LaneDataSourceTest#testTwoSourcesServeConcurrently`。没有单独的替代列。`parity.py` 会核验每个 `replaced-by:` 指向的 Kotlin 测试确实存在、已执行且通过。
 - 全局 `android/parity/skip.tsv` 只放不归属任何组的整文件。有组的测试不要写进来。
 
-组名跟校验参数一致：`l0a` `l0b` `hls` `lifecycle` `feed` `taste` `ledger` `recommend` `curation` `selection` `audio` `cross`。混在一个 Swift 文件里的测试，各组只对自己的那几条负责（`VelaCoreTests.swift`、`PlaybackFlowFixTests.swift`）。工具内置了这份归属；`--all` 在某一组还没有 `skip-<组>.tsv` / `split-<组>.tsv` 时不要求该组已经移植完，这样脚手架和中间波次的 CI 可以是绿的。某一组的表一旦出现，`--all` 就会把该组全部 Swift 测试拿来对。
+组名跟校验参数一致：`l0a` `l0b` `hls` `lifecycle` `feed` `taste` `ledger` `recommend` `curation` `selection` `sync` `audio` `cross`。混在一个 Swift 文件里的测试，各组只对自己的那几条负责（`VelaCoreTests.swift`、`PlaybackFlowFixTests.swift`）。工具内置了这份归属；`--all` 在某一组还没有 `skip-<组>.tsv` / `split-<组>.tsv` 时不要求该组已经移植完，这样脚手架和中间波次的 CI 可以是绿的。某一组的表一旦出现，`--all` 就会把该组全部 Swift 测试拿来对。
 
 命令（在仓库根或 `android/` 下都可以，脚本按自己的位置找仓库）：
 
@@ -120,7 +120,7 @@ python3 -I android/tools/parity.py --all
 
 从 `android/` 目录跑 `python3 -I tools/parity.py --group l0a` 同样可以。
 
-负样本在 `android/tools/test_parity.py`：缺映射、执行数为 0、`deferred:C9` 在组内算过、`--all` 未消化则失败、消化后通过。
+负样本在 `android/tools/test_parity.py`：缺映射、执行数为 0、`deferred:C9` 在组内算过、`--all` 未消化则失败、消化后通过、非 `deferred:C9` 前缀失败，以及 `replaced-by:` 指向缺失/跳过/失败用例时报错。
 
 ### 预先要标 `deferred:C9` 的条目
 
@@ -223,4 +223,13 @@ FeedCache 的随机性质测试只断言不变量。Kotlin 用同一个种子，
 
 - 已完成真实宿主接线：`MainActivity` 启动创建并 `attach()` `SyncHub`（未配置服务端地址或不支持时不创建），`LifecycleWiring` 转发进后台与回前台，`StageScreen` → `TasteSheet` 透传 `SyncHub` 与零权限锁屏验证回调（`KeyguardManager.createConfirmDeviceCredentialIntent`，`SyncPanel` 未传验证器时 fail closed），舞台收藏、屏蔽、口味、停留结算与两个同步设置全部接入提交锁与 `SyncHub.perform`。
 - 同步修复三项审计缺陷：释放 `gate` 后串行派发文档变更通知（消除 Hub 回调重入死锁）、传播 `SharedPreferences.Editor.commit()` 失败以使回滚写盘失败进入「需要修复」、为阻塞 `HttpURLConnection` 增加单次请求总期限与协程取消即时断连。
+
+### 跨设备同步终轮审查修复（A-SYNC-5）
+
+- 屏障锁内刷新内存舞台：`StageSyncBridge.reloadAfterBarrier()` 在 `verifiedBarrierSink` 落盘收藏、口味、设置全部成功后、释放恢复/关闭锁之前按磁盘内容刷新 `StageViewModel`，消除重启/关闭后首次编辑、划房或再次加入用旧内存覆盖同步数据的问题。
+- 创建半成品态收敛：`startEnable` / `startCreateFromJoin` 在写入 `CREATING` + Keystore 后写 `ACTIVE` 失败（或回删失败）时切入 `SyncUiPhase.Attention` 暴露修复入口；`SyncService.disable` 对未迁移 `CREATING` 直接清密钥与状态（不跑空文档屏障）；重启自动经 `ResumeCreating` / `DiscardCreating` 收敛。
+- 进程级作用域与跨重建恢复：`MainActivity` 改用 `SyncHub.obtainOrCreate(...)`，长事务作用域与 `savedCode` / `revealedCode` / `pendingRevealAuth` 均随进程保留并经 `RebindableSyncBridge` 重绑到新 `StageViewModel`，深色模式/语言等配置变化重建不取消开启/加入/清除在途事务，也不丢失凭据验证结果。
+- 409 重试复检与设置满额回退：`SyncJoin.commitLocked` 在 409 重试循环内复检 `fits`、`sizeLimit` 与 `clockSkew`，超限明确报「同步数据已满」；`StageViewModel.syncSetting` 处理 `SyncOpOutcome.Full`，回退内存与偏好（不污染未设置键）并弹出已满提示。
+- 画中画与后台静默：进入画中画（自动画中画或 Android 12+ `DidStart`）零同步网络请求并取消排队去抖任务；非画中画后台严格按 `sync.md` §11.3 仅在 `gen > pushedGen` 且未硬退避时尽力推一次，后台滞留期间迟到触发不联网。
+- parity 清零与核验补强：29 条 `deferred:S6` 全部清零（补齐 `SyncParityTest` 14 条与 `split-sync.tsv` 映射，仅 `SyncLiveServerTests#testLiveServerEndToEnd` 按实网测试规范登记非 deferred 跳过并指向本地端到端替代测试）；`parity.py` 现已核验所有 `replaced-by:` 指向的 Kotlin 测试确实存在、已执行且通过。
 
