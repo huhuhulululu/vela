@@ -37,5 +37,5 @@ Tests/VelaSyncTests/SyncSourceGuardTests.swift	testFaceIDUsageDescriptionIsDecla
 Tests/VelaSyncTests/SyncSourceGuardTests.swift	testMacPasteboardIsClearedAfter120Seconds	Apple 专属：macOS 剪贴板 120 秒后清理
 Tests/VelaSyncTests/SyncSourceGuardTests.swift	testMacPasteboardExpirySurvivesProcessExit	Apple 专属：macOS 退出清理剪贴板
 Tests/VelaSyncTests/SyncSourceGuardTests.swift	testPasteboardExpiryUsesPerCopyToken	Apple 专属：剪贴板按次令牌过期
-Tests/VelaSyncTests/SyncSourceGuardTests.swift	testJoinJournalWriteSettingsSynchronizes	Apple 专属：UserDefaults.synchronize() 刷盘源码守卫（Android 使用 SharedPreferences.Editor.commit()）；replaced-by:vela.app.sync.SyncIntermediateStateAndBarrierTest#testJoinRollbackSettingsCommitFailureEntersNeedsRepair
+Tests/VelaSyncTests/SyncSourceGuardTests.swift	testJoinJournalWriteSettingsSynchronizes	Apple 专属：UserDefaults.synchronize() 刷盘源码守卫（Android 使用 SharedPreferences.Editor.commit()）；replaced-by:vela.app.sync.SyncAuditRegressionTest#testSettingsRestoreCommitFailurePropagatesAndEntersNeedsRepair
 Tests/VelaSyncTests/SyncStateBackupTests.swift	testEverySaveMarksFileExcludedFromBackup	Apple 专属：iCloud 备份排除
