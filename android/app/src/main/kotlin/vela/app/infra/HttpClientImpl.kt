@@ -23,7 +23,9 @@ import vela.core.base.net.HTTPResult
 /**
  * 进程内的 HTTP 客户端。不安装 [java.net.CookieHandler]，也不在请求之间保留 cookie。
  * 超时上限 12 秒；调用方给出的更短超时（例如聊天上下文的 8 秒）照用。
- * 总期限从进入 [send] 开始，排队、连接、上传、响应头和正文共用这一段。
+ * 超时是空闲超时（与 iOS URLSession 的 timeoutIntervalForRequest 一致）：从进入 [send] 起，
+ * 排队、连接、上传、等响应头共用一个超时；响应头和正文每到一段数据，期限从那一刻起再推后一个超时。
+ * 另有总上限 [TOTAL_CAP_FACTOR] 倍超时，从进入 [send] 起算，滴流再慢也到点掐断。
  */
 class HttpClientImpl : HTTPClient {
     override suspend fun send(request: HTTPRequest): HTTPResult {
@@ -159,7 +161,23 @@ class HttpClientImpl : HTTPClient {
         fun cancelled(): Boolean = synchronized(lock) { cancelled }
     }
 
-    private class RequestDeadline private constructor(private val deadlineNanos: Long) {
+    private class RequestDeadline private constructor(
+        private val idleNanos: Long,
+        private val capNanos: Long,
+    ) {
+        /** 当前期限。只会往后推，不越过 [capNanos]。看门线程每次醒来重读。 */
+        @Volatile
+        private var deadlineNanos: Long = minOf(System.nanoTime() + idleNanos, capNanos)
+
+        /** 收到数据：期限推到此刻加一个空闲超时，不越过总上限。已过期的不复活。 */
+        fun progress(now: Long = System.nanoTime()) {
+            synchronized(this) {
+                if (now >= deadlineNanos) return
+                val next = minOf(now + idleNanos, capNanos)
+                if (next > deadlineNanos) deadlineNanos = next
+            }
+        }
+
         fun remainingMillis(now: Long = System.nanoTime()): Int {
             val left = deadlineNanos - now
             if (left <= 0L) throw SocketTimeoutException("deadline")
@@ -177,8 +195,10 @@ class HttpClientImpl : HTTPClient {
         fun awaitNanos(now: Long = System.nanoTime()): Long = (deadlineNanos - now).coerceAtLeast(0L)
 
         companion object {
-            fun after(timeoutMillis: Int): RequestDeadline =
-                RequestDeadline(System.nanoTime() + timeoutMillis.toLong() * 1_000_000L)
+            fun after(timeoutMillis: Int): RequestDeadline {
+                val idle = timeoutMillis.toLong() * 1_000_000L
+                return RequestDeadline(idle, System.nanoTime() + idle * TOTAL_CAP_FACTOR)
+            }
         }
     }
 
@@ -212,6 +232,9 @@ class HttpClientImpl : HTTPClient {
 
     companion object {
         const val TIMEOUT_CAP_MILLIS: Int = 12_000
+
+        /** 总上限 = 空闲超时 × 这个倍数（12 秒超时即 48 秒）。 */
+        const val TOTAL_CAP_FACTOR: Int = 4
 
         fun resolveTimeoutMillis(timeoutSeconds: Double): Int {
             if (timeoutSeconds.isNaN() || timeoutSeconds <= 0.0 || timeoutSeconds > 12.0) {
@@ -261,6 +284,7 @@ class HttpClientImpl : HTTPClient {
             }
             arm()
             val status = connection.responseCode
+            deadline.progress()
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
             val data = stream?.use { readBounded(it, connection, deadline, call) } ?: ByteArray(0)
             call.checkpoint()
@@ -283,6 +307,7 @@ class HttpClientImpl : HTTPClient {
                 val n = stream.read(buf)
                 if (n < 0) break
                 out.write(buf, 0, n)
+                if (n > 0) deadline.progress()
             }
             call.checkpoint()
             return out.toByteArray()

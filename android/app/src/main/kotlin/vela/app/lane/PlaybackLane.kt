@@ -294,7 +294,10 @@ class PlaybackLane(
 
     override fun onPlaying(playing: Boolean) {
         if (!sessionOpen) return
+        val wasPlaying = isPlayingNow
         isPlayingNow = playing
+        // 起播之后的停住与续上记进诊断日志：慢链路上靠它数卡顿。
+        if (itemPlayed && wasPlaying != playing) LaneLog.i(if (playing) "playing-resumed" else "playing-stalled")
         if (playing) {
             val name = lastPlay?.username
             if (!itemPlayed && name != null) {

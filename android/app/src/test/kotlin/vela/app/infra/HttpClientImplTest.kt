@@ -136,8 +136,38 @@ class HttpClientImplTest {
         }
     }
 
-    @Test(timeout = 8_000)
+    /**
+     * 期限语义与 iOS URLSession 对齐：timeoutSeconds 是空闲超时，正文每到一段数据就往后推；
+     * 另有总上限 [HttpClientImpl.TOTAL_CAP_FACTOR] 倍超时，慢速滴流最终仍会被掐断。
+     * 旧约定是「总期限 = 超时」：这条在旧约定下 1 秒就失败，慢链路上收得完的首页因此永远收不完。
+     */
+    @Test(timeout = 10_000)
+    fun testSteadySlowBodyLongerThanTheTimeoutStillCompletes() {
+        withServer({ exchange ->
+            exchange.sendResponseHeaders(200, 0)
+            exchange.responseBody.use { body ->
+                repeat(8) {
+                    body.write(ByteArray(64) { 7 })
+                    body.flush()
+                    Thread.sleep(300)
+                }
+            }
+        }) { port ->
+            val started = System.nanoTime()
+            val result = runBlocking {
+                HttpClientImpl().send(HTTPRequest(url = "http://127.0.0.1:$port/steady", timeoutSeconds = 1.0))
+            }
+            val elapsedMs = (System.nanoTime() - started) / 1_000_000
+            assertEquals(200, result.status)
+            assertEquals(8 * 64, result.data.size)
+            assertTrue("elapsed=$elapsedMs", elapsedMs > 1_500)
+        }
+    }
+
+    /** 新约定：滴流不会触发空闲超时，但到总上限（4 × 1 秒）一定掐断；旧约定是 1 秒就断。 */
+    @Test(timeout = 10_000)
     fun testSlowDripStopsAtTheTotalDeadline() {
+        val closed = CountDownLatch(1)
         withServer({ exchange ->
             exchange.sendResponseHeaders(200, 0)
             val body = exchange.responseBody
@@ -148,6 +178,7 @@ class HttpClientImplTest {
                     Thread.sleep(200)
                 }
             } catch (_: Exception) {
+                closed.countDown()
             }
         }) { port ->
             val started = System.nanoTime()
@@ -158,12 +189,38 @@ class HttpClientImplTest {
             }
             val elapsedMs = (System.nanoTime() - started) / 1_000_000
             assertTrue(failed.isFailure)
-            assertTrue("持续滴数据时没有总期限 elapsed=$elapsedMs", elapsedMs < 3_000)
+            assertTrue(failed.exceptionOrNull() is java.net.SocketTimeoutException)
+            val cap = HttpClientImpl.TOTAL_CAP_FACTOR * 1_000
+            assertTrue("滴流应撑到总上限附近才断 elapsed=$elapsedMs", elapsedMs >= cap - 300)
+            assertTrue("持续滴数据时没有在总上限处掐断 elapsed=$elapsedMs", elapsedMs < cap + 1_500)
+            assertTrue("掐断后连接没有断开", closed.await(2, TimeUnit.SECONDS))
         }
     }
 
+    /** 响应头迟迟不来按空闲超时算，不会拿到总上限。 */
     @Test(timeout = 8_000)
-    fun testHeaderDelayCountsAgainstTheTotalDeadline() {
+    fun testHeaderDelayCountsAgainstTheIdleTimeout() {
+        withServer({ exchange ->
+            try {
+                Thread.sleep(5_000)
+            } catch (_: InterruptedException) {
+            }
+        }) { port ->
+            val started = System.nanoTime()
+            val failed = runCatching {
+                runBlocking {
+                    HttpClientImpl().send(HTTPRequest(url = "http://127.0.0.1:$port/no-header", timeoutSeconds = 1.0))
+                }
+            }
+            val elapsedMs = (System.nanoTime() - started) / 1_000_000
+            assertTrue(failed.isFailure)
+            assertTrue("响应头不来时拿到了超过空闲超时的时间 elapsed=$elapsedMs", elapsedMs < 1_500)
+        }
+    }
+
+    /** 响应头之后正文停住：从响应头那一刻再给一个空闲超时，不再给完整总上限。 */
+    @Test(timeout = 8_000)
+    fun testBodyStallAfterHeaderStopsAtTheIdleTimeout() {
         withServer({ exchange ->
             Thread.sleep(800)
             exchange.sendResponseHeaders(200, 100_000)
@@ -180,7 +237,7 @@ class HttpClientImplTest {
             }
             val elapsedMs = (System.nanoTime() - started) / 1_000_000
             assertTrue(failed.isFailure)
-            assertTrue("响应头之后又给了完整读超时 elapsed=$elapsedMs", elapsedMs < 1_500)
+            assertTrue("正文停住后超过一个空闲超时仍没断 elapsed=$elapsedMs", elapsedMs < 2_500)
         }
     }
 
