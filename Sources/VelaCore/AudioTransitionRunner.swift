@@ -81,7 +81,7 @@ public enum AudioTransitionRunner {
                 }
                 do {
                     try driver.setCategory(category, mode: mode, options: options)
-                    log("audio step category=\(category) mix=\(options.contains(.mixWithOthers))")
+                    log("audio step category=\(category.label) mix=\(options.contains(.mixWithOthers))")
                 } catch {
                     categoryOK = false
                     log("audio step category failed")

@@ -7,6 +7,7 @@ import vela.core.base.model.Room
 import vela.core.base.model.ViewerCount
 import vela.core.base.model.trimSwiftWhitespace
 import vela.core.base.site.FavoriteStatus
+import vela.core.sites.usableThumbnail
 
 /** 收藏夹弹窗里的一行。 */
 data class FavoriteEntry(
@@ -73,7 +74,7 @@ data class FavoritesBoard(
             }
             val playable = HashMap<String, Room>()
             for (room in catalog) {
-                if (!room.show.isPlayable) continue
+                if (!room.isCatalogPlayable) continue
                 val key = Curation.key(room.ref)
                 if (playable[key] == null) playable[key] = room
             }
@@ -95,8 +96,7 @@ data class FavoritesBoard(
                             username = name,
                             state = FavoriteEntry.State.online,
                             room = status.room,
-                            thumbnailURL = status.room.thumbnailURL
-                                ?: URI.create("https://thumb.live.mmcdn.com/riw/$key.jpg"),
+                            thumbnailURL = status.room.usableThumbnail(now) ?: fallbackThumb(key),
                             detail = onlineDetail(status.room),
                         ),
                     )
@@ -141,6 +141,12 @@ data class FavoritesBoard(
                 else -> lhs.index.compareTo(rhs.index)
             }
         }.map { it.value }
+
+        /** cb 没有目录缩略图时按小写用户名拼接。带站点前缀的 ref 不拼这条旧地址。 */
+        private fun fallbackThumb(key: String): URI? {
+            if (':' in key) return null
+            return URI.create("https://thumb.live.mmcdn.com/riw/$key.jpg")
+        }
 
         private fun onlineDetail(room: Room): String {
             val viewers = "${ViewerCount.string(room.viewers)}人在看"

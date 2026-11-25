@@ -35,7 +35,13 @@ public struct DwellTracker: Equatable, Sendable {
     /// 列表改动后是否要结算停留：当前房间换了，或来源换了（新来源的第一个房间恰好与旧房间同名时，
     /// 用户名没变，但旧来源下的停留必须按旧来源结算，新来源重新开始）。
     public static func shouldSettle(before: String?, after: String?, sourceChanged: Bool) -> Bool {
-        before != after || (sourceChanged && after != nil)
+        let changed: Bool
+        switch (before, after) {
+        case (nil, nil): changed = false
+        case let (lhs?, rhs?): changed = RoomKey.normalizeRef(lhs) != RoomKey.normalizeRef(rhs)
+        default: changed = true
+        }
+        return changed || (sourceChanged && after != nil)
     }
 
     /// 换到新房间（可为 nil）：返回上一个房间的结算；新房间从「不活跃」开始，等播放起来再 setActive。
@@ -142,7 +148,7 @@ public struct DwellTracker: Equatable, Sendable {
 
     /// 热门关联的下一步。每个房间只触发一次（`markRelatedDone`）。
     public func relatedPlan(for username: String, now: Date) -> RelatedPlan {
-        guard let room, !relatedDone, room.username.lowercased() == username.lowercased() else { return .none }
+        guard let room, !relatedDone, room.identity == RoomKey.normalizeRef(username) else { return .none }
         let remaining = max(0, Preferences.relatedAfter - dwell(now: now))
         if remaining <= 0 { return .due }
         return isActive ? .wait(remaining) : .idle

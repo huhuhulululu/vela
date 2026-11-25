@@ -120,4 +120,32 @@ class SyncCodeTests {
         assertEquals(SyncStateRead.Corrupted, bad.load())
         assertFalse(bad.save(SyncState(SyncPhase.ACTIVE, "https://a.b", "x", SyncClock(0, 0, 1))), "改名也失败时只读")
     }
+
+    @Test
+    fun testStateFileDeleteResetsReadOnlyFlag() {
+        val dir = Files.createTempDirectory("sync-state-")
+        try {
+            val url = dir.resolve("sync-state.json")
+            Files.writeString(url, "{corrupt")
+            val store = SyncStateFileStore(url)
+            store.moveItem = { _, _ -> throw java.io.IOException("no permission") }
+            val fresh = SyncState(SyncPhase.CREATING, "https://sync.example.org", "a".repeat(64), SyncClock(0, 0, 2))
+
+            assertEquals(SyncStateRead.Corrupted, store.load())
+            assertFalse(store.save(fresh), "改名失败进入只读")
+
+            val realRemove = store.removeItem
+            store.removeItem = { throw java.io.IOException("no permission") }
+            assertFalse(store.delete())
+            store.removeItem = realRemove
+            assertFalse(store.save(fresh), "删除未成功，只读标记不得复位")
+
+            assertTrue(store.delete())
+            assertFalse(Files.exists(url))
+            assertTrue(store.save(fresh), "清除成功后复位只读标记，不重启即可重新开启")
+            assertEquals(SyncStateRead.Present(fresh), store.load())
+        } finally {
+            dir.toFile().deleteRecursively()
+        }
+    }
 }

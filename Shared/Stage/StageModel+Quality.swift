@@ -17,7 +17,7 @@ extension StageModel {
         let now = Date()
         lane.quality.observe(enabled: restSavesPower, engaged: engaged, now: now)
         let canSwitch = canSwitchQuality(lane)
-        let signature = "\(restSavesPower)|\(engaged)|\(canSwitch)|\(lane.playGeneration)|\(lane.quality.tier)"
+        let signature = "\(restSavesPower)|\(engaged)|\(canSwitch)|\(lane.playGeneration)|\(lane.quality.tier.label)"
         guard signature != lane.qualitySignature else { return }
         lane.qualitySignature = signature
         lane.qualityTask?.cancel()
@@ -51,7 +51,7 @@ extension StageModel {
         let target = lane.quality.desired(now: now)
         guard target != lane.quality.tier else { return }
         let cap = min(target == .low ? PowerPolicy.peakBitrate(pixelHeight: pixelHeight, resting: true) : .infinity, laneCap(for: lane))
-        let playable = await selectRendition(master: master, cap: cap)
+        let playable = await selectRendition(master: master, cap: cap, for: username)
         // 取档期间切房、暂停、隐藏或指针状态变了：放弃本次，按最新状态重新排。
         let after = Date()
         lane.quality.observe(enabled: restSavesPower, engaged: resolvedPresence().engaged, now: after)
@@ -76,7 +76,7 @@ extension StageModel {
             lane.currentCap = cap
             rebuilt = true
         }
-        Self.qualityLog.info("quality -> \(target == .low ? "low" : "full", privacy: .public) cap=\(cap.isFinite ? Int(cap) : -1) rebuilt=\(rebuilt) fallbackMaster=\(playable.isUnselected)")
+        Self.qualityLog.info("quality -> \(target.label, privacy: .public) cap=\(cap.isFinite ? Int(cap) : -1) rebuilt=\(rebuilt) fallbackMaster=\(playable.isUnselected)")
         lane.quality.didSwitch(to: target, now: Date())
         lane.qualitySignature = ""
         refreshQuality(on: lane)

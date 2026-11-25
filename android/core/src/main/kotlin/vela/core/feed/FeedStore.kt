@@ -72,7 +72,7 @@ class FeedStore(
         val keep = currentUsername
         updateCatalog(dedupeRooms(page.rooms))
         total = page.total
-        reachedEnd = page.rooms.isEmpty() || page.nextOffset >= page.total
+        reachedEnd = page.nextOffset >= page.total || (page.rooms.isEmpty() && page.nextOffset <= 0)
         if (keep != null && rooms.any { it.ref == keep }) {
             updateCurrent(keep)
         } else {
@@ -82,15 +82,15 @@ class FeedStore(
 
     /**
      * 追加常规分页的一页。[offset] 是请求这一页时的游标（不传则不做「游标没前进」的兜底）。
-     * 整页都是已有房间不算到底：游标仍在前进。同页内重复用户名会留下，不像 [replace] 那样去重。
+     * 整页都是已有房间，或本地过滤为空但游标仍在前进，均不算到底。
      */
     fun append(page: CatalogPage, offset: Int? = null) {
         val existing = catalog.mapTo(HashSet()) { it.identity }
         val fresh = page.rooms.filter { it.identity !in existing }
         updateCatalog(catalog + fresh)
         total = maxOf(total, page.total)
-        val stalled = offset != null && page.nextOffset <= offset
-        if (page.rooms.isEmpty() || page.nextOffset >= page.total || stalled) {
+        val stalled = if (offset != null) page.nextOffset <= offset else (page.rooms.isEmpty() && page.nextOffset <= 0)
+        if (page.nextOffset >= page.total || stalled) {
             reachedEnd = true
         }
         if (currentUsername == null) {
@@ -114,7 +114,7 @@ class FeedStore(
     fun mergePageAfterCurrent(page: CatalogPage, offset: Int, order: (List<Room>) -> List<Room>) {
         total = maxOf(total, page.total)
         val stalled = page.nextOffset <= offset
-        if (page.rooms.isEmpty() || page.nextOffset >= page.total || stalled) {
+        if (page.nextOffset >= page.total || stalled) {
             reachedEnd = true
         }
         mergeAfterCurrent(page.rooms, order)

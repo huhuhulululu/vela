@@ -217,7 +217,7 @@ App 引用 Core，Core 不引用 App。`PlayerController` 与 `StageModel` 的�
 
 ## 4. 外部接口
 
-全部主机为 `chaturbate.com`，除缩略图与 HLS 域名外。请求头统一由 `HTTPHeaders.applyBrowser` 加（固定 Safari UA、Referer、Origin、`X-Requested-With`），超时 12 秒。
+全部主机为 `chaturbate.com`，除缩略图与 HLS 域名、以及 Cam4 访客目录（见 5.12）外。请求头统一由 `HTTPHeaders.applyBrowser` 加（固定 Safari UA、Referer、Origin、`X-Requested-With`），超时 12 秒。
 
 <!-- AUTO-MANAGED:api-table -->
 | 方法 | 路径 | 用途 | 所在文件 |
@@ -368,6 +368,20 @@ App 引用 Core，Core 不引用 App。`PlayerController` 与 `StageModel` 的�
 - 服务器地址：`Config/Sync.xcconfig`（入库，项目级基础配置）声明空的 `VELA_SYNC_BASE` 并 `#include?` 不入库的 `Config/Local.xcconfig`（模板 `Config/Local.xcconfig.template`）；两端 Info.plist 的 `VelaSyncBase` 取它。未配置时隐藏「开启」，仍可「加入」（同步码自带 origin）。
 - 服务端接口（`server/sync/app.py`，第 10.1 节）：`GET /v2/blob/{id}`、`PUT /v2/blob/{id}`、`POST /v2/blob/{id}/delete`，请求地址 = 同步码里的 origin；客户端不跟随重定向、不带 cookie、不用 URL 缓存，UA `Vela-Sync/2`，单请求超时 20 秒。
 
+### 5.12 站点抽象与 Cam4（docs/plans/sites.md）
+
+- 房间身份是 `RoomKey`（`Sources/VelaCore/Sites/RoomKey.swift`）：磁盘与同步写 raw（`cb:alice`、`c4:bob`），内存用 ref（cb 省略前缀）。`Room.key` / `Room.identity`（小写 ref）在构造与改名时算一次存下，所有身份比较、去重、选房都读它；舞台层与视图层（`readyUsername` / `playingUsername`、`RoomTarget`、路的 `username`、收藏 / 屏蔽、停留与观看账本）一律用 ref。
+- 适配器：`SiteAdapter`（`Sites/SiteAdapter.swift`）与 `SiteRegistry.live`，`ChaturbateAdapter`（包现有目录与起播路径）、`Cam4Adapter`（访客目录 `GET https://www.cam4.com/directoryCams?directoryJson=true&online=true&url=true&page=&resultsPerPage=`，目录索引只在内存，上限 2000 条）。
+- 目录入口 `SiteDirectory`（`Sites/SiteDirectory.swift`）：`StageModel.directory`，cb 模式原样调 `catalogAPI`；Cam4 模式只问 Cam4；混合模式经 `SiteCatalog` 并发取两站、交错合并，`nextOffset` 是各站游标之和，`SiteDirectory` 记住「和 → 各站游标」接着翻页，记不住的偏移从头取。
+- 起播：`resolveSourced` 遇到非 cb 的 ref 走 `resolveOnSite`（适配器，没有侧车与质询），cb 路径不变。选档 `fetchRendition(master:cap:for:)`：cb 只带 Referer、主列表失败仍交给中继；strictMaster 站点（Cam4）带适配器的全部头，主列表 5xx / 403 / 404 判 `.unavailable` 并自动跳过。
+- 请求头：`PlayerController.play(…headers:)` 把房间站点的头交给中继（`PlaylistRelay.localURL(…headers:)`，每个源各自记一份，默认 `PlaylistRelay.defaultHeaders` 即原来写死的 cb 头）与 `AVURLAsset`（分片由 AVPlayer 直连上游）。
+- 收藏：cb 收藏照旧查 `chatvideocontext`；非 cb 收藏只查适配器（Cam4 只看目录索引），查不到是「未查询」，不计入补查冷却；上次开播只查 cb；收藏来源只列当前站点模式里的收藏；手动添加接受 `c4:名字`。
+- 筛除（PR #12 合入后）：`FeedStore.canDelist` / `delist` 与各路保护集合一律按站点键比较，同名的 Chaturbate 与 Cam4 房间互不误筛；是否可筛由 `StageModel.delistState` 定：cb 沿用 `StreamTicket.delistedShow`，Cam4 只认目录明确标的私密，「这页没找到」推断出的离线与 unknown 都不筛、只跳过。
+- 同步（与 5.11 的交互，sync.md 第 23 节第 19 条）：`SyncKeys.roomKey(localName:)` 经 `RoomKey` 归一化，合法站点 {cb, c4}；`SyncProjection.curation` 按站点写回 ref（cb 去前缀、c4 带前缀），不认识的站点只留在文档里。启动站点键迁移在有残留加入快照时推迟到 `SyncHub` 启动恢复之后（`StageModel.shouldMigrateSiteKeys`），待修复或提交中不写；`siteMode`、`siteKeyVersion` 只在本机，不进同步。
+- 地区屏蔽：观看地区取设备地区（`StageModel.viewerRegions`），不按代理出口判断；Cam4 房间的 `blockedRegions` 命中时不进目录（`Cam4Adapter.fetchDirectory` 出口丢弃，索引仍记着它），收藏状态显示「当前地区不可观看」，手动直达时起播判 geo 并跳过。
+- 界面：筛选面板顶部站点三段选择（Chaturbate / Cam4 / 混合，`chooseSite`，记住，切换等同切来源）；非 cb 房间在信息行（macOS `RoomCaption`、iOS `PhoneCaption`）显示站点名；Cam4 单站模式下地区、标签、新开播筛选使目录为空时说明「Cam4 不支持按地区、标签或新开播筛选」；搜索框回车 `c4:名字` 直达 Cam4，裸名在 Cam4 模式按 c4。
+- 固定测试流：iOS `--perf-site c4` 让三间测试房间成为 Cam4 房间（`c4:perf_stream…`），走 Cam4 的身份、请求头与中继登记，仍用回环测试流；`PerfStream.isTestRoom` 统一判定，预取、续期、换档不为测试房间发请求。
+
 ## 6. 本地存储
 
 目录 `~/Library/Application Support/Vela/`（`PreferenceStore.defaultURL`；取不到时退回临时目录）。
@@ -376,14 +390,15 @@ App 引用 Core，Core 不引用 App。`PlayerController` 与 `StageModel` 的�
 |---|---|---|
 | `feed-taste.json` | `Taste`：标签 / 性别的命中与落空证据（带时间戳、不想看标记）、最近看过、每日命中率、暂停学习开关 | 标签最多 500 个，看过最多 1000 条且只留 24 小时，每日计数最多 30 天；标签 / 用户名最长 64 字符（写入时截断，读取时丢弃超长键）；读取时文件超过 1,000,000 字节按空画像处理；只存本机，不上传 |
 | `feed-prefs.json` | 旧版 `Preferences`，只在 `feed-taste.json` 不存在时读一次用于迁移，不再写入 | 同上限；清除全部偏好数据时删除 |
-| `feed-curation.json` | `Curation`：收藏与屏蔽名单（用户名） | 各最多 300 个，单名最长 64 字符，超出丢最旧；读取同样受 1,000,000 字节上限约束 |
+| `feed-curation.json` | `Curation`：收藏与屏蔽名单（raw 房间键，顶层 `keyVersion: 2`；旧文件的裸名按 cb 读） | 各最多 300 个，单名最长 64 字符，超出丢最旧；读取同样受 1,000,000 字节上限约束 |
 | `watch-ledger.json` | `WatchLedger`：各主播累计实际观看秒数、有效观看次数、是否已弹过收藏提示 | 最多 500 个用户名，单名最长 64 字符，按最近使用淘汰；读取超过 1,000,000 字节按空处理；「清除全部偏好数据」时一并删除 |
 | `diagnostics.json`（仅 iOS） | MetricKit 每日诊断摘要与截断后的原始 JSON（`DiagnosticDigest`） | 最近 7 天，每份原始 JSON 最多 256 KB；目录已排除 iCloud 备份；不联网、不上传，只在用户点「分享」时经系统分享表由用户决定发送 |
 
+- 房间键迁移（`SiteKeyMigration`）：启动时若 `siteKeyVersion` 小于 2，把收藏、口味、观看账本三个文件一次写成带前缀键，先备份为 `<名>.pre-sites`（已有不覆盖），任何一步失败原文件不动、下次启动再试；三个都成功才记 `siteKeyVersion`。解码同时认新旧格式。「清除全部偏好数据」一并删除三份备份。
 - 写入：`DeferredSaver` 合并为后台串行队列上的一次写，默认延迟 2 秒，原子写入（`.atomic`）；读写失败不抛出，读退回空值，写失败只记日志。退出时 `flushForTermination`（监听 `willTerminateNotification`）同步结算最后一个房间并落盘。
 - 同步（开启时）：`sync-state.json`（与 `feed-curation.json` 同目录，`SyncStateFileStore` 原子写，每次保存后设 `isExcludedFromBackup`）存阶段、文档、HLC、水位、在途请求，不含 `K`（加入是一次性事务，不落中间状态）；钥匙串通用密码项 service `com.vela.sync`、account `space`，值为 `{K, dev, blobID}`，`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`、不可同步、不设访问组，macOS 用数据保护钥匙串（缺授权的构建视为不支持同步，不退化成明文）。授权：`App/Vela.entitlements`、`iOS/VelaPhone.entitlements` 只含 `keychain-access-groups = $(AppIdentifierPrefix)com.vela.sync`（与 `SyncKeychainStore.accessGroupSuffix` 一致，有测试），只有 `Config/Local.xcconfig` 设了 `VELA_TEAM_SIGNED = YES` 与 `DEVELOPMENT_TEAM` 时才经 `CODE_SIGN_ENTITLEMENTS` 带上并改为自动签名（macOS 需要 Xcode 账号或描述文件）；否则 macOS 仍是临时签名、不带授权。
 - 除同步外不使用钥匙串。旧版本遗留的钥匙串条目（service `com.vela.stage`，account `session` 与 `username`）与网页 sessionid cookie 在首次启动时清掉一次（`LegacyLoginCleanup`，标记键 `legacyLoginCleared`）。
-- UserDefaults（suite `com.vela.stage`）：`ageConfirmed`、`pinned`、`conditionalOpacity`、`clickThrough`、`restingOpacity`（默认 0.42）、`engagedOpacity`、`restSavesPower`、`publicOnly`、`fitFill`、`volume`（默认 0.85）、`muted`、`hintSeen`、`layoutRevision`、`gender`、`region`、`tag`、`source`（旧值 `following` 读取时忽略，退回猜你喜欢；旧值 `recommended` 映射为猜你喜欢）、`legacyLoginCleared`。旧版遗留的 `hdOnly`、`campaign` 不再读取，留在文件里无副作用。
+- UserDefaults（suite `com.vela.stage`）：`ageConfirmed`、`pinned`、`conditionalOpacity`、`clickThrough`、`restingOpacity`（默认 0.42）、`engagedOpacity`、`restSavesPower`、`publicOnly`、`fitFill`、`volume`（默认 0.85）、`muted`、`hintSeen`、`layoutRevision`、`gender`、`region`、`tag`、`source`（旧值 `following` 读取时忽略，退回猜你喜欢；旧值 `recommended` 映射为猜你喜欢）、`legacyLoginCleared`、`siteMode`（`chaturbate` / `cam4` / `mixed`，缺省与认不出的值为 Chaturbate；只在本机，不进同步）、`siteKeyVersion`。旧版遗留的 `hdOnly`、`campaign` 不再读取，留在文件里无副作用。
 - WKWebView 站点数据存在系统默认数据存储里（确认访问留下的 cookie 在其中）。
 - 全站热门标签只在内存里：`HotTagCache` 缓存 6 小时。
 - 收藏的在线状态只在内存里：`FavoriteCache` 缓存 3 分钟，不落盘。离线收藏的上次开播时间同样只在内存里：`LastBroadcastCache` 缓存 30 分钟。

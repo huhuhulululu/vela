@@ -75,6 +75,17 @@ interface SiteAdapter {
 
     /** 主列表状态码是否已能定论为不可播。仅 strictMaster 站点返回非 null。 */
     fun masterFailure(status: Int): StreamFailure?
+
+    /** 该站点能否处理本次目录查询。默认按 [capabilities] 判定地区、标签、新开播三项服务端专属条件。 */
+    fun supportsDirectory(query: CatalogQuery): Boolean {
+        if (query.region != null && !capabilities.contains(SiteCapabilities.serverRegion)) return false
+        if (CatalogQuery.normalizedHashtag(query.tag) != null && !capabilities.contains(SiteCapabilities.serverTag)) return false
+        if (query.newCams && !capabilities.contains(SiteCapabilities.freshCams)) return false
+        return true
+    }
+
+    /** 令缓存中的房间流地址失效，下次解析强制刷新（无流缓存的站点忽略）。 */
+    fun invalidateStream(key: RoomKey) {}
 }
 
 sealed class SiteError : Exception() {

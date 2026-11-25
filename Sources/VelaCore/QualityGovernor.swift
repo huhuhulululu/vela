@@ -3,6 +3,14 @@ import Foundation
 public enum QualityTier: Equatable, Sendable {
     case full
     case low
+
+    /// 签名串与日志里的档位标签。
+    public var label: String {
+        switch self {
+        case .full: return "full"
+        case .low: return "low"
+        }
+    }
 }
 
 /// 「离开后降低画质」的时机判定（纯逻辑）。离开持续 `restDelay` 秒才降，指针回来恢复，

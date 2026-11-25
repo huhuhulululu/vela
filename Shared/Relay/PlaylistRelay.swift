@@ -42,6 +42,8 @@ final class PlaylistRelay: @unchecked Sendable {
         var inflight: [Track: Task<Void, Never>] = [:]
         /// 上游地址 403 时请上层重新解析当前房间、返回新的子列表地址（拿不到返回 nil）。
         var renew: (@Sendable () async -> StreamRendition?)?
+        /// 这个源的站点取列表时带的头（Referer、Origin）。
+        var headers: [String: String]
         /// 续期的共享任务、预算与「续期后重取」状态；随源作废时取消。
         let renewal = RenewalCoordinator()
         /// 刚换过子列表地址、还没成功采纳过新列表的路：下一次成功取回直接采纳（新旧列表进度不可比）。
@@ -97,12 +99,16 @@ final class PlaylistRelay: @unchecked Sendable {
         set { lock.withLock { startAllowed = newValue } }
     }
 
-    /// 登记一个新源，返回它的 id 与本地主列表地址。端口还没绑好时触发监听并返回 nil。
+    /// 不指定时沿用的站点头（Chaturbate，与站点抽象之前写死的值相同）。
+    static let defaultHeaders = ["Referer": "https://chaturbate.com/", "Origin": "https://chaturbate.com"]
+
+    /// 登记一个新源，返回它的 id 与本地主列表地址。`headers` 是该源站点取列表要带的头。端口还没绑好时触发监听并返回 nil。
     /// `allowStart` 关闭期间（挂起）即使端口仍绑着也不登记，返回 nil。
     /// 表里已满 `RelaySourceTable.maxSources`（3）个源时淘汰最旧的那个（它的循环与在途一并取消）；调用方换源前应先作废自己的旧源。
     func localURL(
         for rendition: StreamRendition, maxBandwidth: Double, audioSuppressed: Bool,
-        renew: (@Sendable () async -> StreamRendition?)? = nil
+        renew: (@Sendable () async -> StreamRendition?)? = nil,
+        headers: [String: String] = PlaylistRelay.defaultHeaders
     ) -> (id: String, url: URL)? {
         lock.lock()
         guard startAllowed else {
@@ -117,7 +123,7 @@ final class PlaylistRelay: @unchecked Sendable {
             return nil
         }
         if let evicted = sources.register(id: id, audioSuppressed: audioSuppressed) { cancelSourceLocked(evicted) }
-        var entry = Entry(maxBandwidth: maxBandwidth, rendition: rendition, renew: renew)
+        var entry = Entry(maxBandwidth: maxBandwidth, rendition: rendition, renew: renew, headers: headers)
         if !rendition.isUnselected, rendition.audio != nil { entry.feeds[.audio] = RelayFeed() }
         entries[id] = entry
         let count = sources.count
@@ -284,7 +290,7 @@ final class PlaylistRelay: @unchecked Sendable {
     private func fetchTrackOnce(_ id: String, _ track: Track) async throws -> (Data, MediaPlaylistInfo) {
         let rendition = try await selectedRendition(id)
         guard let url = track == .video ? rendition.video : rendition.audio else { throw RelayFailure.noSegments }
-        return try await mediaPlaylist(url)
+        return try await mediaPlaylist(url, headers: headers(id))
     }
 
     /// 续期：视频与音轨可能先后撞上 403，共用一次（在途就等它）；`stale` 之后源已被换过也算成功。
@@ -331,7 +337,7 @@ final class PlaylistRelay: @unchecked Sendable {
         }
         guard let (rendition, maxBandwidth) = pending else { throw CancellationError() }
         guard rendition.isUnselected else { return rendition }
-        let fetched = try await fetch(rendition.video)
+        let fetched = try await fetch(rendition.video, headers: headers(id))
         let chosen: StreamRendition
         if PlaylistLadder.steadyPlaylist(fetched.text, base: fetched.final) != nil {
             chosen = StreamRendition(video: fetched.final)
@@ -376,20 +382,23 @@ final class PlaylistRelay: @unchecked Sendable {
         }
     }
 
-    private func mediaPlaylist(_ url: URL) async throws -> (Data, MediaPlaylistInfo) {
-        let fetched = try await fetch(url)
+    private func headers(_ id: String) -> [String: String] {
+        lock.withLock { entries[id]?.headers } ?? Self.defaultHeaders
+    }
+
+    private func mediaPlaylist(_ url: URL, headers: [String: String]) async throws -> (Data, MediaPlaylistInfo) {
+        let fetched = try await fetch(url, headers: headers)
         guard let steady = PlaylistLadder.steadyPlaylist(fetched.text, base: fetched.final),
               let info = MediaPlaylistInfo.parse(steady) else { throw RelayFailure.noSegments }
         return (Data(steady.utf8), info)
     }
 
-    private func fetch(_ url: URL) async throws -> (text: String, final: URL) {
+    private func fetch(_ url: URL, headers: [String: String]) async throws -> (text: String, final: URL) {
         var request = URLRequest(url: url)
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.timeoutInterval = 4
         request.setValue(UserAgent.safari, forHTTPHeaderField: "User-Agent")
-        request.setValue("https://chaturbate.com/", forHTTPHeaderField: "Referer")
-        request.setValue("https://chaturbate.com", forHTTPHeaderField: "Origin")
+        for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw RelayFailure.badBody }
         guard (200..<300).contains(http.statusCode) else { throw RelayFailure.http(http.statusCode) }

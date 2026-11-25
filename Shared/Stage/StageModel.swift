@@ -39,6 +39,8 @@ final class StageModel: ObservableObject {
     /// 正在显示的全站搜索词：非 nil 时列表是搜索结果组成的临时列表，清空搜索框回到原来源。
     @Published var siteSearch: String?
     @Published var source: Source = .guess
+    /// 看哪个站点（Chaturbate / Cam4 / 混合），选择记住。
+    @Published var siteMode: SiteMode = .chaturbate
     @Published var ageConfirmed = false
     @Published var loading = false
     @Published var catalogError: String?
@@ -120,6 +122,18 @@ final class StageModel: ObservableObject {
     let settings: SettingsStore
     let http: URLSessionHTTPClient
     var catalogAPI: CatalogAPI
+    /// 各站适配器（测试可换成桩）。换掉时目录入口一起重建。
+    var sites: SiteRegistry {
+        didSet {
+            let current = SiteDirectory(mode: siteMode, registry: sites, chaturbate: catalogAPI)
+            directory = current
+            loadedDirectory = siteMode == loadedSiteMode
+                ? current
+                : SiteDirectory(mode: loadedSiteMode, registry: sites, chaturbate: catalogAPI)
+        }
+    }
+    /// 取目录的入口：cb 模式原样走 `catalogAPI`，其余经站点适配器。
+    var directory: SiteDirectory
     /// 冷启动只进一次 bootstrap；年龄已确认时目录请求只发一次（初始化可以先领）。
     var startupGate = StartupGate()
     var loadGeneration = 0
@@ -130,8 +144,10 @@ final class StageModel: ObservableObject {
     }
     var idleStart = IdleStart()
     var loadSlot = LoadSlot()
-    /// 当前列表是哪个来源取回的（切换来源失败时据此回滚）。
+    /// 当前列表是哪个来源与站点模式取回的（切换来源或站点失败时据此回滚）。
     var loadedSource: Source = .guess
+    var loadedSiteMode: SiteMode = .chaturbate
+    var loadedDirectory: SiteDirectory
     var sidecarUntil = Date.distantPast
     var pointHeight = 740.0
     var chromeTask: Task<Void, Never>?
@@ -187,6 +203,10 @@ final class StageModel: ObservableObject {
     ) {
         self.settings = settings
         self.http = http
+        // 同步加入快照要先由同步启动恢复处理（换回或删除），有残留时这里推迟迁移，恢复结束后再补（`SyncHub.start` 之后）。
+        // 同步实验开关关着时不接线、不会处理快照，按无快照对待。
+        let journal: SyncJoinJournalStatus = settings.experimentSync ? SyncHub.journal(settings: settings).status : .none
+        Self.migrateSiteKeysIfAllowed(settings, journal: journal, localWriteAllowed: true)
         let tasteStore = TasteStore(url: TasteStore.defaultURL(), legacyURL: PreferenceStore.defaultURL())
         self.tasteStore = tasteStore
         let curationStore = CurationStore(url: CurationStore.defaultURL())
@@ -208,6 +228,11 @@ final class StageModel: ObservableObject {
             if watchLedgerStore.isReadOnly { log.error("watch ledger save skipped: unreadable file kept read-only") } else { log.error("watch ledger save failed") }
         }
         self.catalogAPI = CatalogAPI(client: http)
+        let sites = SiteRegistry.live(client: http, viewerRegions: Self.viewerRegions())
+        self.sites = sites
+        let directory = SiteDirectory(mode: settings.siteMode, registry: sites, chaturbate: catalogAPI)
+        self.directory = directory
+        self.loadedDirectory = directory
         var notices: [String] = []
         let tasteBefore = PreferenceHealth.backupNames(tasteStore.url)
         taste = tasteStore.load()
@@ -256,7 +281,9 @@ final class StageModel: ObservableObject {
         tagText = settings.tag
         feed = FeedStore(query: RoomQuery(publicOnly: settings.publicOnly, blocked: curation.blockedSet))
         source = settings.source
+        siteMode = settings.siteMode
         loadedSource = source
+        loadedSiteMode = siteMode
     }
 
     private func installObservers() {
@@ -295,7 +322,10 @@ final class StageModel: ObservableObject {
     var emptyMessage: String {
         EmptyListCopy.message(
             catalogError: catalogError, query: currentQuery, catalog: feed.catalog,
-            source: source, favoriteCount: curation.favorites.count
+            source: source, favoriteCount: favoritesInMode(curation.favorites).count,
+            siteMode: siteMode,
+            hasUnsupportedSiteFilter: region != nil || normalizedTag != nil,
+            searching: siteSearch != nil
         )
     }
 
@@ -520,31 +550,36 @@ final class StageModel: ObservableObject {
 
     func submitSearch() {
         let text = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        var focused = false
-        updateFeed { focused = $0.focus(text) }
-        if focused {
-            cancelSiteSearch()
-            showFilters = false
-            requestPlay()
-            return
+        let direct = directRoom(text)
+        let focusKey = RoomKey.normalizeRef(direct?.ref ?? text)
+        let rawKey = RoomKey.normalizeRef(text)
+        if let matched = feed.rooms.first(where: { $0.identity == focusKey })
+            ?? (focusKey != rawKey ? feed.rooms.first(where: { $0.identity == rawKey }) : nil) {
+            let before = feed.currentUsername
+            var focused = false
+            updateFeed(intent: .reveal(matched.ref)) { focused = $0.focus(matched.ref) }
+            if focused {
+                cancelSiteSearch()
+                showFilters = false
+                if secondary == nil || feed.currentUsername != before { requestPlay() }
+                return
+            }
         }
         switch SiteSearch.onSubmit(text: text, localMatches: feed.localMatches, active: siteSearch) {
         case .ignore:
             return
         case .remote(let keyword):
-            startSiteSearch(keyword, fallback: Room.direct(username: text))
+            startSiteSearch(keyword, fallback: direct)
             return
         case .local:
             cancelSiteSearch()
         }
-        if let room = Room.direct(username: text) {
-            guard !curation.isBlocked(room.username) else {
+        if let room = direct {
+            guard !curation.isBlocked(room.ref) else {
                 showToast("\(room.username) 在屏蔽列表里")
                 return
             }
-            updateFeed { $0.insertDirect(room) }
-            showFilters = false
-            requestPlay()
+            applyDirectSearchHit(room)
             return
         }
         applySearch()
@@ -828,12 +863,12 @@ final class StageModel: ObservableObject {
         _ body: (inout FeedStore) -> Void
     ) {
         var copy = feed
-        let before = copy.current?.username
+        let before = copy.current?.ref
         let snapshot = laneSnapshot(of: copy)
         body(&copy)
         let outcome = LaneSelection.resolveFeedChange(
-            before: snapshot, afterRooms: copy.rooms.map(\.username),
-            proposedPrimary: copy.current?.username, intent: intent
+            before: snapshot, afterRooms: copy.rooms.map(\.ref),
+            proposedPrimary: copy.current?.ref, intent: intent
         )
         applySelection(outcome, to: &copy)
         feed = copy
@@ -841,7 +876,7 @@ final class StageModel: ObservableObject {
         let sourceChanged = installing.map { $0 != loadedSource } ?? false
         loadedSource = ListOrigin.dwell(loaded: loadedSource, installing: installing)
         let reason = endReason ?? (sourceChanged ? .sourceChange : .swipe)
-        if DwellTracker.shouldSettle(before: before, after: feed.current?.username, sourceChanged: sourceChanged) {
+        if DwellTracker.shouldSettle(before: before, after: feed.current?.ref, sourceChanged: sourceChanged) {
             currentRoomChanged(on: primary, reason: reason)
         }
         for lane in lanes where lane.id != .primary {

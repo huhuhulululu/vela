@@ -233,4 +233,50 @@ final class FavoriteStatusTests: XCTestCase {
         XCTAssertFalse(Room.isValidUsername(String(repeating: "a", count: 31)))
         XCTAssertFalse(Room.isValidUsername("名字很长"))
     }
+
+    /// 审计发现 4：Cam4 收藏来源只解析当前站点模式的收藏，过期 Chaturbate 收藏的质询不能阻断 Cam4 收藏页。
+    func testCam4ModeFavoritePlanSkipsChaturbateChallenge() async {
+        let cam4Room = Room(username: "sample_one", viewers: 12, show: .publicShow, site: .cam4)
+        let cache = FavoriteCache().storing(["c4:sample_one": .online(cam4Room)], at: now)
+        let allFavorites = ["alice", "c4:sample_one"]
+
+        let cam4Plan = FavoriteResolver.plan(
+            favorites: allFavorites, mode: .cam4, catalog: KnownCatalog(), cache: cache, now: now
+        )
+        XCTAssertEqual(cam4Plan.pending, [], "Cam4 模式不把过期 Chaturbate 收藏放进待查名单")
+
+        let challenge = HTTPResult(status: 403, data: Data("<html>Just a moment</html>".utf8))
+        let cbClient = RecordingClient { _ in challenge }
+        let cbPending = cam4Plan.pending.filter { RoomKey.site(ofRef: $0) == .chaturbate }
+        let fetched = await FavoriteFetcher(client: cbClient).fetch(cbPending)
+        XCTAssertFalse(fetched.challenged, "未请求 Chaturbate，不应触发质询")
+        XCTAssertTrue(cbClient.requested.isEmpty)
+
+        let rooms = FavoriteResolver.onlineRooms(favorites: ["c4:sample_one"], statuses: cam4Plan.resolved)
+        XCTAssertEqual(rooms.map(\.ref), ["c4:sample_one"])
+
+        let panelPlan = FavoriteResolver.plan(
+            favorites: allFavorites, mode: nil, catalog: KnownCatalog(), cache: cache, now: now
+        )
+        XCTAssertEqual(panelPlan.pending, ["alice"], "收藏面板未限定站点时仍查询全部收藏")
+    }
+
+    /// 盲审 6 / 复审 2：Cam4 公开房没有流地址时，命中目录快照也应判为 offline 而非 online。
+    func testCam4CatalogRoomWithoutStreamIsOffline() {
+        var catalog = KnownCatalog()
+        let streamless = Room(username: "no_stream", viewers: 15, show: .publicShow, site: .cam4, stream: nil)
+        let playable = Room(
+            username: "has_stream", viewers: 10, show: .publicShow, site: .cam4,
+            stream: URL(string: "https://preview.example/has_stream/master.m3u8")
+        )
+        let cbRoom = Room(username: "cb_pub", viewers: 8, show: .publicShow, site: .chaturbate, stream: nil)
+        catalog.record([streamless, playable, cbRoom], firstPage: true, at: now)
+
+        let plan = FavoriteResolver.plan(
+            favorites: ["c4:no_stream", "c4:has_stream", "cb_pub"], catalog: catalog, cache: FavoriteCache(), now: now
+        )
+        XCTAssertEqual(plan.resolved["c4:no_stream"], .offline, "无流 Cam4 房不能按在线缓存")
+        XCTAssertEqual(plan.resolved["c4:has_stream"], .online(playable))
+        XCTAssertEqual(plan.resolved["cb_pub"], .online(cbRoom), "Chaturbate 目录本就无 stream，行为不变")
+    }
 }

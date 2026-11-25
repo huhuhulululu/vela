@@ -19,6 +19,7 @@ enum TestPrefs {
         let dir = PreferenceStore.defaultURL().deletingLastPathComponent()
         for name in ["feed-prefs.json", "feed-taste.json", "feed-curation.json", "watch-ledger.json"] {
             try? FileManager.default.removeItem(at: dir.appendingPathComponent(name))
+            try? FileManager.default.removeItem(at: dir.appendingPathComponent(name + ".pre-sites"))
         }
     }
 }

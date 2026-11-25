@@ -38,3 +38,4 @@ Tests/VelaCoreTests/LaneSelectionTests.swift	testRecentSkipsAreSharedByAllThreeL
 Tests/VelaCoreTests/LaneSelectionTests.swift	testFillPlacesNewLanesAfterTheirPredecessorAndRespectsRecent	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
 Tests/VelaCoreTests/LaneSelectionTests.swift	testTwoLaneSnapshotWithoutTertiaryKeepsDualBehavior	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
 Tests/VelaCoreTests/LaneSelectionTests.swift	testPaneHeightAndThreeLaneFit	milestone-B: 双窗/三窗选房与最近划走共享，由 B 阶段移植
+Tests/VelaCoreTests/LaneSettlementTests.swift	testEndReasonLogTextPin	不移植：Apple 专属（钉住 Swift LaneSettlement.EndReason.label 日志文字，Kotlin LaneEndReason 无对应方法）

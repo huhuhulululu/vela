@@ -204,4 +204,31 @@ class FavoritesBoardTests {
         val unknown = FavoritesBoard.make(favorites = listOf("a"), statuses = emptyMap(), catalog = emptyList())
         assertEquals("还没有查询状态", unknown.menuSummary(checking = false))
     }
+
+    @Test
+    fun testCam4CatalogRoomWithoutStreamIsNotOnlineAndExpiredThumbIsDropped() {
+        val now = java.time.Instant.ofEpochSecond(1_700_000_000)
+        val expiredThumb = URI.create("https://snapshots.example/expired.jpg")
+        val stream = URI.create("https://preview.example/live/master.m3u8")
+        val streamless = Room(username = "no_stream", viewers = 15, show = ShowState.publicShow, site = vela.core.sites.SiteID.cam4, stream = null)
+        val expired = Room(
+            username = "old_thumb",
+            viewers = 20,
+            show = ShowState.publicShow,
+            thumbnailURL = expiredThumb,
+            site = vela.core.sites.SiteID.cam4,
+            stream = stream,
+            thumbnailExpires = now.plusSeconds(10),
+        )
+        val board = FavoritesBoard.make(
+            favorites = listOf("c4:no_stream", "c4:old_thumb"),
+            statuses = emptyMap(),
+            catalog = listOf(streamless, expired),
+            now = now,
+        )
+        assertEquals(listOf("c4:old_thumb"), board.online.map { it.username })
+        assertNull(board.online.firstOrNull()?.thumbnailURL, "距过期不足 60 秒的 Cam4 缩略图应丢弃")
+        assertEquals(listOf("c4:no_stream"), board.others.map { it.username })
+        assertEquals(FavoriteEntry.State.unknown, board.others.firstOrNull()?.state, "无流 Cam4 房不能回落判在线")
+    }
 }

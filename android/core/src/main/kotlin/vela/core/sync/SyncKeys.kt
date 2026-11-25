@@ -1,6 +1,5 @@
 package vela.core.sync
 
-import vela.core.base.model.CurationKeys
 import vela.core.base.model.trimSwiftWhitespace
 
 /** 同步文档里的键规则（第 6.3 节）。 */
@@ -33,9 +32,10 @@ object SyncKeys {
     private fun isDigit(c: Byte) = c in '0'.code.toByte()..'9'.code.toByte()
     private fun isAlpha(c: Int) = c in 'a'.code..'z'.code || c in 'A'.code..'Z'.code
 
-    /** 本机无前缀的名字映射为 `cb:` + `Curation.key`；不合规返回 null。 */
+    /** 本机无前缀的名字映射为 `cb:` + ASCII 小写名；不合规返回 null。 */
     fun roomKey(localName: String): String? {
-        val key = projectedSite + ":" + CurationKeys.key(localName)
+        val trimmed = localName.trimSwiftWhitespace()
+        val key = projectedSite + ":" + asciiLower(trimmed)
         return if (isRoomKey(key)) key else null
     }
 

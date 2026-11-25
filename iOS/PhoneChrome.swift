@@ -83,7 +83,7 @@ struct PhoneChrome: View {
     private var bottom: some View {
         HStack(alignment: .bottom, spacing: Theme.gap) {
             if let room = model.focusRoom {
-                PhoneCaption(room: room, pulse: visible && playback.playingUsername == room.username)
+                PhoneCaption(room: room, pulse: visible && playback.playingUsername == room.ref)
             }
             Spacer(minLength: 0)
             PhoneHeart(
@@ -215,6 +215,9 @@ struct PhoneCaption: View {
     /// 这一间正在播：红点脉冲；否则静止。
     var pulse: Bool
 
+    /// 非 cb 房间在标签前加站点名。
+    private var chips: [String] { room.site == .chaturbate ? room.tags : [room.site.displayName] + room.tags }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(room.displayName.isEmpty ? room.username : room.displayName)
@@ -229,7 +232,7 @@ struct PhoneCaption: View {
                         .font(.system(size: 12, weight: .bold))
                         .tracking(0.6)
                 }
-                ForEach(Array(room.tags.prefix(3)), id: \.self) { tag in
+                ForEach(Array(chips.prefix(3)), id: \.self) { tag in
                     Text(tag)
                         .font(.system(size: 12, weight: .medium))
                         .lineLimit(1)

@@ -5,6 +5,14 @@ import Foundation
 public enum AudioSessionCategory: Equatable, Sendable {
     case ambient
     case playback
+
+    /// 日志里的类别标签。
+    public var label: String {
+        switch self {
+        case .ambient: return "ambient"
+        case .playback: return "playback"
+        }
+    }
 }
 
 /// 会话选项。对应系统的 category options，Core 不引用 AVFoundation。

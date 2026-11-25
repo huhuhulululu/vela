@@ -6,3 +6,5 @@ Tests/VelaCoreTests/ChallengeGateTests.swift	testStreamPlain403And503AreUnavaila
 Tests/VelaCoreTests/ChallengeGateTests.swift	testStreamOtherStatusesUnchanged	deferred:C9 引用 StreamDecoder（C4）
 Tests/VelaCoreTests/ChallengeGateTests.swift	testCatalogPlain403And503AreStatusFailures	deferred:C9 引用 CatalogAPI.fetch（C5）
 Tests/VelaCoreTests/ChallengeGateTests.swift	testCatalogChallengeBodyIsChallengeAtAnyStatus	deferred:C9 引用 CatalogAPI.fetch（C5）
+Tests/VelaCoreTests/PhoneLifecycleTests.swift	testLaneActivityLogTextPin	不移植：Apple 专属（钉住 Swift PhoneLaneActivity.label 日志文字，Kotlin 枚举无对应方法）
+Tests/VelaCoreTests/PiPPolicyTests.swift	testPictureInPictureStateLogTextPin	不移植：Apple 专属（钉住 Swift PiPPolicy.State.label 日志文字，Kotlin 枚举无对应方法）

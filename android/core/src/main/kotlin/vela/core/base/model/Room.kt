@@ -60,6 +60,10 @@ data class Room private constructor(
     val id: String
         get() = ref
 
+    /** 目录快照里这间房能不能直接算在线可播：公开且（cb 目录无 stream，或非 cb 目录已带流地址）。 */
+    val isCatalogPlayable: Boolean
+        get() = show.isPlayable && (site == SiteID.chaturbate || stream != null)
+
     init {
         val resolved = makeKey(site, username)
         key = resolved.first

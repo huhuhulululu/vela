@@ -130,4 +130,60 @@ class PromptRulesTests {
             ),
         )
     }
+
+    @Test
+    fun testEmptyMessageCam4UnsupportedFilterRespectsFavoritesAndSearch() {
+        assertEquals(
+            "Cam4 不支持按地区、标签或新开播筛选",
+            EmptyListCopy.message(
+                catalogError = null,
+                query = RoomQuery(),
+                catalog = emptyList(),
+                source = FeedSource.guess,
+                favoriteCount = 0,
+                siteMode = vela.core.sites.SiteMode.cam4,
+                hasUnsupportedSiteFilter = true,
+                searching = false,
+            ),
+        )
+        assertEquals(
+            "Cam4 不支持按地区、标签或新开播筛选",
+            EmptyListCopy.message(
+                catalogError = null,
+                query = RoomQuery(),
+                catalog = emptyList(),
+                source = FeedSource.fresh,
+                favoriteCount = 0,
+                siteMode = vela.core.sites.SiteMode.cam4,
+                hasUnsupportedSiteFilter = false,
+                searching = false,
+            ),
+        )
+        assertEquals(
+            EmptyListCopy.noFavoritesYet,
+            EmptyListCopy.message(
+                catalogError = null,
+                query = RoomQuery(),
+                catalog = emptyList(),
+                source = FeedSource.favorites,
+                favoriteCount = 0,
+                siteMode = vela.core.sites.SiteMode.cam4,
+                hasUnsupportedSiteFilter = true,
+                searching = false,
+            ),
+        )
+        assertEquals(
+            "目录里现在没有房间，可以稍后重试",
+            EmptyListCopy.message(
+                catalogError = null,
+                query = RoomQuery(),
+                catalog = emptyList(),
+                source = FeedSource.fresh,
+                favoriteCount = 0,
+                siteMode = vela.core.sites.SiteMode.cam4,
+                hasUnsupportedSiteFilter = true,
+                searching = true,
+            ),
+        )
+    }
 }

@@ -17,6 +17,7 @@ data class RoomQuery(
         if (needle.isEmpty()) return true
         if (needle in room.username.lowerRoot()) return true
         if (needle in room.ref.lowerRoot()) return true
+        if (':' in needle && needle in room.key.raw.lowerRoot()) return true
         if (needle in room.displayName.lowerRoot()) return true
         if (needle in room.subject.lowerRoot()) return true
         return room.tags.any { needle in it.lowerRoot() }

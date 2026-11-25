@@ -300,4 +300,69 @@ class FavoriteStatusTests {
         assertFalse(Room.isValidUsername("a".repeat(31)))
         assertFalse(Room.isValidUsername("名字很长"))
     }
+
+    @Test
+    fun testCam4ModeFavoritePlanSkipsChaturbateChallenge() = runBlocking {
+        val cam4Room = Room(
+            username = "sample_one",
+            viewers = 12,
+            show = ShowState.publicShow,
+            site = vela.core.sites.SiteID.cam4,
+        )
+        val cache = FavoriteCache().storing(mapOf("c4:sample_one" to FavoriteStatus.Online(cam4Room)), now)
+        val allFavorites = listOf("alice", "c4:sample_one")
+
+        val cam4Plan = FavoriteResolver.plan(
+            favorites = allFavorites,
+            catalog = KnownCatalog(),
+            cache = cache,
+            now = now,
+            mode = vela.core.sites.SiteMode.cam4,
+        )
+        assertEquals(emptyList(), cam4Plan.pending)
+
+        val challenge = HTTPResult(status = 403, data = "<html>Just a moment</html>".toByteArray(Charsets.UTF_8))
+        val cbClient = RecordingClient { challenge }
+        val cbPending = cam4Plan.pending.filter { vela.core.sites.RoomKey.siteOfRef(it) == vela.core.sites.SiteID.chaturbate }
+        val fetched = FavoriteFetcher(cbClient).fetch(cbPending)
+        assertFalse(fetched.challenged)
+        assertTrue(cbClient.requested.isEmpty())
+
+        val rooms = FavoriteResolver.onlineRooms(listOf("c4:sample_one"), cam4Plan.resolved)
+        assertEquals(listOf("c4:sample_one"), rooms.map { it.ref })
+
+        val panelPlan = FavoriteResolver.plan(
+            favorites = allFavorites,
+            catalog = KnownCatalog(),
+            cache = cache,
+            now = now,
+            mode = null,
+        )
+        assertEquals(listOf("alice"), panelPlan.pending)
+    }
+
+    @Test
+    fun testCam4CatalogRoomWithoutStreamIsOffline() {
+        val catalog = KnownCatalog()
+        val streamless = Room(username = "no_stream", viewers = 15, show = ShowState.publicShow, site = vela.core.sites.SiteID.cam4, stream = null)
+        val playable = Room(
+            username = "has_stream",
+            viewers = 10,
+            show = ShowState.publicShow,
+            site = vela.core.sites.SiteID.cam4,
+            stream = java.net.URI.create("https://preview.example/has_stream/master.m3u8"),
+        )
+        val cbRoom = Room(username = "cb_pub", viewers = 8, show = ShowState.publicShow, site = vela.core.sites.SiteID.chaturbate, stream = null)
+        catalog.record(listOf(streamless, playable, cbRoom), firstPage = true, at = now)
+
+        val plan = FavoriteResolver.plan(
+            favorites = listOf("c4:no_stream", "c4:has_stream", "cb_pub"),
+            catalog = catalog,
+            cache = FavoriteCache(),
+            now = now,
+        )
+        assertEquals(FavoriteStatus.Offline, plan.resolved["c4:no_stream"], "无流 Cam4 房不能按在线缓存")
+        assertEquals(FavoriteStatus.Online(playable), plan.resolved["c4:has_stream"])
+        assertEquals(FavoriteStatus.Online(cbRoom), plan.resolved["cb_pub"], "Chaturbate 目录本就无 stream，行为不变")
+    }
 }

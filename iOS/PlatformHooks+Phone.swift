@@ -116,7 +116,7 @@ final class PlatformHooks {
         run(actions, on: stage)
         if let focus = Self.continuedLane(actions) {
             pipContinuing = true
-            Self.pipLog.notice("pip continue lane=\(StageModel.label(focus), privacy: .public) state=\(String(describing: self.pictureInPictureState), privacy: .public)")
+            Self.pipLog.notice("pip continue lane=\(StageModel.label(focus), privacy: .public) state=\(self.pictureInPictureState.label, privacy: .public)")
             if pictureInPictureState != .active { armPictureInPictureFallback(stage: stage, reason: "timeout") }
         }
         // 回前台时小窗已经收掉（或根本没起来）：另一路不再被画中画扣着。小窗还在收的话由 didStop 放开。

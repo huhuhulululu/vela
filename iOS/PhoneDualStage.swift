@@ -53,7 +53,7 @@ struct PhoneDualPane: View {
                     .allowsHitTesting(false)
             }
             if chromeOn, let room = model.room(of: lane) {
-                PhonePaneBar(model: model, lane: lane, room: room, playing: playback.playingUsername == room.username)
+                PhonePaneBar(model: model, lane: lane, room: room, playing: playback.playingUsername == room.ref)
                     .transition(.opacity)
             }
         }
@@ -97,8 +97,8 @@ struct PhonePaneBar: View {
                 Spacer(minLength: 0)
                 moreMenu
                 PhoneHeart(
-                    isFavorite: model.curation.isFavorite(room.username), canToggle: true,
-                    toggle: { model.toggleFavorite(model.target(lane.id, showing: room.username)) },
+                    isFavorite: model.curation.isFavorite(room.ref), canToggle: true,
+                    toggle: { model.toggleFavorite(model.target(lane.id, showing: room.ref)) },
                     openList: { model.showCuration = true }
                 )
             }
@@ -115,10 +115,10 @@ struct PhonePaneBar: View {
     private var moreMenu: some View {
         Menu {
             Button(lane.manuallyPaused ? "继续" : "暂停") {
-                model.togglePause(model.target(lane.id, showing: room.username))
+                model.togglePause(model.target(lane.id, showing: room.ref))
             }
-            Button("不感兴趣") { model.markNotInterested(model.target(lane.id, showing: room.username)) }
-            Button("屏蔽", role: .destructive) { model.blockCurrent(model.target(lane.id, showing: room.username)) }
+            Button("不感兴趣") { model.markNotInterested(model.target(lane.id, showing: room.ref)) }
+            Button("屏蔽", role: .destructive) { model.blockCurrent(model.target(lane.id, showing: room.ref)) }
         } label: {
             Image(systemName: "ellipsis")
                 .font(.system(size: 18, weight: .semibold))

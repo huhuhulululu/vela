@@ -92,13 +92,13 @@ extension StageModel {
             // 固定测试流（Perf）不访问真实站点：直接沿用起播时的回环主列表。
             var fixed = false
             #if (os(macOS) && (DEBUG || PERF_PROBE)) || (os(iOS) && PERF_PROBE)
-            fixed = username.hasPrefix(PerfStream.username)
+            fixed = PerfStream.isTestRoom(username)
             #endif
             let fresh = fixed ? nil : try? await self.resolve(username)
             guard let master = (fresh?.isPlayable == true ? fresh?.url : nil) ?? lane.currentMaster else { return }
             guard token == lane.playGeneration, !Task.isCancelled, self.name(of: lane) == username else { return }
             let cap = self.playbackCap(on: lane)
-            let playable = await self.selectRendition(master: master, cap: cap)
+            let playable = await self.selectRendition(master: master, cap: cap, for: username)
             guard token == lane.playGeneration, !Task.isCancelled, self.name(of: lane) == username,
                   self.lifecycleAllows(.beforeCommit, life) else { return }
             if !playable.isUnselected { self.prepared.set(playable, cap: cap, for: username, now: Date()) }

@@ -2,8 +2,9 @@ import Foundation
 
 /// 同步文档里的键规则（docs/plans/sync.md 第 6.3 节）。
 public enum SyncKeys {
-    /// 本端认识、会投影到本机的站点前缀。其他合规前缀照常参与合并与裁剪，但不投影。
-    public static let projectedSite = "cb"
+    /// 本端认识、会投影到本机的站点前缀（合法站点集合，第 6.3 节、第 23 节第 15 条：{cb, c4}）。
+    /// 其他合规前缀照常参与合并与裁剪，但不投影。
+    public static let projectedSites: Set<String> = [SiteID.chaturbate.rawValue, SiteID.cam4.rawValue]
     public static let settingKeys: Set<String> = ["publicOnly", "infoAlwaysOn"]
 
     // MARK: 房间键
@@ -26,10 +27,28 @@ public enum SyncKeys {
     private static func isLower(_ c: UInt8) -> Bool { c >= UInt8(ascii: "a") && c <= UInt8(ascii: "z") }
     private static func isDigit(_ c: UInt8) -> Bool { c >= UInt8(ascii: "0") && c <= UInt8(ascii: "9") }
 
-    /// 本机无前缀的名字映射为 `cb:` + `Curation.key`；不合规返回 nil（不进同步）。
+    /// 本机名字（ref：cb 裸名或 `c4:名字`）经 `RoomKey` 归一化为同步房间键：`<站点>:<小写用户名>`。
+    /// 裸名按 cb；站点不在合法集合、名字不合规返回 nil（不进同步）。与 `sites.md` 同一套归一化。
     public static func roomKey(localName: String) -> String? {
-        let key = projectedSite + ":" + Curation.key(localName)
+        let trimmed = localName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let parsed = RoomKey(parsing: trimmed) ?? RoomKey(parsing: asciiLowercased(trimmed)),
+              projectedSites.contains(parsed.site.rawValue) else { return nil }
+        let key = parsed.site.rawValue + ":" + asciiLowercased(parsed.name)
         return isRoomKey(key) ? key : nil
+    }
+
+    /// 写 `n` 用的显示原文：带站点前缀的本机名字去掉前缀（`c4:bob` 的原文是 `bob`），裸名原样。
+    static func displayOriginal(localName: String) -> String {
+        let trimmed = localName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.contains(":"), let parsed = RoomKey(parsing: trimmed) ?? RoomKey(parsing: asciiLowercased(trimmed)) else {
+            return localName
+        }
+        return parsed.name
+    }
+
+    /// 投影回本机的名字（sites.md 的 ref 口径）：cb 用显示名（无前缀），其他合法站点写 `<站点>:<用户名>`。
+    static func localRef(roomKey: String, display: String) -> String {
+        site(ofRoomKey: roomKey) == SiteID.chaturbate.rawValue ? display : roomKey
     }
 
     public static func site(ofRoomKey key: String) -> Substring { key.prefix { $0 != ":" } }
@@ -39,7 +58,7 @@ public enum SyncKeys {
         return String(key[key.index(after: colon)...])
     }
 
-    public static func isProjected(_ roomKey: String) -> Bool { site(ofRoomKey: roomKey) == projectedSite }
+    public static func isProjected(_ roomKey: String) -> Bool { projectedSites.contains(String(site(ofRoomKey: roomKey))) }
 
     /// `n` 的载荷：`^[A-Za-z0-9_]{2,30}$`，按 ASCII 转小写后等于键的用户名部分。
     public static func isDisplayName(_ name: String, forRoomKey key: String) -> Bool {

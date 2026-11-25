@@ -52,6 +52,23 @@ class TargetedMergeTests {
     }
 
     @Test
+    fun testFilteredEmptyPageWithAdvancingCursorDoesNotReachEnd() {
+        val replaced = FeedStore()
+        replaced.replace(CatalogPage(rooms = emptyList(), total = 100, nextOffset = 90))
+        assertFalse(replaced.reachedEnd)
+
+        val appended = FeedStore()
+        appended.replace(CatalogPage(rooms = listOf(room("a")), total = 200, nextOffset = 90))
+        appended.append(CatalogPage(rooms = emptyList(), total = 200, nextOffset = 180), offset = 90)
+        assertFalse(appended.reachedEnd)
+
+        val merged = FeedStore()
+        merged.replace(CatalogPage(rooms = listOf(room("a")), total = 200, nextOffset = 90))
+        merged.mergePageAfterCurrent(CatalogPage(rooms = emptyList(), total = 200, nextOffset = 180), offset = 90) { it }
+        assertFalse(merged.reachedEnd)
+    }
+
+    @Test
     fun testMergeAfterCurrentKeepsHeadAndDedupes() {
         val feed = FeedStore()
         feed.replace(CatalogPage(rooms = listOf(room("a"), room("b"), room("c"), room("d")), total = 9, nextOffset = 4))

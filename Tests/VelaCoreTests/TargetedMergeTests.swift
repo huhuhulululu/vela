@@ -33,6 +33,22 @@ final class TargetedMergeTests: XCTestCase {
         XCTAssertTrue(stalled.reachedEnd, "游标没有前进：兜底停止，免得原地重复请求")
     }
 
+    func testFilteredEmptyPageWithAdvancingCursorDoesNotReachEnd() {
+        var replaced = FeedStore()
+        replaced.replace(with: CatalogPage(rooms: [], total: 100, nextOffset: 90))
+        XCTAssertFalse(replaced.reachedEnd, "首页被本地滤空但游标已前进且未到底，应允许 loadUntilVisible 续页")
+
+        var appended = FeedStore()
+        appended.replace(with: CatalogPage(rooms: [room("a")], total: 200, nextOffset: 90))
+        appended.append(CatalogPage(rooms: [], total: 200, nextOffset: 180), from: 90)
+        XCTAssertFalse(appended.reachedEnd, "追加页被滤空但游标已前进且未到底，不应标到底")
+
+        var merged = FeedStore()
+        merged.replace(with: CatalogPage(rooms: [room("a")], total: 200, nextOffset: 90))
+        merged.mergePageAfterCurrent(CatalogPage(rooms: [], total: 200, nextOffset: 180), from: 90) { $0 }
+        XCTAssertFalse(merged.reachedEnd, "后台续页被滤空但游标已前进且未到底，不应标到底")
+    }
+
     // M3：后到的定向候选并入当前位置之后，当前及之前不动，已有的不重复。
     func testMergeAfterCurrentKeepsHeadAndDedupes() {
         var feed = FeedStore()
