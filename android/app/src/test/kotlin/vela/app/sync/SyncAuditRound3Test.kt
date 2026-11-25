@@ -621,6 +621,183 @@ class SyncAuditRound3Test {
         }
     }
 
+    @Test
+    fun testJoinConflictRetryOversizeReportsDataFullNotRandomFailure() = runBlocking {
+        val keyBytes = ByteArray(32) { (it + 31).toByte() }
+        val derived = deriveSyncKeys(keyBytes)
+        val code = SyncCode.format(keyBytes, origin, ::sha256)!!
+        val local = vela.core.sync.SyncLocalData(
+            curation = Curation(favorites = listOf("local_room_alpha", "local_room_beta")),
+        )
+        val remoteV1 = docWith(favorites = listOf("remote_room_one"))
+        val remoteV2 = docWith(favorites = listOf("remote_room_one", "remote_room_two"))
+        val mergedV1Bytes = vela.core.sync.SyncMigration.stampJoin(local, remoteV1, SyncClock(dev = 7L), nowMs)
+            .replica.doc.encoded().size
+        val mergedV2Bytes = vela.core.sync.SyncMigration.stampJoin(local, remoteV2, SyncClock(dev = 7L), nowMs)
+            .replica.doc.encoded().size
+        val remoteV2Bytes = remoteV2.encoded().size
+        val sizeLimit = maxOf(mergedV1Bytes, remoteV2Bytes) + 12
+        assertTrue(
+            "测试前提：初次合并($mergedV1Bytes)与远端v2($remoteV2Bytes)须小于上限($sizeLimit)，二次合并($mergedV2Bytes)须超限",
+            sizeLimit < mergedV2Bytes,
+        )
+
+        val codec = SyncCryptoCodec(derived, sizeLimit)
+        val envV1 = codec.seal(remoteV1.encoded(), 1L)!!
+        val envV2 = codec.seal(remoteV2.encoded(), 2L)!!
+        var putCalls = 0
+        val transport = TestScriptedTransport(
+            gets = mutableListOf(
+                SyncServerResponse.Blob(1L, derived.pubB64, envV1, epoch, nowMs),
+            ),
+            puts = mutableListOf(
+                SyncServerResponse.Conflict(2L, derived.pubB64, envV2, epoch, nowMs),
+                SyncServerResponse.Stored(3L, epoch, nowMs),
+            ),
+        ).apply { onPut = { putCalls += 1 } }
+        val service = SyncService(
+            SyncService.Environment(
+                stateStore = TestMemoryStateStore(),
+                keyStore = TestMemoryKeyStore(),
+                makeTransport = { _, _ -> transport },
+                wallClock = { nowMs },
+                sizeLimit = sizeLimit,
+            ),
+        )
+        val prepared = service.prepareJoin(code, local) as SyncJoinPrepared.Preview
+        val stage = makeStage()
+        try {
+            val prefs = SyncPrefs(stage.settings.preferences)
+            val commit = service.commitJoin(prepared.ticket, { local }, StageSyncBridge(stage, prefs))
+            assertTrue("409 合并超限必须返回 Failed，实际 $commit", commit is SyncJoinCommit.Failed)
+            val message = (commit as SyncJoinCommit.Failed).message
+            assertTrue("合并超限必须提示同步数据已满，实际：$message", message.contains("同步数据已满"))
+            assertFalse("不得误报成系统随机源不可用，实际：$message", message.contains("随机源"))
+            assertEquals("超限复检必须在第二次 PUT 之前拦截", 1, putCalls)
+        } finally {
+            stage.close()
+        }
+    }
+
+    @Test
+    fun testJoinConflictRetryClockSkewRejectedBeforeSecondPut() = runBlocking {
+        val keyBytes = ByteArray(32) { (it + 37).toByte() }
+        val derived = deriveSyncKeys(keyBytes)
+        val code = SyncCode.format(keyBytes, origin, ::sha256)!!
+        val local = vela.core.sync.SyncLocalData(
+            curation = Curation(favorites = listOf("local_room_skew")),
+        )
+        val remoteV1 = docWith(favorites = listOf("remote_skew_one"))
+        val remoteV2 = docWith(favorites = listOf("remote_skew_one", "remote_skew_two"))
+        val codec = SyncCryptoCodec(derived)
+        val envV1 = codec.seal(remoteV1.encoded(), 1L)!!
+        val envV2 = codec.seal(remoteV2.encoded(), 2L)!!
+        val skewedServerNow = nowMs + vela.core.sync.SyncLimits.clockSkewMillis + 60_000L
+        var putCalls = 0
+        val transport = TestScriptedTransport(
+            gets = mutableListOf(
+                SyncServerResponse.Blob(1L, derived.pubB64, envV1, epoch, nowMs),
+            ),
+            puts = mutableListOf(
+                SyncServerResponse.Conflict(2L, derived.pubB64, envV2, epoch, skewedServerNow),
+                SyncServerResponse.Stored(3L, epoch, skewedServerNow),
+            ),
+        ).apply { onPut = { putCalls += 1 } }
+        val service = SyncService(
+            SyncService.Environment(
+                stateStore = TestMemoryStateStore(),
+                keyStore = TestMemoryKeyStore(),
+                makeTransport = { _, _ -> transport },
+                wallClock = { nowMs },
+            ),
+        )
+        val prepared = service.prepareJoin(code, local) as SyncJoinPrepared.Preview
+        val stage = makeStage()
+        try {
+            val prefs = SyncPrefs(stage.settings.preferences)
+            val commit = service.commitJoin(prepared.ticket, { local }, StageSyncBridge(stage, prefs))
+            assertTrue("409 时钟偏移超限必须返回 Failed，实际 $commit", commit is SyncJoinCommit.Failed)
+            val message = (commit as SyncJoinCommit.Failed).message
+            assertTrue("必须提示本机时间不准，实际：$message", message.contains("时间不准"))
+            assertEquals("时钟偏移复检必须在第二次 PUT 之前拦截", 1, putCalls)
+        } finally {
+            stage.close()
+        }
+    }
+
+    @Test
+    fun testSyncSettingRevertsMemoryAndPrefsAndShowsToastWhenSpaceFull() {
+        val stage = makeStage()
+        try {
+            val prefs = SyncPrefs(stage.settings.preferences).apply { experimentSync = true }
+            val keyBytes = ByteArray(32) { (it + 41).toByte() }
+            val derived = deriveSyncKeys(keyBytes)
+            // infoAlwaysOn 显式为 true，publicOnly 保持未设置（默认 true）
+            val activeDoc = docWith(
+                favorites = listOf("room_full_a", "room_full_b"),
+                settings = mapOf(Settings.KEY_INFO_ALWAYS to true),
+            )
+            val tightLimit = activeDoc.encoded().size - 1
+            val stateStore = TestMemoryStateStore().apply {
+                stored = SyncState(
+                    phase = SyncPhase.ACTIVE,
+                    origin = origin,
+                    blobID = derived.blobID,
+                    clock = SyncClock(dev = 55L),
+                    doc = activeDoc,
+                    epoch = epoch,
+                )
+            }
+            val keyStore = TestMemoryKeyStore().apply {
+                entry = SyncKeyEntry(keyBytes, 55L, derived.blobID)
+            }
+            val service = SyncService(
+                SyncService.Environment(
+                    stateStore = stateStore,
+                    keyStore = keyStore,
+                    makeTransport = { _, _ -> TestScriptedTransport() },
+                    wallClock = { nowMs },
+                    sizeLimit = tightLimit,
+                ),
+            )
+            val hub = SyncHub(
+                service = service,
+                prefs = prefs,
+                bridge = StageSyncBridge(stage, prefs),
+                scope = scope,
+                sdkInt = 34,
+                capability = SyncCapability.FULL,
+                configuredOrigin = origin,
+                wallClock = { nowMs },
+            )
+            stage.syncHub = hub
+            hub.attach()
+
+            assertEquals(SyncUiPhase.Active, hub.uiState.value.phase)
+            assertTrue(stage.publicOnly)
+            assertFalse("初始 publicOnly 应为未设置状态", prefs.hasExplicitValue(Settings.KEY_PUBLIC_ONLY))
+            assertTrue(stage.infoAlwaysOn)
+            assertEquals(true, prefs.explicitBool(Settings.KEY_INFO_ALWAYS))
+
+            // 1. 尝试修改未设置的 publicOnly -> 空间已满，必须回退内存与偏好（不得污染为显式键）并提示已满
+            stage.dispatch(StageIntent.SetPublicOnly(false))
+            assertTrue("空间满时内存 publicOnly 不得停留在新值 false", stage.publicOnly)
+            assertTrue("空间满时 UI 状态 publicOnly 必须保持 true", stage.state.value.publicOnly)
+            assertTrue("空间满时 SharedPreferences publicOnly 必须保持 true", stage.settings.publicOnly)
+            assertFalse("回退未设置的 publicOnly 不得写入显式键", prefs.hasExplicitValue(Settings.KEY_PUBLIC_ONLY))
+            assertEquals(SyncHub.FULL_MESSAGE, stage.state.value.toast)
+
+            // 2. 尝试切换已显式同步的 infoAlwaysOn -> 空间已满，必须回退到同步文档里的 true 并提示已满
+            stage.dispatch(StageIntent.ToggleInfo)
+            assertTrue("空间满时内存 infoAlwaysOn 必须回退到 true", stage.infoAlwaysOn)
+            assertTrue("空间满时 UI 状态 infoAlwaysOn 必须保持 true", stage.state.value.infoAlwaysOn)
+            assertEquals(true, prefs.explicitBool(Settings.KEY_INFO_ALWAYS))
+            assertEquals(SyncHub.FULL_MESSAGE, stage.state.value.toast)
+        } finally {
+            stage.close()
+        }
+    }
+
     private class FlakySaveStateStore(
         var failOnSaveIndex: Int?,
         var failDelete: Boolean = false,

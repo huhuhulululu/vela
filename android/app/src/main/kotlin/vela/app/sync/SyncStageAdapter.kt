@@ -280,5 +280,20 @@ internal fun StageViewModel.syncedClearVetoes(): Boolean {
 }
 
 internal fun StageViewModel.syncSetting(key: String, value: Boolean) {
-    syncHub?.perform(SyncLocalOp.Setting(key, value))
+    val hub = syncHub ?: return
+    if (hub.perform(SyncLocalOp.Setting(key, value)) != SyncOpOutcome.Full) return
+    val syncedValue = hub.service.state?.doc?.let { SyncProjection(it).settings[key] }
+    val defaultValue = when (key) {
+        Settings.KEY_PUBLIC_ONLY -> true
+        Settings.KEY_INFO_ALWAYS -> false
+        else -> !value
+    }
+    val reverted = syncedValue ?: !value
+    when (key) {
+        Settings.KEY_PUBLIC_ONLY -> publicOnly = reverted
+        Settings.KEY_INFO_ALWAYS -> infoAlwaysOn = reverted
+    }
+    val persistedValue = syncedValue ?: if (reverted == defaultValue) null else reverted
+    SyncPrefs(settings.preferences).setExplicit(key, persistedValue)
+    showToast(SyncHub.FULL_MESSAGE)
 }

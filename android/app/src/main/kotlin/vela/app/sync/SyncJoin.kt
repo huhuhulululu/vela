@@ -1,6 +1,7 @@
 package vela.app.sync
 
 import kotlinx.coroutines.CancellationException
+import vela.core.sync.JoinStamp
 import vela.core.sync.SyncClock
 import vela.core.sync.SyncCode
 import vela.core.sync.SyncCycleResult
@@ -13,6 +14,7 @@ import vela.core.sync.SyncLifecycle
 import vela.core.sync.SyncLimits
 import vela.core.sync.SyncLocalData
 import vela.core.sync.SyncLocalSink
+import vela.core.sync.SyncMerge
 import vela.core.sync.SyncMigration
 import vela.core.sync.SyncMigrationReport
 import vela.core.sync.SyncOpenResult
@@ -180,6 +182,7 @@ private fun SyncService.buildJoinTicket(
     return when (val decoded = SyncDocument.decode(bytes)) {
         is SyncDecodeResult.Valid -> {
             val stamped = SyncMigration.stampJoin(local, decoded.doc, SyncClock(dev = dev), env.wallClock())
+            val (replica, fits) = fitStampedJoin(stamped)
             TicketResult.Ok(
                 SyncJoinTicket(
                     code = code,
@@ -190,8 +193,8 @@ private fun SyncService.buildJoinTicket(
                     remoteEpoch = epoch,
                     remoteNow = now,
                     remote = decoded.doc,
-                    replica = stamped.replica,
-                    fits = stamped.fits,
+                    replica = replica,
+                    fits = fits,
                     preview = stamped.preview,
                     report = stamped.report,
                 ),
@@ -200,6 +203,12 @@ private fun SyncService.buildJoinTicket(
         SyncDecodeResult.NewerSchema -> TicketResult.Err("其他设备的 App 更新，请更新本机 App")
         is SyncDecodeResult.Invalid -> TicketResult.Err("云端数据不合法")
     }
+}
+
+private fun SyncService.fitStampedJoin(stamped: JoinStamp): Pair<SyncReplica, Boolean> {
+    if (env.sizeLimit == SyncLimits.plaintextBytes) return stamped.replica to stamped.fits
+    val fitted = SyncMerge.fitSize(stamped.replica.doc, env.sizeLimit)
+    return SyncReplica(fitted.doc, stamped.replica.clock) to fitted.fits
 }
 
 /**
@@ -243,19 +252,23 @@ private suspend fun SyncService.commitLocked(
     if (t.preview != original.preview) {
         return if (original.isCancelled) SyncJoinCommit.Cancelled else SyncJoinCommit.Reconfirm(t)
     }
-    if (!t.fits) {
-        return SyncJoinCommit.Failed(SyncStatusText.cycle(SyncCycleResult.Oversize) ?: "同步数据已满")
-    }
-    val wall = env.wallClock()
-    val skew = if (wall > t.remoteNow) wall - t.remoteNow else t.remoteNow - wall
-    if (skew > SyncLimits.clockSkewMillis) {
-        return SyncJoinCommit.Failed(SyncStatusText.cycle(SyncCycleResult.ClockSkew) ?: "本机时间不准")
-    }
     val codec = SyncCryptoCodec(t.keys, env.sizeLimit, env.random)
     val transport = env.makeTransport(t.code.origin, t.keys)
     for (attempt in 0..JOIN_CONFLICT_RETRIES) {
+        if (!t.fits) {
+            return SyncJoinCommit.Failed(SyncStatusText.cycle(SyncCycleResult.Oversize) ?: "同步数据已满")
+        }
+        val wall = env.wallClock()
+        val skew = if (wall > t.remoteNow) wall - t.remoteNow else t.remoteNow - wall
+        if (skew > SyncLimits.clockSkewMillis) {
+            return SyncJoinCommit.Failed(SyncStatusText.cycle(SyncCycleResult.ClockSkew) ?: "本机时间不准")
+        }
+        val plaintext = t.replica.doc.encoded()
+        if (plaintext.size > env.sizeLimit) {
+            return SyncJoinCommit.Failed(SyncStatusText.cycle(SyncCycleResult.Oversize) ?: "同步数据已满")
+        }
         val next = t.remoteVer + 1
-        val envelope = codec.seal(t.replica.doc.encoded(), next)
+        val envelope = codec.seal(plaintext, next)
             ?: return SyncJoinCommit.Failed("系统随机源不可用，未加入")
         val response = try {
             transport.put(SyncPutRequest(t.remoteVer, next, envelope, t.remoteEpoch))
@@ -315,6 +328,7 @@ private suspend fun SyncService.commitLocked(
 
 private fun SyncService.ticketFromRemote(t: SyncJoinTicket, local: SyncLocalData): SyncJoinTicket {
     val stamped = SyncMigration.stampJoin(local, t.remote, SyncClock(dev = t.dev), env.wallClock())
+    val (replica, fits) = fitStampedJoin(stamped)
     return SyncJoinTicket(
         code = t.code,
         keys = t.keys,
@@ -324,8 +338,8 @@ private fun SyncService.ticketFromRemote(t: SyncJoinTicket, local: SyncLocalData
         remoteEpoch = t.remoteEpoch,
         remoteNow = t.remoteNow,
         remote = t.remote,
-        replica = stamped.replica,
-        fits = stamped.fits,
+        replica = replica,
+        fits = fits,
         preview = stamped.preview,
         report = stamped.report,
     )
