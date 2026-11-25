@@ -419,10 +419,10 @@ val SyncService.isCommittingJoin: Boolean
  * 防止写入在随后恢复屏障或旧文档投影时被覆盖丢失（观看账本不在同步与快照域内，照常记录）。
  */
 val SyncService.localWriteAllowed: Boolean
-    get() = !isCreating && !isCommittingJoin && !isClearing && !joinRepairPending && !hasPendingRecovery
+    get() = !isCreating && !isCommittingJoin && !isClearing && !isDisabling && !isRecovering && !joinRepairPending && !hasPendingRecovery
 
 private fun SyncService.beginCommit(): Boolean = synchronized(commitLock) {
-    if (committing || creating || clearing) return false
+    if (committing || creating || clearing || disabling || recovering) return false
     committing = true
     true
 }

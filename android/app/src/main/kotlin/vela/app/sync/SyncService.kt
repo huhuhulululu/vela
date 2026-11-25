@@ -136,6 +136,8 @@ class SyncService(
     internal var committing: Boolean = false
     internal var creating: Boolean = false
     internal var clearing: Boolean = false
+    internal var disabling: Boolean = false
+    internal var recovering: Boolean = false
     private var pendingRecoveryFlag: Boolean = false
 
     val isCreating: Boolean
@@ -143,6 +145,12 @@ class SyncService(
 
     val isClearing: Boolean
         get() = synchronized(commitLock) { clearing }
+
+    val isDisabling: Boolean
+        get() = synchronized(commitLock) { disabling }
+
+    val isRecovering: Boolean
+        get() = synchronized(commitLock) { recovering }
 
     /** 磁盘留有待恢复或未收尾状态（如 CLEARING/DISABLING/CREATING 或暂停/密钥丢失的 ACTIVE），且当前未激活。 */
     val hasPendingRecovery: Boolean
@@ -299,7 +307,12 @@ class SyncService(
         } else {
             sink
         }
-        val (recoveredAction, recoveredResult) = SyncLifecycle.recover(env.stateStore, env.keyStore, recoverySink, transport)
+        synchronized(commitLock) { recovering = true }
+        val (recoveredAction, recoveredResult) = try {
+            SyncLifecycle.recover(env.stateStore, env.keyStore, recoverySink, transport)
+        } finally {
+            synchronized(commitLock) { recovering = false }
+        }
         if (recoveredResult != null && recoveredResult != SyncFlowResult.Done) {
             setPendingRecovery(true)
             return SyncStartResult.Failed(recoveredResult)
@@ -410,7 +423,9 @@ class SyncService(
     fun createLocal(key: ByteArray, origin: String, local: SyncLocalData): SyncLocalCreateResult {
         if (!SyncCode.isCanonicalOrigin(origin)) return SyncLocalCreateResult.Failed("服务器地址无效")
         synchronized(commitLock) {
-            if (creating || committing || clearing) return SyncLocalCreateResult.Failed("同步正在处理中，请稍后再试")
+            if (creating || committing || clearing || disabling || recovering) {
+                return SyncLocalCreateResult.Failed("同步正在处理中，请稍后再试")
+            }
             creating = true
         }
         try {
@@ -534,33 +549,47 @@ class SyncService(
 
     fun disable(sink: SyncLocalSink): SyncFlowResult {
         if (!settleJoinSnapshot(sink)) return SyncFlowResult.StorageFailed
-        val live = detach()
-        val current = live?.first ?: (env.stateStore.load() as? SyncStateRead.Present)?.state
-        if (current == null) {
-            // 只有密钥库条目（「同步状态丢失」或「状态损坏」时的关闭）：先删状态存储（清掉损坏标记），最后删条目（H4b）。
-            if (!env.stateStore.delete()) {
-                setPendingRecovery(true)
-                return SyncFlowResult.StorageFailed
+        synchronized(commitLock) {
+            if (disabling || clearing || committing || creating || recovering) return SyncFlowResult.StorageFailed
+            disabling = true
+        }
+        try {
+            val live = detach()
+            val current = live?.first ?: (env.stateStore.load() as? SyncStateRead.Present)?.state
+            if (current == null) {
+                // 只有密钥库条目（「同步状态丢失」或「状态损坏」时的关闭）：先删状态存储（清掉损坏标记），最后删条目（H4b）。
+                if (!env.stateStore.delete()) {
+                    setPendingRecovery(true)
+                    return SyncFlowResult.StorageFailed
+                }
+                val ok = env.keyStore.delete()
+                setPendingRecovery(!ok)
+                return if (ok) SyncFlowResult.Done else SyncFlowResult.StorageFailed
             }
-            val ok = env.keyStore.delete()
-            setPendingRecovery(!ok)
-            return if (ok) SyncFlowResult.Done else SyncFlowResult.StorageFailed
+            if (live == null && current.phase == SyncPhase.CREATING && !current.migrated) {
+                // 创建写 ACTIVE 失败留盘的未迁移 CREATING 状态，其文档为空：不得拿空文档跑屏障覆盖本机数据，直接清理密钥与状态。
+                val result = SyncLifecycle.finishDisable(env.stateStore, env.keyStore)
+                setPendingRecovery(result != SyncFlowResult.Done)
+                return result
+            }
+            val barrierSink = verifiedBarrierSink(sink, SyncProjection(current.doc).settings)
+            val result = SyncLifecycle.disable(current, env.stateStore, env.keyStore, barrierSink)
+            if (result == SyncFlowResult.LocalSaveFailed && live != null) {
+                activate(live.first, live.second)
+            } else {
+                setPendingRecovery(result != SyncFlowResult.Done)
+            }
+            return result
+        } finally {
+            synchronized(commitLock) { disabling = false }
         }
-        val barrierSink = verifiedBarrierSink(sink, SyncProjection(current.doc).settings)
-        val result = SyncLifecycle.disable(current, env.stateStore, env.keyStore, barrierSink)
-        if (result == SyncFlowResult.LocalSaveFailed && live != null) {
-            activate(live.first, live.second)
-        } else {
-            setPendingRecovery(result != SyncFlowResult.Done)
-        }
-        return result
     }
 
     /** 清除云端。进行中及失败/取消留盘 `CLEARING` 期间持续阻断本机偏好写入；屏障失败则恢复原样。 */
     suspend fun clear(sink: SyncLocalSink): SyncFlowResult {
         if (!settleJoinSnapshot(sink)) return SyncFlowResult.StorageFailed
         synchronized(commitLock) {
-            if (clearing || committing || creating) return SyncFlowResult.StorageFailed
+            if (clearing || committing || creating || disabling || recovering) return SyncFlowResult.StorageFailed
             clearing = true
         }
         try {

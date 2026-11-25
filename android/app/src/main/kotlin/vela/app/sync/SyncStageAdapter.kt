@@ -18,15 +18,18 @@ import vela.core.sync.SyncProjection
 import vela.core.sync.settingSyncedVeto
 import vela.core.taste.Taste
 
-/** 支持传播同步设置持久化结果（`SharedPreferences.Editor.commit()`）的本机落盘接口。 */
+/** 支持传播同步设置持久化结果（`SharedPreferences.Editor.commit()`）并在屏障落盘后刷新内存的本机接口。 */
 interface SyncSettingsPersistSink : SyncLocalSink {
     fun persistSettings(settings: Map<String, Boolean>): Boolean {
         applySettings(settings)
         return true
     }
+
+    /** 屏障把收藏、口味、设置全部成功落盘后，在释放锁之前按磁盘内容重读并刷新内存状态。 */
+    fun reloadAfterBarrier() = Unit
 }
 
-/** 包装 [SyncLocalSink]，在不改 `:core` 签名的前提下把同步设置 `commit()` 失败传播给 `SyncLifecycle.barrier`。 */
+/** 包装 [SyncLocalSink]，在不改 `:core` 签名的前提下传播设置 `commit()` 失败，并在屏障全部落盘后重读刷新内存。 */
 internal fun verifiedBarrierSink(
     sink: SyncLocalSink,
     settings: Map<String, Boolean>,
@@ -42,7 +45,9 @@ internal fun verifiedBarrierSink(
     }
 
     override fun applySettings(settings: Map<String, Boolean>) {
-        // 同步设置已在 saveTaste 阶段原子提交并校验 commit() 结果；不再重复写盘或吞掉失败。
+        // SyncLifecycle.barrier 仅在 saveCuration、saveTaste 与 persistSettings 均成功后调用本步；
+        // 在释放提交/恢复锁之前按落盘内容重读刷新内存舞台，与 Apple 端一致。
+        (sink as? SyncSettingsPersistSink)?.reloadAfterBarrier()
     }
 }
 
@@ -128,6 +133,19 @@ class StageSyncBridge(
     override fun persistPending(): Boolean {
         cancelPendingSaves()
         return stage.curationStore.save(stage.curation) && stage.tasteStore.save(stage.taste, stage.now())
+    }
+
+    override fun reloadAfterBarrier() {
+        val loadedCuration = stage.curationStore.load(stage.now())
+        if (loadedCuration != stage.curation) {
+            stage.commitCuration(loadedCuration, null)
+        }
+        val loadedTaste = stage.tasteStore.load(stage.now())
+        if (loadedTaste != stage.taste) {
+            stage.commitTaste(loadedTaste)
+        }
+        reloadSyncedSettingsFromStore()
+        stage.publish()
     }
 
     override fun reloadAfterRollback() {

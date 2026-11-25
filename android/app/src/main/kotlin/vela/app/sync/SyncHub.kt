@@ -125,7 +125,8 @@ class SyncHub(
         service.isCommittingJoin || service.joinRepairPending -> COMMITTING_MESSAGE
         service.isCreating -> "正在开启同步…"
         service.isClearing -> "正在清除云端同步…"
-        wired && uiState.value.experimentEnabled && starting -> "正在恢复同步状态…"
+        service.isDisabling -> "正在关闭同步…"
+        service.isRecovering || (wired && uiState.value.experimentEnabled && starting) -> "正在恢复同步状态…"
         else -> "同步正在收尾，请先完成清除或关闭同步。"
     }
 
@@ -386,6 +387,9 @@ class SyncHub(
         val created = when (val local = service.createLocal(origin, bridge.localData())) {
             is SyncLocalCreateResult.Activated -> local
             is SyncLocalCreateResult.Failed -> {
+                if (service.hasPendingRecovery) {
+                    mutable.update { it.copy(phase = SyncUiPhase.Attention(local.message)) }
+                }
                 showNotice(local.message)
                 return null
             }
@@ -589,7 +593,12 @@ class SyncHub(
         when (val local = service.createLocal(code.key, code.origin, bridge.localData())) {
             is SyncLocalCreateResult.Activated -> Unit
             is SyncLocalCreateResult.Failed -> {
-                mutable.update { it.copy(joinStage = SyncUiJoinStage.Idle) }
+                mutable.update {
+                    it.copy(
+                        joinStage = SyncUiJoinStage.Idle,
+                        phase = if (service.hasPendingRecovery) SyncUiPhase.Attention(local.message) else it.phase,
+                    )
+                }
                 showNotice(local.message)
                 return null
             }
