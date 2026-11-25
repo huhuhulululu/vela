@@ -273,6 +273,59 @@ class DualStageScreenTest {
         assertEquals("b", sheetBlock.target?.username)
     }
 
+    @Test
+    fun testDualLandscapeShowsActionRailTargetingFocusedSecondaryLane() {
+        val stage = IntentProbe(
+            dualState(listOf("a", "b", "c"), primary = "a", secondary = "b") {
+                copy(
+                    focusLane = LaneID.SECONDARY,
+                    chromeVisible = true,
+                    landscape = true,
+                    secondary = LaneFace(id = LaneID.SECONDARY, username = "b", generation = 7, visible = true),
+                    lane = LaneFace(username = "a", generation = 1, visible = false),
+                )
+            },
+        )
+        show(stage, sizeWidth = 320.dp, sizeHeight = 260.dp)
+        compose.onNodeWithTag("pause-room").assertIsDisplayed().performClick()
+        compose.onNodeWithTag("not-interested").assertIsDisplayed().performClick()
+        compose.onNodeWithTag("block-room").assertIsDisplayed().performClick()
+        compose.waitForIdle()
+
+        val pause = stage.intents.filterIsInstance<StageIntent.TogglePause>().single()
+        assertEquals(LaneID.SECONDARY, pause.target?.laneID)
+        assertEquals("b", pause.target?.username)
+        assertEquals(7, pause.target?.generation)
+
+        val notInterested = stage.intents.filterIsInstance<StageIntent.MarkNotInterested>().single()
+        assertEquals(LaneID.SECONDARY, notInterested.target?.laneID)
+        assertEquals("b", notInterested.target?.username)
+
+        val block = stage.intents.filterIsInstance<StageIntent.BlockCurrent>().single()
+        assertEquals(LaneID.SECONDARY, block.target?.laneID)
+        assertEquals("b", block.target?.username)
+    }
+
+    @Test
+    fun testLaneCountPickerOnTallPortraitDoesNotExposeThreeLanes() {
+        val stage = IntentProbe(
+            dualState(listOf("a", "b", "c"), primary = "a", secondary = "b") {
+                copy(
+                    chromeVisible = true,
+                    threeLanesFit = true,
+                    portraitStageWidth = 402.0,
+                    portraitStageHeight = 874.0,
+                )
+            },
+        )
+        show(stage, sizeWidth = 402.dp, sizeHeight = 874.dp)
+        compose.onNodeWithTag("lane-count").assertIsDisplayed().performClick()
+        compose.waitForIdle()
+        compose.requireTag("lane-count:1")
+        compose.requireTag("lane-count:2")
+        compose.requireNoTag("lane-count:3")
+    }
+
     private fun show(
         stage: StageContract,
         attached: MutableList<String>? = null,

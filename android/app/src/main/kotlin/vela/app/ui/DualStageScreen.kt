@@ -312,7 +312,7 @@ internal fun LaneCountPicker(
     modifier: Modifier = Modifier,
 ) {
     var open by remember { mutableStateOf(false) }
-    val max = if (state.threeLanesFit) LaneID.maxCount else 2
+    val max = 2
     val label = "${state.laneCount} 路"
     val help = "路数，当前 ${state.laneCount} 路"
     Column(modifier) {
@@ -332,13 +332,9 @@ internal fun LaneCountPicker(
                     .padding(6.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                for (count in 1..LaneID.maxCount) {
-                    val enabled = count <= max && !state.laneCountLocked
-                    val title = when {
-                        count == LaneID.maxCount && !state.threeLanesFit -> "$count 路（屏幕高度不够）"
-                        count == state.laneCount -> "✓ $count 路"
-                        else -> "$count 路"
-                    }
+                for (count in 1..max) {
+                    val enabled = !state.laneCountLocked
+                    val title = if (count == state.laneCount) "✓ $count 路" else "$count 路"
                     TextAction(
                         text = title,
                         onClick = {

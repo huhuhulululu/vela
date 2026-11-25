@@ -147,7 +147,7 @@ private fun StageBody(
                 player = { room -> player(focus, room) },
                 pagerTag = "pager",
             )
-            if (state.chromeShown && state.focusRoom != null && !state.dualWindow) {
+            if (state.chromeShown && state.focusRoom != null) {
                 ActionRail(state, dispatch, Modifier.align(Alignment.CenterEnd).padding(end = 8.dp))
             }
         }
@@ -481,19 +481,20 @@ private fun RoomTargetFor(laneId: LaneID, face: LaneFace): vela.core.base.lane.R
 
 @Composable
 private fun ActionRail(state: StageUiState, dispatch: (StageIntent) -> Unit, modifier: Modifier = Modifier) {
-    val paused = state.lane.manuallyPaused
+    val focus = if (state.dualWindow) state.focusLane else LaneID.PRIMARY
+    val paused = (state.face(focus) ?: state.lane).manuallyPaused
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp), horizontalAlignment = Alignment.End) {
         RailButton(
             text = stringResource(if (paused) R.string.ui_resume else R.string.ui_pause),
             tag = "pause-room",
         ) {
-            dispatch(StageIntent.TogglePause(state.primaryTarget()))
+            dispatch(StageIntent.TogglePause(state.focusTarget()))
         }
         RailButton(stringResource(R.string.ui_not_interested), "not-interested") {
-            dispatch(StageIntent.MarkNotInterested(state.primaryTarget()))
+            dispatch(StageIntent.MarkNotInterested(state.focusTarget()))
         }
         RailButton(stringResource(R.string.ui_block), "block-room") {
-            dispatch(StageIntent.BlockCurrent(state.primaryTarget()))
+            dispatch(StageIntent.BlockCurrent(state.focusTarget()))
         }
     }
 }

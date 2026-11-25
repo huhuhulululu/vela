@@ -48,6 +48,7 @@ internal data class FetchedPage(
 
 internal suspend fun StageViewModel.reload(keepingSearchTask: Boolean = false) {
     if (!ageConfirmed) return
+    val life = lifecycleEpoch.begin() ?: return
     endSiteSearch(cancelTask = !keepingSearchTask)
     loadGeneration += 1
     val token = loadGeneration
@@ -60,8 +61,17 @@ internal suspend fun StageViewModel.reload(keepingSearchTask: Boolean = false) {
     idleStart.clear()
     publish()
     try {
+        if (!lifecycleEpoch.allows(vela.core.lifecycle.LifecycleEpoch.Gate.BEFORE_REQUEST, life)) {
+            loading = false
+            publish()
+            return
+        }
         val fetched = fetchOpening()
-        if (token != loadGeneration) return
+        if (token != loadGeneration || !lifecycleEpoch.allows(vela.core.lifecycle.LifecycleEpoch.Gate.BEFORE_COMMIT, life)) {
+            loading = false
+            publish()
+            return
+        }
         challengeGate.reset()
         val raw = fetched.page
         updateCandidates(fetched.regular, replacing = true)
@@ -171,12 +181,23 @@ internal fun StageViewModel.applySearch() {
 
 internal fun StageViewModel.submitSearch() {
     val typed = searchText.stageTrim()
-    var focused = false
-    updateFeed { store -> focused = store.focus(typed) }
-    if (focused) {
+    val probe = feed.copy()
+    if (probe.focus(typed)) {
+        val targetName = probe.currentUsername ?: typed
+        val beforePrimary = feed.currentUsername
+        val onSecondary = laneCount > 1 &&
+            secondaryCursor?.username?.equals(targetName, ignoreCase = true) == true
+        updateFeed(intent = LaneSelection.Intent.Reveal(targetName)) { store ->
+            if (!onSecondary) store.focus(typed)
+        }
         cancelSiteSearch()
         if (surface == StageSurface.Filters) surface = StageSurface.None
-        requestPlay()
+        val focusedSecondary = laneCount > 1 &&
+            focusLane == vela.core.base.lane.LaneID.SECONDARY &&
+            secondaryCursor?.username?.equals(targetName, ignoreCase = true) == true
+        if (!focusedSecondary || !beforePrimary.equals(feed.currentUsername, ignoreCase = true)) {
+            requestPlay()
+        }
         return
     }
     when (val decision = SiteSearch.onSubmit(typed, feed.localMatches, siteSearch)) {
@@ -322,13 +343,20 @@ internal suspend fun StageViewModel.loadMoreIfNeeded() {
 
 internal suspend fun StageViewModel.loadPage(): PageOutcome {
     if (!ageConfirmed || !feed.shouldLoadMore() || loading) return PageOutcome.Skipped
+    val life = lifecycleEpoch.begin() ?: return PageOutcome.Skipped
     val token = loadGeneration
     if (!loadSlot.acquire(token)) return PageOutcome.Busy
     try {
         val offset = loadedOffset
         return try {
+            if (!lifecycleEpoch.allows(vela.core.lifecycle.LifecycleEpoch.Gate.BEFORE_REQUEST, life)) {
+                return PageOutcome.Skipped
+            }
             val fetched = fetchPage(offset)
             if (token != loadGeneration) return PageOutcome.Skipped
+            if (!lifecycleEpoch.allows(vela.core.lifecycle.LifecycleEpoch.Gate.BEFORE_COMMIT, life)) {
+                return PageOutcome.Skipped
+            }
             challengeGate.reset()
             val raw = fetched.page
             updateCandidates(fetched.regular, replacing = false)

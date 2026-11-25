@@ -229,7 +229,8 @@ internal suspend fun StageViewModel.renewRendition(username: String, cap: Double
     }
 
 private suspend fun StageViewModel.playCurrent(token: Int, isRetry: Boolean) {
-    if (!ageConfirmed) return
+    if (!ageConfirmed || !playbackGateOpen || !laneFace.visible || !primaryVisible) return
+    val life = lifecycleEpoch.begin(vela.core.base.lane.PlaybackLaneRole.PRIMARY) ?: return
     if (token != laneFace.generation) return
     skipJob?.cancel()
     awayJob?.cancel()
@@ -247,8 +248,10 @@ private suspend fun StageViewModel.playCurrent(token: Int, isRetry: Boolean) {
     awayRetry.enter(room.username)
     try {
         val cap = playbackCap()
-        val target = playTarget(room.username, cap, token) ?: return
+        val target = playTarget(room.username, cap, token, life) ?: return
         if (token != laneFace.generation || !coroutineContext.isActive) return
+        if (!playbackGateOpen || !laneFace.visible || !primaryVisible) return
+        if (!lifecycleEpoch.allows(LifecycleEpoch.Gate.BEFORE_COMMIT, life)) return
         if (!hubReady(token)) return
         startPlayback(room.username, target, cap, isRetry)
     } catch (cancelled: CancellationException) {
@@ -288,12 +291,19 @@ private fun StageViewModel.laneAllowed(): Boolean {
     return degradedHold.gate(true)
 }
 
-private suspend fun StageViewModel.playTarget(username: String, cap: Double, token: Int): PlayTarget? {
+private suspend fun StageViewModel.playTarget(
+    username: String,
+    cap: Double,
+    token: Int,
+    life: LifecycleEpoch.Token,
+): PlayTarget? {
     prepared.fresh(username, cap, now())?.let { cached ->
         return PlayTarget(master = null, playable = cached)
     }
+    if (!lifecycleEpoch.allows(LifecycleEpoch.Gate.BEFORE_REQUEST, life)) return null
     val sourced = resolveSourced(username)
     if (token != laneFace.generation || !coroutineContext.isActive) return null
+    if (!lifecycleEpoch.allows(LifecycleEpoch.Gate.BEFORE_REQUEST, life)) return null
     challengeGate.reset()
     Log.i(PLAY_TAG, "start-source ${sourced.origin.rawValue}")
     val ticket = sourced.ticket
@@ -306,6 +316,7 @@ private suspend fun StageViewModel.playTarget(username: String, cap: Double, tok
     val master = loopbackSharedMaster(address)
     val playable = selectRendition(master, cap)
     if (token != laneFace.generation || !coroutineContext.isActive) return null
+    if (!lifecycleEpoch.allows(LifecycleEpoch.Gate.BEFORE_COMMIT, life)) return null
     if (!playable.isUnselected) prepared.set(playable, cap, username, now())
     return PlayTarget(master = master, playable = playable)
 }
@@ -493,7 +504,8 @@ internal suspend fun StageViewModel.prefetchAhead(token: Int) {
     val life = lifecycleEpoch.begin() ?: return
     if (!prefetchStillCurrent(life, token)) return
     val cap = playbackCap()
-    val next = feed.prefetchUsernames().firstOrNull() ?: return
+    val active = inUseNames()
+    val next = feed.prefetchUsernames().firstOrNull { it.stageLower() !in active } ?: return
     if (prepared.fresh(next, cap, now()) != null) return
     if (!prefetchStillCurrent(life, token)) return
     val ticket = try {
@@ -535,7 +547,9 @@ private suspend fun StageViewModel.renewRenditionOnce(
     cap: Double,
     token: Int,
 ): StreamRendition? {
-    if (!renewalIsCurrent(username, token)) return null
+    val life = lifecycleEpoch.begin(vela.core.base.lane.PlaybackLaneRole.PRIMARY) ?: return null
+    if (!laneFace.visible || !primaryVisible || !renewalIsCurrent(username, token)) return null
+    if (!lifecycleEpoch.allows(LifecycleEpoch.Gate.BEFORE_REQUEST, life)) return null
     val ticket = try {
         resolveSourced(username).ticket
     } catch (cancelled: CancellationException) {
@@ -545,9 +559,11 @@ private suspend fun StageViewModel.renewRenditionOnce(
     }
     val address = ticket.url
     if (!ticket.isPlayable || address == null) return null
-    if (!renewalIsCurrent(username, token)) return null
+    if (!laneFace.visible || !primaryVisible || !renewalIsCurrent(username, token)) return null
+    if (!lifecycleEpoch.allows(LifecycleEpoch.Gate.BEFORE_REQUEST, life)) return null
     val playable = selectRendition(loopbackSharedMaster(address), cap)
     if (playable.isUnselected || !renewalIsCurrent(username, token)) return null
+    if (!lifecycleEpoch.allows(LifecycleEpoch.Gate.BEFORE_COMMIT, life)) return null
     prepared.set(playable, cap, username, now())
     return playable
 }
@@ -617,12 +633,20 @@ private fun StageViewModel.clearDelistNote() {
     publish()
 }
 
-/** 各路此刻占着的房间。筛除时不能动它们。 */
+/** 各路此刻占着的房间。筛除与主路预取时都不能动它们。 */
 private fun StageViewModel.inUseNames(): Set<String> {
     val names = LinkedHashSet<String>()
     feed.currentUsername?.let { names.add(it.stageLower()) }
     laneFace.username?.let { names.add(it.stageLower()) }
     laneFace.playingUsername?.let { names.add(it.stageLower()) }
+    if (laneCount >= 2) {
+        secondaryCursor?.username?.let { names.add(it.stageLower()) }
+        secondaryFace?.username?.let { names.add(it.stageLower()) }
+        secondaryFace?.playingUsername?.let { names.add(it.stageLower()) }
+    }
+    if (laneCount >= 3) {
+        tertiaryFace?.username?.let { names.add(it.stageLower()) }
+    }
     return names
 }
 

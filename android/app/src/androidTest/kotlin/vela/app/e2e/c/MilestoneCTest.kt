@@ -35,13 +35,14 @@ class MilestoneCTest {
 
     @After
     fun tearDown() {
+        runCatching { UiDevice.getInstance(E2eCSupport.instrumentation).wakeUp() }
         scenario?.close()
         scenario = null
     }
 
     /**
      * S-C1：按 HOME 后 3 秒内进入画中画，否则全停；
-     * 画中画里只有焦点路；比例不裁切；锁焦点与路数；退出后恢复进入前路数。
+     * 画中画里只有焦点路（非焦点播放器已释放）；比例不裁切；锁焦点与路数；退出后恢复进入前路数。
      */
     @Test(timeout = 360_000)
     fun test01HomeEntersPipFocusOnlyUncroppedAndRestoresLanes() {
@@ -52,7 +53,6 @@ class MilestoneCTest {
         val stage = activity.stage
         val device = UiDevice.getInstance(E2eCSupport.instrumentation)
 
-        hit(upstream, "/marker/pip-c1-begin")
         E2eCSupport.confirmAgeAndLoadPopular(stage)
         if (!stage.settings.dualWindow) E2eCSupport.enableDualWindow(stage)
         E2eCSupport.waitBothFirstFrames(activity, stage)
@@ -64,47 +64,36 @@ class MilestoneCTest {
         LaneLog.clear()
 
         val supported = E2eCSupport.supportsPictureInPicture(activity)
+        val homePressedAt = android.os.SystemClock.elapsedRealtime()
         device.pressHome()
-        E2eCSupport.assertWaitUntil(activity, "没有进后台") {
-            activity.wiring.phase == PhoneScenePhase.BACKGROUND
-        }
 
         if (!supported) {
             E2eCSupport.assertWaitUntil(activity, "不支持画中画时应全停", 4_000) {
-                !stage.playbackGateOpen &&
+                activity.wiring.phase == PhoneScenePhase.BACKGROUND &&
+                    !stage.playbackGateOpen &&
                     stage.lifecycleEpoch.allowedLane == null &&
-                    activity.session.lane.value == null
+                    activity.session.lane.value == null &&
+                    E2eCSupport.secondaryLane(activity.session) == null &&
+                    activity.wiring.pipCoordinator?.pictureInPictureState == PiPPolicy.State.NONE
             }
-            hit(upstream, "/marker/pip-c1-end")
             return
         }
 
-        val entered = E2eCSupport.waitUntil(3_000) {
-            activity.isInPictureInPictureMode ||
-                activity.wiring.pipCoordinator?.pictureInPictureState == PiPPolicy.State.ACTIVE ||
-                activity.wiring.pipCoordinator?.pictureInPictureState == PiPPolicy.State.STARTING
-        }
-
-        if (!entered) {
-            E2eCSupport.assertWaitUntil(activity, "3 秒内未进画中画应全停", 2_000) {
-                !stage.playbackGateOpen &&
-                    stage.lifecycleEpoch.allowedLane == null &&
-                    activity.session.lane.value == null
-            }
-            hit(upstream, "/marker/pip-c1-end")
-            return
-        }
-
-        E2eCSupport.assertWaitUntil(activity, "画中画状态应对上", 3_000) {
-            activity.isInPictureInPictureMode ||
+        // 统一从按 HOME 起计 3 秒预算：必须进入后台并激活画中画，不得通过 !entered 静默跳过。
+        E2eCSupport.assertWaitUntil(
+            activity = activity,
+            message = "按 HOME 后 3 秒内应进入画中画",
+            limitMs = (3_000L - (android.os.SystemClock.elapsedRealtime() - homePressedAt)).coerceAtLeast(100L),
+        ) {
+            activity.wiring.phase == PhoneScenePhase.BACKGROUND &&
+                activity.isInPictureInPictureMode &&
                 activity.wiring.pipCoordinator?.pictureInPictureState == PiPPolicy.State.ACTIVE
         }
 
         E2eCSupport.onMain(activity) {
-            assertTrue(
-                "进入画中画应锁焦点或路数 | ${E2eCSupport.diagnosePip(activity)}",
-                stage.focusLocked || stage.laneCountLocked || stage.pictureInPicture,
-            )
+            assertTrue("进入画中画必须锁焦点 | ${E2eCSupport.diagnosePip(activity)}", stage.focusLocked)
+            assertTrue("进入画中画必须锁路数 | ${E2eCSupport.diagnosePip(activity)}", stage.laneCountLocked)
+            assertTrue("进入画中画必须置位 pictureInPicture | ${E2eCSupport.diagnosePip(activity)}", stage.pictureInPicture)
             assertEquals(
                 "画中画放行路应等于进入前焦点 | ${E2eCSupport.diagnosePip(activity)}",
                 focusBefore.role,
@@ -112,17 +101,24 @@ class MilestoneCTest {
             )
         }
 
-        // 只有焦点路：副路播放器与在途会话应已释放。
-        E2eCSupport.assertWaitUntil(activity, "画中画里副路应已释放", 5_000) {
-            E2eCSupport.secondaryLane(activity.session) == null ||
-                stage.state.value.secondary?.visible == false
+        // 只有焦点路：非焦点播放器实例必须真正释放（不得仅靠 visible == false 通过），焦点路仍在播放。
+        E2eCSupport.assertWaitUntil(activity, "画中画里非焦点播放器必须已释放", 3_000) {
+            when (focusBefore) {
+                LaneID.PRIMARY -> E2eCSupport.secondaryLane(activity.session) == null
+                LaneID.SECONDARY -> activity.session.lane.value == null
+                LaneID.TERTIARY -> false
+            }
         }
-        E2eCSupport.assertWaitUntil(activity, "焦点路应仍在播或被放行", 5_000) {
+        E2eCSupport.assertWaitUntil(activity, "焦点路播放器应保持存活且放行", 3_000) {
+            val focusPlayer = when (focusBefore) {
+                LaneID.PRIMARY -> activity.session.lane.value
+                LaneID.SECONDARY -> E2eCSupport.secondaryLane(activity.session)
+                LaneID.TERTIARY -> null
+            }
             stage.lifecycleEpoch.allowedLane == focusBefore.role &&
-                (
-                    activity.session.lane.value != null ||
-                        focusBefore != LaneID.PRIMARY
-                    )
+                focusPlayer != null &&
+                !focusPlayer.failed &&
+                focusPlayer.firstFrameElapsedMs >= 0L
         }
 
         // starting/active 期间不能切焦点、不能改路数。
@@ -131,32 +127,30 @@ class MilestoneCTest {
         E2eCSupport.onMain(stage) { stage.dispatch(StageIntent.SetLaneCount(1)) }
         assertEquals(lanesBefore, stage.state.value.laneCount)
 
+        // 只统计确认进入画中画且副路已释放之后的媒体请求窗口。
+        hit(upstream, "/marker/pip-c1-begin")
+
+        // 仅接受画中画期间焦点路最新的真实 display-check 几何日志，不以 PiPAspect.clamp 兜底。
         E2eCSupport.assertWaitUntil(
             activity = activity,
-            message = "画中画比例应 uncropped",
+            message = "画中画期间焦点路最后一条 display-check 应为 gravity=fit 且 uncropped=true",
             limitMs = 8_000,
-            extra = { "log=${LaneLog.snapshot().filter { it.contains("display-check") }.takeLast(4)}" },
+            extra = { "log=${LaneLog.snapshot().filter { it.contains("display-check") }.takeLast(6)}" },
         ) {
-            LaneLog.snapshot().any { line ->
-                line.contains("display-check") &&
-                    line.contains("gravity=fit") &&
-                    line.contains("uncropped=true")
-            } || run {
-                // 小窗尺寸日志未刷出时，要求焦点路真实已有正尺寸且经 PiPAspect 夹紧落于合法区间。
-                val lane = when (focusBefore) {
-                    LaneID.PRIMARY -> activity.session.lane.value
-                    LaneID.SECONDARY -> E2eCSupport.secondaryLane(activity.session)
-                    LaneID.TERTIARY -> null
-                }
-                val size = lane?.currentVideoSize()
-                if (size == null || size.width <= 0.0 || size.height <= 0.0) {
-                    false
-                } else {
-                    val ratio = vela.app.pip.PiPAspect.clamp(size.width, size.height).toDouble()
-                    ratio >= vela.app.pip.PiPAspect.MIN && ratio <= vela.app.pip.PiPAspect.MAX
-                }
-            }
+            E2eCSupport.latestPipDisplayUncropped(focusBefore.label)
         }
+
+        // 画中画中持续播放 2.5 秒，确认焦点路继续拉取媒体且非焦点路始终保持释放。
+        Thread.sleep(2_500)
+        assertTrue(
+            "画中画播放窗口结束时非焦点播放器仍应为 null | ${E2eCSupport.diagnosePip(activity)}",
+            when (focusBefore) {
+                LaneID.PRIMARY -> E2eCSupport.secondaryLane(activity.session) == null
+                LaneID.SECONDARY -> activity.session.lane.value == null
+                LaneID.TERTIARY -> false
+            },
+        )
+        hit(upstream, "/marker/pip-c1-end")
 
         // 回到前台：退出画中画后恢复进入前路数。
         val back = Intent(E2eCSupport.instrumentation.targetContext, MainActivity::class.java)
@@ -171,8 +165,6 @@ class MilestoneCTest {
         }
         assertFalse("退出画中画后应解焦点锁 | ${E2eCSupport.diagnosePip(activity)}", stage.focusLocked)
         assertFalse("退出画中画后应解路数锁 | ${E2eCSupport.diagnosePip(activity)}", stage.laneCountLocked)
-
-        hit(upstream, "/marker/pip-c1-end")
     }
 
     /**
@@ -202,38 +194,37 @@ class MilestoneCTest {
 
         val supported = E2eCSupport.supportsPictureInPicture(activity)
         if (supported) {
+            val homePressedAt = android.os.SystemClock.elapsedRealtime()
             device.pressHome()
-            E2eCSupport.assertWaitUntil(activity, "静音画中画未进后台") {
-                activity.wiring.phase == PhoneScenePhase.BACKGROUND
-            }
-            val entered = E2eCSupport.waitUntil(3_000) {
-                activity.isInPictureInPictureMode ||
+            E2eCSupport.assertWaitUntil(
+                activity = activity,
+                message = "静音播放按 HOME 后 3 秒内应进入画中画",
+                limitMs = (3_000L - (android.os.SystemClock.elapsedRealtime() - homePressedAt)).coerceAtLeast(100L),
+            ) {
+                activity.wiring.phase == PhoneScenePhase.BACKGROUND &&
+                    activity.isInPictureInPictureMode &&
                     activity.wiring.pipCoordinator?.pictureInPictureState == PiPPolicy.State.ACTIVE
             }
-            if (entered) {
-                val pipMutedDump = E2eCSupport.dumpsysAudioFocus()
-                assertFalse(
-                    "静音画中画焦点栈不应有本包 | ${E2eCSupport.diagnosePip(activity)}\n${pipMutedDump.takeLast(2_000)}",
-                    E2eCSupport.packageInAudioFocusStack(pipMutedDump),
-                )
-            }
+            val pipMutedDump = E2eCSupport.dumpsysAudioFocus()
+            assertFalse(
+                "静音画中画焦点栈不应有本包 | ${E2eCSupport.diagnosePip(activity)}\n${pipMutedDump.takeLast(2_000)}",
+                E2eCSupport.packageInAudioFocusStack(pipMutedDump),
+            )
         }
 
-        // 取消静音：请求 GAIN_TRANSIENT。
+        // 取消静音：请求 GAIN_TRANSIENT（仅核对当前音频焦点栈本包条目）。
         E2eCSupport.onMain(stage) { stage.dispatch(StageIntent.ToggleMute) }
         E2eCSupport.assertWaitUntil(activity, "取消静音未生效", 8_000) { !stage.state.value.muted }
         E2eCSupport.assertWaitUntil(activity, "取消静音应拿到焦点", 8_000) {
             activity.session.audioController().holdingFocus
         }
-        val unmutedDump = E2eCSupport.dumpsysAudioFocus()
         E2eCSupport.assertWaitUntil(
             activity = activity,
-            message = "取消静音后应有 GAIN_TRANSIENT",
+            message = "取消静音后焦点栈本包条目应为精确 GAIN_TRANSIENT",
             limitMs = 5_000,
-            extra = { unmutedDump.takeLast(2_500) },
+            extra = { E2eCSupport.audioFocusStackLines(E2eCSupport.dumpsysAudioFocus()).joinToString("\n") },
         ) {
-            E2eCSupport.hasGainTransient(E2eCSupport.dumpsysAudioFocus()) ||
-                E2eCSupport.hasGainTransient(unmutedDump)
+            E2eCSupport.hasGainTransient(E2eCSupport.dumpsysAudioFocus())
         }
 
         // 再静音：放弃焦点。回桌面后系统可能先收走焦点，运行时静音已经被同步成真。
@@ -256,8 +247,8 @@ class MilestoneCTest {
     }
 
     /**
-     * S-C3：关掉「自动进入」后回桌面即全停；
-     * 关闭画中画后满足 S-A5 后台标准（5 秒内零请求、没有播放线程）。
+     * S-C3：关掉「自动进入」后回桌面即全停（零线程、零请求）；
+     * 非销毁方式关闭画中画后（!isFinishing && !isDestroyed）满足 S-A5 后台标准（5 秒后无播放线程、30 秒零请求）。
      */
     @Test(timeout = 360_000)
     fun test03AutoEnterOffStopsAndClosingPipIsQuiet() {
@@ -268,7 +259,6 @@ class MilestoneCTest {
         val stage = activity.stage
         val device = UiDevice.getInstance(E2eCSupport.instrumentation)
 
-        hit(upstream, "/marker/pip-c3-off-begin")
         E2eCSupport.confirmAgeAndLoadPopular(stage)
         if (!stage.settings.dualWindow) E2eCSupport.enableDualWindow(stage)
         E2eCSupport.waitBothFirstFrames(activity, stage)
@@ -286,11 +276,23 @@ class MilestoneCTest {
             !stage.playbackGateOpen &&
                 stage.lifecycleEpoch.allowedLane == null &&
                 activity.session.lane.value == null &&
-                E2eCSupport.secondaryLane(activity.session) == null
+                E2eCSupport.secondaryLane(activity.session) == null &&
+                activity.wiring.pipCoordinator?.pictureInPictureState == PiPPolicy.State.NONE
         }
+        Thread.sleep(5_000)
+        assertTrue(
+            "关自动进入回桌面 5 秒后仍有播放线程 ${E2eCSupport.exoPlaybackThreads()} | ${E2eCSupport.diagnosePip(activity)}",
+            E2eCSupport.exoPlaybackThreads().isEmpty(),
+        )
+        hit(upstream, "/marker/pip-c3-off-begin")
+        Thread.sleep(5_000)
+        assertTrue(
+            "关自动进入静默窗结束仍有播放线程 ${E2eCSupport.exoPlaybackThreads()} | ${E2eCSupport.diagnosePip(activity)}",
+            E2eCSupport.exoPlaybackThreads().isEmpty(),
+        )
         hit(upstream, "/marker/pip-c3-off-end")
 
-        // 回到前台，打开自动进入，再进画中画后关闭，核对 S-A5。
+        // 回到前台，打开自动进入，再进画中画后通过非销毁方式关闭，核对 S-A5。
         val reopen = Intent(E2eCSupport.instrumentation.targetContext, MainActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
         E2eCSupport.instrumentation.targetContext.startActivity(reopen)
@@ -300,7 +302,7 @@ class MilestoneCTest {
         E2eCSupport.onMain(stage) { stage.dispatch(StageIntent.SetAutoEnterPip(true)) }
         assertTrue(stage.settings.autoEnterPip)
         E2eCSupport.assertWaitUntil(activity, "回前台应重新起播", 25_000) {
-            activity.session.lane.value?.let { it.firstFrameElapsedMs >= 0L && !it.failed } == true ||
+            activity.session.lane.value?.let { it.firstFrameElapsedMs >= 0L && !it.failed } == true &&
                 stage.state.value.lane.playback == LanePlayback.Playing
         }
         if (stage.state.value.laneCount < 2) {
@@ -315,48 +317,40 @@ class MilestoneCTest {
             return
         }
 
+        val homePressedAt = android.os.SystemClock.elapsedRealtime()
         device.pressHome()
-        E2eCSupport.assertWaitUntil(activity, "开启自动进入后未进后台") {
-            activity.wiring.phase == PhoneScenePhase.BACKGROUND
-        }
-        val entered = E2eCSupport.waitUntil(3_000) {
-            activity.isInPictureInPictureMode ||
+        E2eCSupport.assertWaitUntil(
+            activity = activity,
+            message = "开启自动进入后 3 秒内应进入画中画",
+            limitMs = (3_000L - (android.os.SystemClock.elapsedRealtime() - homePressedAt)).coerceAtLeast(100L),
+        ) {
+            activity.wiring.phase == PhoneScenePhase.BACKGROUND &&
+                activity.isInPictureInPictureMode &&
                 activity.wiring.pipCoordinator?.pictureInPictureState == PiPPolicy.State.ACTIVE
         }
-        if (!entered) {
-            // 未能进入则已按全停处理；仍打上关闭窗口边界供脚本核对。
-            E2eCSupport.assertWaitUntil(activity, "3 秒内未进入画中画应全停", 2_000) {
-                !stage.playbackGateOpen && activity.session.lane.value == null
-            }
-            hit(upstream, "/marker/pip-c3-close-begin")
-            Thread.sleep(5_000)
-            assertTrue(
-                "未进画中画 5 秒后仍有播放线程 ${E2eCSupport.exoPlaybackThreads()} | ${E2eCSupport.diagnosePip(activity)}",
-                E2eCSupport.exoPlaybackThreads().isEmpty(),
-            )
-            hit(upstream, "/marker/pip-c3-close-end")
-            return
-        }
 
-        // 关闭画中画（小窗 X）：finish 当前任务，触发 onStop/DidStop → 后台全停。
-        // AOSP 14 在画中画里 finish() 直接走 onStop → onDestroy，不派发 onPictureInPictureModeChanged(false)，
-        // 因此已销毁的 Activity 上 isInPictureInPictureMode 仍保持 true；这里要求已退出小窗或已销毁，且五项全停全部成立。
-        E2eCSupport.onMain(activity) {
-            if (activity.isInPictureInPictureMode && !activity.isFinishing) {
-                activity.finish()
-            }
-        }
-        E2eCSupport.assertWaitUntil(activity, "关闭画中画后应全停", 5_000) {
-            (!activity.isInPictureInPictureMode || activity.isDestroyed) &&
+        // 绝不调用 activity.finish()：走真实关闭小窗/灭屏触发非销毁 onStop，真正验证 onStop 全停路径。
+        val closeWay = E2eCSupport.dismissPictureInPictureWithoutFinishing(activity, device)
+        E2eCSupport.assertWaitUntil(
+            activity = activity,
+            message = "非销毁关闭画中画后应全停 way=$closeWay",
+            limitMs = 5_000,
+        ) {
+            activity.lifecycle.currentState == androidx.lifecycle.Lifecycle.State.CREATED &&
+                !activity.isFinishing &&
+                !activity.isDestroyed &&
                 !stage.playbackGateOpen &&
                 stage.lifecycleEpoch.allowedLane == null &&
                 activity.session.lane.value == null &&
                 E2eCSupport.secondaryLane(activity.session) == null &&
+                !stage.pictureInPicture &&
                 activity.wiring.pipCoordinator?.pictureInPictureState == PiPPolicy.State.NONE
         }
 
-        // S-A5：5 秒后无播放线程；随后 30 秒请求窗口由脚本按 marker 统计为零。
+        // S-A5：5 秒后无播放线程且 Activity 未销毁；随后 30 秒请求窗口由脚本按 marker 统计为零。
         Thread.sleep(5_000)
+        assertFalse("本段不得靠 finish 销毁 Activity 绕过 onStop | ${E2eCSupport.diagnosePip(activity)}", activity.isFinishing)
+        assertFalse("本段 Activity 不应已销毁 | ${E2eCSupport.diagnosePip(activity)}", activity.isDestroyed)
         assertTrue(
             "关闭画中画 5 秒后仍有播放线程 ${E2eCSupport.exoPlaybackThreads()} | ${E2eCSupport.diagnosePip(activity)}",
             E2eCSupport.exoPlaybackThreads().isEmpty(),
